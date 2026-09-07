@@ -4,7 +4,7 @@
 
 ## 概述
 
-WorkX 集成测试位于 `tests/integration/`，需要外部 HTTP 服务器提供 LLM 推理接口。
+Workx 集成测试位于 `tests/integration/`，需要外部 HTTP 服务器提供 LLM 推理接口。
 提供两种服务器后端，通过环境变量切换：
 
 | 模式 | 服务器 | 启动方式 | 适用场景 |

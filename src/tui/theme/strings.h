@@ -288,7 +288,7 @@ inline constexpr std::string_view kWizardStepSep      = " / ";
 inline constexpr std::string_view kWizardStepProvider = "选择服务提供商";
 inline constexpr std::string_view kWizardStepApiKey   = "填写 API Key";
 inline constexpr std::string_view kWizardStepContext  = "确认上下文长度";
-inline constexpr std::string_view kWizardWelcome      = "欢迎使用 WorkX！首次运行需要配置 LLM 服务。";
+inline constexpr std::string_view kWizardWelcome      = "欢迎使用 Workx！首次运行需要配置 LLM 服务。";
 inline constexpr std::string_view kWizardProviderLabel = "服务提供商：";
 inline constexpr std::string_view kWizardApiKeyLabel   = "API Key：";
 inline constexpr std::string_view kWizardApiKeyHint    = "粘贴 API Key（留空可稍后在 /provider 中设置）";
@@ -301,7 +301,7 @@ inline constexpr std::string_view kWizardBtnNext       = "下一步";
 inline constexpr std::string_view kWizardBtnFinish     = "完成";
 inline constexpr std::string_view kWizardBtnSkip       = "跳过";
 inline constexpr std::string_view kWizardHint          = "↑↓ 选择 · Enter 下一步 · Shift+Tab 上一步 · Esc 跳过";
-inline constexpr std::string_view kWizardDone          = "配置已保存，即将启动 WorkX…";
+inline constexpr std::string_view kWizardDone          = "配置已保存，即将启动 Workx…";
 inline constexpr std::string_view kWizardSkipped       = "已跳过配置，可稍后使用 /provider 设置";
 
 // ----------------------------------------------------------------------------

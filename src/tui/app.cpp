@@ -2521,7 +2521,7 @@ void App::start_mock_stream(const std::string& user_text) {
                             .call_id = "mock-read",
                             .arguments = "{\"path\": \"README.md\"}"},
             ActionEndTool{.call_id = "mock-read",
-                          .result = "```text\n# WorkX\n\nFTXUI 实验 TUI：\n"
+                          .result = "```text\n# Workx\n\nFTXUI 实验 TUI：\n"
                                     "- 折叠卡片（思考 / 工具）\n"
                                     "- 点击头部展开 / 收起\n"
                                     "- Nerd Font 图标\n```\n"},

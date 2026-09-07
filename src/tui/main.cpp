@@ -92,7 +92,7 @@ int main(int argc, char** argv) {
 #else
             std::cout << " [debug]\n";
 #endif
-            std::cout << "WorkX — 一个现代化的终端 Code Agent / Work Agent\n"
+            std::cout << "Workx — 一个现代化的终端 Code Agent / Work Agent\n"
                       << "用法:\n"
                       << "  workx                  启动 TUI\n"
                       << "  workx --version | -v  显示版本与简介\n";

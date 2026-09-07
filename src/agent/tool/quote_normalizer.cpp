@@ -132,7 +132,7 @@ bool is_apostrophe_context(std::string_view s, size_t i) {
     bool next_is_alpha = (nc >= 'A' && nc <= 'Z') || (nc >= 'a' && nc <= 'z');
 
     // 对于 UTF-8 多字节字母（如带重音字母），这里简化为 false
-    // CC 使用 \p{L}u，WorkX 暂不支持完整 Unicode 类别判断
+    // CC 使用 \p{L}u，Workx 暂不支持完整 Unicode 类别判断
     return prev_is_alpha && next_is_alpha;
 }
 

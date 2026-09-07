@@ -1,6 +1,6 @@
 # 环境变量参考
 
-> WorkX 支持的全部环境变量。配置加载优先级：配置文件 < 环境变量 < CLI 参数。
+> Workx 支持的全部环境变量。配置加载优先级：配置文件 < 环境变量 < CLI 参数。
 >
 > 自 v2.0.0 起，标准环境变量通过 `ConfigSchema.env_var` 声明，由 `ConfigManager::load_from_env()` 统一加载并按 Schema 类型自动解析/校验。
 

@@ -6,7 +6,7 @@
  *          - Windows: CreateProcessW + CreatePipe + ReadFile
  *          - POSIX:   fork + execvp + pipe + poll
  *
- *          设计为函数而非类：WorkX 初期只需同步执行，不需要 background/streaming，
+ *          设计为函数而非类：Workx 初期只需同步执行，不需要 background/streaming，
  *          per-call 的 exec() 函数足够（对齐 Claude Code CLI 的 ripgrep 调用模式）。
  *
  *          不做"进程管理器"：进程每次新建不复用，取消用回调而非 AbortSignal 链，

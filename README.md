@@ -1,10 +1,10 @@
-# WorkX
+# Workx
 
 <div align="center">
 
 <img src="src/icon.png" alt="Workx Icon" width="128" height="128"/>
 
-**WorkX** 是一个用纯 C++20 编写的高性能、轻量级终端 AI 编码与任务编排助手，具备普通用户可用的终端 TUI 界面以及可复用的 C++ `workx::agent` 库。
+**Workx** 是一个用纯 C++20 编写的高性能、轻量级终端 AI 编码与任务编排助手，具备普通用户可用的终端 TUI 界面以及可复用的 C++ `workx::agent` 库。
 
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](https://en.cppreference.com/w/cpp/20)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20NixOS-2ea44f.svg)](#构建)
@@ -119,7 +119,7 @@ ctest --test-dir build -C Release -j 8 --output-on-failure
 
 ## 协议支持
 
-WorkX 底层实现两种 LLM 协议适配器，所有模型均通过这两种协议接入，无需为每个厂商单独适配：
+Workx 底层实现两种 LLM 协议适配器，所有模型均通过这两种协议接入，无需为每个厂商单独适配：
 
 | 协议                     | 对应适配器               | 说明                                                                   |
 | ---------------------- | ------------------- | -------------------------------------------------------------------- |

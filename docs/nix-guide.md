@@ -59,7 +59,7 @@ nix profile install .#default
 
 不使用 flake，把本仓库当作普通 deriviation 用 `pkgs.callPackage` 消费。
 
-**步骤**：将 `nix/workx.nix` 与 `nix/workx.patch` 拷入你的配置仓库（两个文件必须保持同目录，patch 路径通过 `./workx.patch` 相对引用），`src` 指向 WorkX 源码：
+**步骤**：将 `nix/workx.nix` 与 `nix/workx.patch` 拷入你的配置仓库（两个文件必须保持同目录，patch 路径通过 `./workx.patch` 相对引用），`src` 指向 Workx 源码：
 
 ```nix
 { pkgs, ... }:
@@ -68,7 +68,7 @@ nix profile install .#default
     (pkgs.callPackage ./nix/workx.nix {
       src = pkgs.fetchFromGitHub {
         owner = "ygsheep";                  # 仓库实际 owner/repo
-        repo = "WorkX";
+        repo = "Workx";
         rev = "develop";                    # 分支或 tag
         hash = "sha256-...";                # 先用占位，构建报错后 Nix 会提示真实 hash
       };
