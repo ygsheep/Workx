@@ -13,18 +13,12 @@ namespace agent::util {
 namespace {
 
 // 前向声明：validate_value 与 validate_properties 互相递归调用
-void validate_value(const nlohmann::json& schema,
-                    const nlohmann::json& value,
-                    const std::string& tool_name,
-                    const std::string& param_path,
-                    int depth,
+void validate_value(const nlohmann::json& schema, const nlohmann::json& value,
+                    const std::string& tool_name, const std::string& param_path, int depth,
                     std::vector<SchemaError>& out);
 
-void validate_properties(const nlohmann::json& schema,
-                         const nlohmann::json& value,
-                         const std::string& tool_name,
-                         const std::string& param_path,
-                         int depth,
+void validate_properties(const nlohmann::json& schema, const nlohmann::json& value,
+                         const std::string& tool_name, const std::string& param_path, int depth,
                          std::vector<SchemaError>& out);
 
 /// @brief 将 nlohmann::json 值类型转为可读字符串（用于错误信息）
@@ -76,9 +70,8 @@ struct ValidateCtx {
 };
 
 /// @brief 构造并追加一条 SchemaError（消除各校验分支中重复的构造代码）
-void add_error(const ValidateCtx& c, const std::string& expected,
-               const std::string& actual, const std::string& hint,
-               bool is_missing = false) {
+void add_error(const ValidateCtx& c, const std::string& expected, const std::string& actual,
+               const std::string& hint, bool is_missing = false) {
     SchemaError e;
     e.tool = *c.tool_name;
     e.param = *c.param_path;
@@ -148,14 +141,14 @@ void validate_pattern(const nlohmann::json& schema, const nlohmann::json& value,
 
 /// @brief 校验 array 元素（浅层，受 depth 限制）
 void validate_items(const nlohmann::json& schema, const nlohmann::json& value,
-                    const std::string& tool_name, const std::string& param_path,
-                    int depth, std::vector<SchemaError>& out) {
+                    const std::string& tool_name, const std::string& param_path, int depth,
+                    std::vector<SchemaError>& out) {
     if (!value.is_array() || depth <= 0) return;
     if (!schema.contains("items") || !schema["items"].is_object()) return;
     size_t idx = 0;
     for (const auto& item : value) {
-        validate_value(schema["items"], item, tool_name,
-                       param_path + "/" + std::to_string(idx), depth - 1, out);
+        validate_value(schema["items"], item, tool_name, param_path + "/" + std::to_string(idx),
+                       depth - 1, out);
         ++idx;
     }
 }
@@ -165,11 +158,8 @@ void validate_items(const nlohmann::json& schema, const nlohmann::json& value,
 ///          依次分派到各校验函数，各约束细节见对应函数。
 /// @param param_path JSON Pointer 风格路径（如 "/content"）
 /// @param out 错误收集
-void validate_value(const nlohmann::json& schema,
-                    const nlohmann::json& value,
-                    const std::string& tool_name,
-                    const std::string& param_path,
-                    int depth,
+void validate_value(const nlohmann::json& schema, const nlohmann::json& value,
+                    const std::string& tool_name, const std::string& param_path, int depth,
                     std::vector<SchemaError>& out) {
     const ValidateCtx c{&tool_name, &param_path, &out};
 
@@ -189,18 +179,15 @@ void validate_value(const nlohmann::json& schema,
     validate_items(schema, value, tool_name, param_path, depth, out);
 
     // 嵌套 object（受限递归）
-    if (value.is_object() && schema.contains("properties") &&
-        schema["properties"].is_object() && depth > 0) {
+    if (value.is_object() && schema.contains("properties") && schema["properties"].is_object() &&
+        depth > 0) {
         validate_properties(schema, value, tool_name, param_path, depth - 1, out);
     }
 }
 
 /// @brief 校验 object 的 properties / required
-void validate_properties(const nlohmann::json& schema,
-                         const nlohmann::json& value,
-                         const std::string& tool_name,
-                         const std::string& param_path,
-                         int depth,
+void validate_properties(const nlohmann::json& schema, const nlohmann::json& value,
+                         const std::string& tool_name, const std::string& param_path, int depth,
                          std::vector<SchemaError>& out) {
     const ValidateCtx c{&tool_name, &param_path, &out};
 
@@ -209,9 +196,8 @@ void validate_properties(const nlohmann::json& schema,
         for (const auto& req : schema["required"]) {
             if (!req.is_string()) continue;
             if (value.contains(req.get<std::string>())) continue;
-            const std::string p = param_path.empty()
-                                      ? "/" + req.get<std::string>()
-                                      : param_path + "/" + req.get<std::string>();
+            const std::string p = param_path.empty() ? "/" + req.get<std::string>()
+                                                     : param_path + "/" + req.get<std::string>();
             const ValidateCtx rc{&tool_name, &p, &out};
             add_error(rc, req.get<std::string>(), "missing", "缺少必填字段", /*is_missing=*/true);
         }
@@ -231,12 +217,11 @@ void validate_properties(const nlohmann::json& schema,
     // 首版不做字段拦截，保留扩展点。
 }
 
-} // namespace
+}  // namespace
 
 std::string SchemaError::to_string() const {
     std::ostringstream oss;
-    oss << "[" << tool << "] param " << param
-        << ": expected " << expected << ", actual " << actual;
+    oss << "[" << tool << "] param " << param << ": expected " << expected << ", actual " << actual;
     if (!hint.empty()) oss << " (" << hint << ")";
     return oss.str();
 }
@@ -251,8 +236,7 @@ std::string SchemaResult::to_string() const {
     return oss.str();
 }
 
-SchemaResult validate_schema(const nlohmann::json& schema,
-                             const nlohmann::json& input,
+SchemaResult validate_schema(const nlohmann::json& schema, const nlohmann::json& input,
                              const std::string& tool_name) {
     SchemaResult result;
 
@@ -288,4 +272,4 @@ SchemaResult validate_schema(const nlohmann::json& schema,
     return result;
 }
 
-} // namespace agent::util
+}  // namespace agent::util

@@ -4,15 +4,14 @@
  */
 
 #include <catch2/catch_test_macros.hpp>
+#include <nlohmann/json.hpp>
 #include <string>
 
-#include <nlohmann/json.hpp>
-
-#include "agent/util/json_schema.h"
-#include "agent/tool/itool.h"
-#include "agent/tool/executor.h"
-#include "agent/tool/registry.h"
 #include "agent/tool/context.h"
+#include "agent/tool/executor.h"
+#include "agent/tool/itool.h"
+#include "agent/tool/registry.h"
+#include "agent/util/json_schema.h"
 #include "core/utils/error.h"
 
 using namespace agent;
@@ -68,13 +67,15 @@ TEST_CASE("validate_schema 越界枚举被拦截", "[json_schema][enum]") {
 TEST_CASE("validate_schema 嵌套 object 校验", "[json_schema][nested]") {
     json schema = {
         {"type", "object"},
-        {"properties", {
-            {"config", {
-                {"type", "object"},
-                {"properties", {{"timeout", {{"type", "integer"}}}}},
-                {"required", {"timeout"}},
-            }},
-        }},
+        {"properties",
+         {
+             {"config",
+              {
+                  {"type", "object"},
+                  {"properties", {{"timeout", {{"type", "integer"}}}}},
+                  {"required", {"timeout"}},
+              }},
+         }},
         {"required", {"config"}},
     };
     // config.timeout 缺失
@@ -88,10 +89,11 @@ TEST_CASE("validate_schema 嵌套 object 校验", "[json_schema][nested]") {
 TEST_CASE("validate_schema 合法输入通过", "[json_schema][ok]") {
     json schema = {
         {"type", "object"},
-        {"properties", {
-            {"file_path", {{"type", "string"}}},
-            {"content", {{"type", "string"}}},
-        }},
+        {"properties",
+         {
+             {"file_path", {{"type", "string"}}},
+             {"content", {{"type", "string"}}},
+         }},
         {"required", {"file_path", "content"}},
     };
     json input = {{"file_path", "/a/b.txt"}, {"content", "hello"}};
@@ -125,7 +127,7 @@ namespace {
 /// @details 直接对应 issue #80 验收标准：默认 validate_input 返回 ok，
 ///          靠 ToolExecutor 的统一 schema 校验兜底拦截非法参数。
 class SchemaOnlyTool : public agent::tool::ITool {
-public:
+   public:
     const std::string& name() const override {
         static const std::string n = "SchemaOnlyTool";
         return n;
@@ -145,15 +147,15 @@ public:
             {"required", {"path"}},
         };
     }
-    ResultV2<agent::tool::ToolResult> call(
-        const nlohmann::json&, const agent::tool::ToolContext&) const override {
+    ResultV2<agent::tool::ToolResult> call(const nlohmann::json&,
+                                           const agent::tool::ToolContext&) const override {
         agent::tool::ToolResult r;
         r.text = "ok";
         return ResultV2<agent::tool::ToolResult>::ok(std::move(r));
     }
 };
 
-} // namespace
+}  // namespace
 
 TEST_CASE("ToolExecutor 拦截只声明 schema 工具的非法参数", "[json_schema][executor]") {
     auto registry = std::make_shared<agent::tool::ToolRegistry>();

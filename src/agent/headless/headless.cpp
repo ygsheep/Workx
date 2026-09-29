@@ -13,19 +13,19 @@
 #include <optional>
 #include <sstream>
 
-#include "agent/factory.h"
-#include "agent/model/provider_preset.h"
-#include "agent/model/provider_config.h"   // load_provider_configs
+#include "agent/api/chat_types.h"
 #include "agent/config/app_config.h"
 #include "agent/core/react_loop.h"
-#include "agent/api/chat_types.h"
+#include "agent/factory.h"
+#include "agent/model/provider_config.h"  // load_provider_configs
+#include "agent/model/provider_preset.h"
 #include "agent/tool/context.h"
 #include "agent/tool/registry.h"
 #include "core/config/i_config_manager.h"
-#include "core/task/task_manager.h"
 #include "core/events/event_bus.h"
+#include "core/task/task_manager.h"
 #include "core/utils/result_v2.h"
-#include "core/utils/uuid.h"              // core::util::generate_uuid
+#include "core/utils/uuid.h"  // core::util::generate_uuid
 
 namespace agent {
 
@@ -52,10 +52,8 @@ std::string result_text(const ReActResult& r) {
 /// @brief 序列化 ReActResult 为 json 输出（最终消息 + 统计）
 nlohmann::json result_json(const ReActResult& r, const std::string& session_id) {
     nlohmann::json usage = {
-        {"prompt_tokens", r.prompt_tokens},
-        {"generated_tokens", r.generated_tokens},
-        {"total_tool_calls", r.total_tool_calls},
-        {"total_iterations", r.total_iterations},
+        {"prompt_tokens", r.prompt_tokens},       {"generated_tokens", r.generated_tokens},
+        {"total_tool_calls", r.total_tool_calls}, {"total_iterations", r.total_iterations},
         {"duration_ms", r.total_duration_ms},
     };
     nlohmann::json j = {
@@ -73,15 +71,20 @@ nlohmann::json result_json(const ReActResult& r, const std::string& session_id) 
 /// @brief 将 ReActStep 序列化为 stream-json 的一行（NDJSON）
 nlohmann::json step_json(const ReActStep& s) {
     nlohmann::json j = {
-        {"type", [&s]() -> std::string {
-            switch (s.type) {
-                case ReActStepType::Thought: return "thought";
-                case ReActStepType::Action: return "action";
-                case ReActStepType::Observation: return "observation";
-                case ReActStepType::FinalAnswer: return "final_answer";
-            }
-            return "unknown";
-        }()},
+        {"type",
+         [&s]() -> std::string {
+             switch (s.type) {
+                 case ReActStepType::Thought:
+                     return "thought";
+                 case ReActStepType::Action:
+                     return "action";
+                 case ReActStepType::Observation:
+                     return "observation";
+                 case ReActStepType::FinalAnswer:
+                     return "final_answer";
+             }
+             return "unknown";
+         }()},
         {"step_number", s.step_number},
     };
     if (s.type == ReActStepType::Thought) {
@@ -98,7 +101,7 @@ nlohmann::json step_json(const ReActStep& s) {
     return j;
 }
 
-} // namespace
+}  // namespace
 
 /// @brief 解析 provider 配置并创建后端
 /// @details 先按 preset 创建；失败则回退到自定义 provider 条目（与 create_session 对齐）
@@ -120,33 +123,25 @@ BackendCreateResult resolve_backend(IConfigManager& cfg, IEventBus& event_bus) {
 /// @brief 构造 headless 专用的 ReActLoop
 /// @note 不注入 event_bus：AskUserTool 调用 ctx.event_bus() 抛错 → 自动拒绝提问，
 ///       避免无人值守时阻塞等待应答超时。
-std::unique_ptr<ReActLoop> build_loop(IConfigManager& cfg,
-                                      ITaskManager& task_manager,
+std::unique_ptr<ReActLoop> build_loop(IConfigManager& cfg, ITaskManager& task_manager,
                                       BackendCreateResult& backend,
                                       std::shared_ptr<tool::ToolRegistry> tool_registry,
                                       const std::string& session_id) {
     ReActLoop::Config loop_config;
     loop_config.max_iterations = cfg.get_or<int>(keys::AGENT_MAX_ITERATIONS, 40);
 
-    return std::make_unique<ReActLoop>(
-        backend.provider.get(),
-        tool_registry,
-        loop_config,
-        &cfg,
-        &task_manager,
-        std::filesystem::current_path().string(),
-        /*external_compactor=*/nullptr,
-        /*event_bus=*/nullptr,
-        /*touch_collector=*/nullptr,
-        /*file_index_invalidator=*/nullptr,
-        session_id);
+    return std::make_unique<ReActLoop>(backend.provider.get(), tool_registry, loop_config, &cfg,
+                                       &task_manager, std::filesystem::current_path().string(),
+                                       /*external_compactor=*/nullptr,
+                                       /*event_bus=*/nullptr,
+                                       /*touch_collector=*/nullptr,
+                                       /*file_index_invalidator=*/nullptr, session_id);
 }
 
 /// @brief 按输出格式序列化 ReActResult
 /// @param streamed stream-json 模式下已累积的逐步输出，需在其后追加最终结果
 void render_output(const HeadlessOptions& opts, const ReActResult& react_result,
-                   const std::string& session_id, std::string streamed,
-                   std::string& out) {
+                   const std::string& session_id, std::string streamed, std::string& out) {
     if (opts.output_format == "json") {
         out = result_json(react_result, session_id).dump(2) + "\n";
     } else if (opts.output_format == "stream-json") {
@@ -159,17 +154,13 @@ void render_output(const HeadlessOptions& opts, const ReActResult& react_result,
 }
 
 /// @brief 退出码语义：0 成功 / 1 任务失败或被中断
-int derive_exit_code(const ReActResult& r) {
-    return (r.was_error || r.was_interrupted) ? 1 : 0;
-}
+int derive_exit_code(const ReActResult& r) { return (r.was_error || r.was_interrupted) ? 1 : 0; }
 
 /// @brief 同步执行一轮 ReAct 循环
 /// @param streamed 输出参数：stream-json 模式下累积的逐步 NDJSON
 ReActResult execute_task(ReActLoop& loop, const std::string& task,
-                         const nlohmann::json& tools_schema,
-                         const std::string& sys_prompt,
-                         const std::string& output_format,
-                         std::string& streamed) {
+                         const nlohmann::json& tools_schema, const std::string& sys_prompt,
+                         const std::string& output_format, std::string& streamed) {
     std::vector<ChatMessage> messages;
     messages.push_back(ChatMessage::user(task));
     std::atomic<bool> should_cancel{false};
@@ -177,17 +168,13 @@ ReActResult execute_task(ReActLoop& loop, const std::string& task,
     // 步骤回调：stream-json 模式需要逐 step 输出
     ReActLoop::StepCallback on_step = nullptr;
     if (output_format == "stream-json") {
-        on_step = [&streamed](const ReActStep& step) {
-            streamed += step_json(step).dump() + "\n";
-        };
+        on_step = [&streamed](const ReActStep& step) { streamed += step_json(step).dump() + "\n"; };
     }
-    return loop.run(messages, sys_prompt, tools_schema, should_cancel,
-                    std::move(on_step), /*on_token=*/nullptr);
+    return loop.run(messages, sys_prompt, tools_schema, should_cancel, std::move(on_step),
+                    /*on_token=*/nullptr);
 }
 
-HeadlessResult run_headless(IConfigManager& cfg,
-                            ITaskManager& task_manager,
-                            IEventBus& event_bus,
+HeadlessResult run_headless(IConfigManager& cfg, ITaskManager& task_manager, IEventBus& event_bus,
                             const HeadlessOptions& opts) {
     HeadlessResult result;
 
@@ -224,12 +211,12 @@ HeadlessResult run_headless(IConfigManager& cfg,
 
     // ---- 5. 同步执行 + 输出 + 退出码 ----
     std::string streamed;
-    auto react_result = execute_task(*loop, opts.task, tool_registry->get_all_schemas(),
-                                     sys_prompt, opts.output_format, streamed);
+    auto react_result = execute_task(*loop, opts.task, tool_registry->get_all_schemas(), sys_prompt,
+                                     opts.output_format, streamed);
 
     render_output(opts, react_result, session_id, std::move(streamed), result.output);
     result.exit_code = derive_exit_code(react_result);
     return result;
 }
 
-} // namespace agent
+}  // namespace agent
