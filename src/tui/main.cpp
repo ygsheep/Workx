@@ -12,6 +12,7 @@
 #include <iostream>
 #include <iterator>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -24,6 +25,7 @@
 #include "agent/config/app_config.h"
 #include "agent/core/chat_session.h"
 #include "agent/factory.h"
+#include "agent/headless/headless.h"  // #77 非交互执行模式
 #include "agent/model/context_resolver.h"  // 上下文窗口解析（侧栏进度条分母）
 #include "agent/model/model_catalog.h"
 #include "agent/model/provider_preset.h"
@@ -74,10 +76,25 @@ int main(int argc, char** argv) {
 #endif
     bool mock_mode = false;
     bool smoke_mode = false;
+    // #77 headless 参数：-p/--print 触发非交互单次执行
+    bool headless_mode = false;
+    std::string headless_task;
+    std::string output_format = "text";
+    std::string permission_mode;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--mock") mock_mode = true;
         if (arg == "--smoke") smoke_mode = true;
+        if (arg == "-p" || arg == "--print") {
+            headless_mode = true;
+            if (i + 1 < argc) {
+                headless_task = argv[++i];
+            }
+        } else if (arg == "--output-format") {
+            if (i + 1 < argc) output_format = argv[++i];
+        } else if (arg == "--permission-mode") {
+            if (i + 1 < argc) permission_mode = argv[++i];
+        }
         if (arg == "--version" || arg == "-v") {
             // 仅打印版本与简介后退出，不触发配置向导/索引/Island/TUI
             std::cout << "workx " << WORKX_VERSION;
@@ -95,7 +112,8 @@ int main(int argc, char** argv) {
             std::cout << "Workx — 一个现代化的终端 Code Agent / Work Agent\n"
                       << "用法:\n"
                       << "  workx                  启动 TUI\n"
-                      << "  workx --version | -v  显示版本与简介\n";
+                      << "  workx --version | -v  显示版本与简介\n"
+                      << "  workx -p \"<task>\"     非交互单次执行（headless）\n";
             return 0;
         }
     }
@@ -110,6 +128,46 @@ int main(int argc, char** argv) {
     const bool first_run = !fs::exists(config_path);
     if (!first_run) agent::load_from_config_file(cfg, config_path);
     agent::load_from_env(cfg);
+
+    // #77 headless：跳过首次运行向导 / TUI / 文件索引 / Island，直接同步执行
+    if (headless_mode) {
+        // 参数校验：非法值直接以退出码 2 拒绝，避免静默降级导致 CI 误判
+        if (output_format != "text" && output_format != "json" &&
+            output_format != "stream-json") {
+            std::cerr << "workx: 未知的 --output-format '" << output_format
+                      << "'（可选 text / json / stream-json）\n";
+            return 2;
+        }
+        if (!permission_mode.empty() && permission_mode != "default" &&
+            permission_mode != "accept-edits" &&
+            permission_mode != "bypass-permissions" && permission_mode != "plan") {
+            std::cerr << "workx: 未知的 --permission-mode '" << permission_mode
+                      << "'（可选 default / accept-edits / bypass-permissions / plan）\n";
+            return 2;
+        }
+        // 任务来源：-p 参数，或 -p - 从 stdin 读
+        agent::HeadlessOptions opts;
+        opts.output_format = output_format;
+        opts.permission_mode = permission_mode;
+        if (headless_task == "-") {
+            opts.read_from_stdin = true;
+            std::ostringstream ss;
+            ss << std::cin.rdbuf();
+            opts.task = ss.str();
+        } else {
+            opts.task = headless_task;
+        }
+        if (opts.task.empty()) {
+            std::cerr << "workx: 缺少任务文本（-p \"<task>\" 或 -p - 从 stdin 读）\n";
+            return 2;
+        }
+        auto& bus = agent::EventBus::instance();
+        auto& tm = agent::TaskManager::instance();
+        auto result = agent::run_headless(cfg, tm, bus, opts);
+        // 结果写 stdout，日志/进度写 stderr（liblogger 已走文件+stderr）
+        std::cout << result.output;
+        return result.exit_code;
+    }
 
     // 首次运行（#66）：配置文件不存在时启动设置向导（mock 模式跳过）。
     // 向导直接写入 ConfigManager 内存并 save_to_file，无需重读。

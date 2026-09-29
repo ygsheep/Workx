@@ -6,20 +6,200 @@ on:
   pull_request:
     branches: [develop]
 
+# =============================================================================
+# 设计说明（避免后人重新踩坑）
+#
+# 原实现的问题：
+#   1. 所有 job 都以 `|| true` 结尾 → 永远不会失败，纯粹是装饰。
+#   2. complexity 的 lizard 命令写成 `--CCN --length 50`，但 --CCN 需要阈值参数，
+#      该命令实际解析失败并报错到 stderr；而重定向 `> complexity-report.txt`
+#      只捕获 stdout → 报告恒为空 → `[ -s ]` 恒假 → 恒通过。
+#   结论：四个 job 拦不住任何问题，是"假绿"。
+#
+# 为什么不能直接去掉 `|| true`：
+#   存量代码有 220+ 个函数超过 50 行 / CCN 15（main.cpp 甚至 392 行 / 77 CCN），
+#   且仓库没有 .clang-format 配置文件。一次性开硬门禁会让每个 PR 都变红，
+#   实际结果只会是团队关掉整个 workflow —— 比现状更糟。
+#
+# 因此采用分层策略：
+#   - 硬门禁（阻塞）：只针对本次 PR **新增**的 C++ 文件做复杂度与格式检查。
+#     新代码不允许继续欠债。
+#   - 软报告（不阻塞）：全量扫描，结果上传 artifact 供查看与逐步偿还技术债。
+#     用 continue-on-error 明确表达"报告性质"，而非 `|| true` 的静默假绿。
+#
+# 已补充 .clang-format（Google 风格 + IndentWidth 4 + ColumnLimit 100）。
+# 存量代码尚未全量格式化——实测会重排 ~438 个文件、约 2.6 万行，几乎是
+# 机械重写，代价远大于收益，故格式门禁同样只针对新增文件。
+# =============================================================================
+
 jobs:
-  format:
+  # ---------------------------------------------------------------------------
+  # 收集本次变更的 C++ 文件清单，供后续 job 复用
+  # ---------------------------------------------------------------------------
+  changed-files:
     runs-on: ubuntu-latest
+    outputs:
+      added: ${{ steps.list.outputs.added }}
+      changed: ${{ steps.list.outputs.changed }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install clang-format
-        run: sudo apt-get update && sudo apt-get install -y clang-format
-      - name: Check C++ formatting
-        run: |
-          find src lib tests example -name '*.cpp' -o -name '*.hpp' -o -name '*.h' 2>/dev/null | \
-            xargs clang-format --dry-run --Werror || true
+        with:
+          fetch-depth: 0 # 需要与 base 做 diff，不能只拉一层
 
+      - name: List changed C++ files
+        id: list
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # 用 PR 创建时的 base 提交，而非 fetch 到的最新 base 分支。
+            # 否则若 develop 在 PR 生命周期内推进，base 侧新增的高复杂度
+            # C++ 文件会被误算为本 PR 的"新增文件"，导致门禁误伤。
+            BASE="${{ github.event.pull_request.base.sha }}"
+            git fetch --no-tags origin "${{ github.event.pull_request.base.sha }}" 2>/dev/null || true
+          else
+            BASE="${{ github.event.before }}"
+          fi
+
+          # 新增(A) / 新增或修改(AM) 的 C++ 文件
+          ADDED=$(git diff --diff-filter=A --name-only "$BASE" HEAD -- \
+            'src/**/*.cpp' 'src/**/*.h' \
+            'lib/**/*.cpp' 'lib/**/*.h' \
+            'tests/**/*.cpp' 'tests/**/*.h' | tr '\n' ' ')
+          CHANGED=$(git diff --diff-filter=AM --name-only "$BASE" HEAD -- \
+            'src/**/*.cpp' 'src/**/*.h' \
+            'lib/**/*.cpp' 'lib/**/*.h' \
+            'tests/**/*.cpp' 'tests/**/*.h' | tr '\n' ' ')
+
+          echo "added=$ADDED" >> "$GITHUB_OUTPUT"
+          echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
+          echo "新增文件: $ADDED"
+          echo "改动文件: $CHANGED"
+
+  # ---------------------------------------------------------------------------
+  # 硬门禁：新增文件的复杂度必须达标（CCN ≤ 15 且函数 ≤ 50 行）
+  # ---------------------------------------------------------------------------
+  complexity-gate:
+    runs-on: ubuntu-latest
+    needs: changed-files
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install lizard
+        run: |
+          sudo apt-get update
+          pip3 install lizard --break-system-packages
+
+      - name: Check complexity of newly added files
+        run: |
+          FILES="${{ needs.changed-files.outputs.added }}"
+          if [ -z "$(echo "$FILES" | tr -d ' ')" ]; then
+            echo "本次变更没有新增 C++ 文件，跳过复杂度门禁"
+            exit 0
+          fi
+          echo "检查新增文件: $FILES"
+          # 注意：--CCN 必须带阈值参数（写成 --CCN --length 50 会解析失败并静默放行）
+          lizard $FILES --CCN 15 --length 50 --warnings_only 2>&1 | tee gate.txt
+          if grep -q "warning:" gate.txt; then
+            echo "::error::新增代码超出复杂度阈值（CCN > 15 或函数 > 50 行），请拆分函数"
+            exit 1
+          fi
+          echo "新增代码复杂度达标"
+
+  # ---------------------------------------------------------------------------
+  # 软报告：全量复杂度扫描（不阻塞，用于跟踪存量技术债）
+  # ---------------------------------------------------------------------------
+  complexity-report:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install lizard
+        run: |
+          sudo apt-get update
+          pip3 install lizard --break-system-packages
+
+      - name: Full complexity scan
+        run: |
+          lizard src lib tests --CCN 15 --length 50 --warnings_only 2>&1 \
+            | tee complexity-report.txt
+          echo "=== 超标函数总数 ==="
+          grep -c "warning:" complexity-report.txt || echo 0
+
+      - name: Upload complexity report
+        uses: actions/upload-artifact@v4
+        with:
+          name: complexity-report
+          path: complexity-report.txt
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # 格式硬门禁（阻塞）：新增文件必须符合 .clang-format
+  # 仓库已补充 .clang-format（基于 Google 风格 + IndentWidth 4 + ColumnLimit 100，
+  # 匹配存量代码的 4 空格缩进）。存量代码尚未全量格式化（会引入 ~2.6 万行无关
+  # diff），故门禁只针对本次新增(A)文件，与 complexity-gate 对称：新代码不得欠债。
+  # ---------------------------------------------------------------------------
+  format-gate:
+    runs-on: ubuntu-latest
+    needs: changed-files
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: |
+          # 固定用 pip 的 18.x（apt 装的是系统版，会随 ubuntu 镜像漂移，
+          # 不同版本的尾注释对齐等行为不一致，导致本地/CI 判定分歧）。
+          pip3 install clang-format==18.1.8 --break-system-packages
+
+      - name: Check formatting of newly added files
+        run: |
+          FILES="${{ needs.changed-files.outputs.added }}"
+          if [ -z "$(echo "$FILES" | tr -d ' ')" ]; then
+            echo "本次变更没有新增 C++ 文件，跳过格式门禁"
+            exit 0
+          fi
+          echo "检查新增文件: $FILES"
+          # --dry-run --Werror 输出标准 diff（---/+++ 块）到 stdout，不符合时退出码非 0。
+          # 直接依赖退出码判定，不再统计 "warning:"（diff 不含该前缀，统计恒为 0）。
+          clang-format --dry-run --Werror $FILES
+          if [ $? -ne 0 ]; then
+            echo "::error::新增代码不符合 .clang-format，请运行 clang-format -i 后重新提交"
+            exit 1
+          fi
+          echo "新增代码格式达标"
+
+  # ---------------------------------------------------------------------------
+  # 格式报告（不阻塞）：全量扫描，量化存量格式债务
+  # 统计每个不符合文件的 +++ 头行数（diff 不含 "warning:" 前缀）。
+  # ---------------------------------------------------------------------------
+  format-report:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: pip3 install clang-format==18.1.8 --break-system-packages
+
+      - name: Full format scan
+        run: |
+          FILES=$(find src lib tests -name '*.cpp' -o -name '*.h' | tr '\n' ' ')
+          clang-format --dry-run --Werror $FILES 2>&1 | tee format-report.txt || true
+          echo "=== 不符合格式的文件数 ==="
+          grep -c "^+++" format-report.txt || echo 0
+
+      - name: Upload format report
+        uses: actions/upload-artifact@v4
+        with:
+          name: format-report
+          path: format-report.txt
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # clang-tidy（报告性质：存量代码未做 tidy 清理，暂不阻塞）
+  # ---------------------------------------------------------------------------
   clang-tidy:
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -75,10 +255,22 @@ jobs:
       - name: Run clang-tidy
         run: |
           find src lib -name '*.cpp' 2>/dev/null | \
-            xargs clang-tidy -p build --config-file=.clang-tidy || true
+            xargs clang-tidy -p build --config-file=.clang-tidy 2>&1 \
+            | tee clang-tidy-report.txt || true
 
+      - name: Upload clang-tidy report
+        uses: actions/upload-artifact@v4
+        with:
+          name: clang-tidy-report
+          path: clang-tidy-report.txt
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # cppcheck（报告性质：--enable=all --inconclusive 误报较多，暂不阻塞）
+  # ---------------------------------------------------------------------------
   cppcheck:
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -96,44 +288,4 @@ jobs:
         with:
           name: cppcheck-results
           path: cppcheck-results.xml
-          retention-days: 30
-
-  complexity:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install lizard
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y python3 python3-pip
-          pip3 install lizard
-
-      - name: Run complexity analysis
-        run: |
-          lizard src lib tests --lizard_limit=15 --CCN --length 50 --warnings_only > complexity-report.txt || true
-
-      - name: Display complexity summary
-        run: |
-          echo "=== Complexity Report ==="
-          cat complexity-report.txt || echo "No high-complexity functions found"
-          echo ""
-          echo "=== Statistics ==="
-          lizard src lib tests --CCN || true
-
-      - name: Check for high complexity
-        run: |
-          if [ -s complexity-report.txt ]; then
-            echo "Warning: High complexity functions detected (CCN > 15)!"
-            cat complexity-report.txt
-            exit 1
-          else
-            echo "All functions within complexity limits"
-          fi
-
-      - name: Upload complexity report
-        uses: actions/upload-artifact@v4
-        with:
-          name: complexity-report
-          path: complexity-report.txt
           retention-days: 30

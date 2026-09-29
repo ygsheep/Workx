@@ -206,4 +206,10 @@ target_sources(workx_agent PRIVATE
     input/parser.h
     input/processor.h
     input/types.h
+
+    # util: JSON Schema 轻量校验（#80）
+    util/json_schema.cpp
+
+    # headless: 非交互执行模式（#77）
+    headless/headless.cpp
 )

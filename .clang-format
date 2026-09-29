@@ -1,0 +1,26 @@
+# clang-format 配置
+#
+# 基于 Google 风格（与 .github/workflows/code-quality.yml 中 clang-tidy 的
+# `FormatStyle: google` 对齐），但针对本仓库现状做两处务实调整：
+#   1. IndentWidth: 4（Google 默认 2）
+#      存量代码全部使用 4 空格缩进；若沿用 Google 默认 2 空格，全量格式化
+#      会重排全部 465 个文件（约 11.8 万行 diff），几乎等同于重写历史。
+#      固定为 4 以匹配现有代码。
+#   2. ColumnLimit: 100（Google 默认 80）
+#      存量有 2675 行超过 80 列（最长 199 列），用 80 会大面积折行。
+#      放宽到 100 仅对真正过长的行（277 行 >100 列）做折行。
+#
+# 其余保留 Google 风格核心特征，与现有代码一致：
+#   - K&R 大括号（`{` 与语句同行）
+#   - namespace 内容不缩进
+#   - 指针/引用靠左（`int* p` / `const T& v`）
+#   - include 按字典序分组排序
+#
+# 版本约定：请统一使用 clang-format 18.x（CI 固定 pip 装 18.1.8）。
+# 不同大版本对尾注释对齐（AlignTrailingComments）等行为有差异，
+# 用更高版本（如 23.x）格式化会导致 CI（18.x）判定不一致。
+
+BasedOnStyle: Google
+IndentWidth: 4
+ContinuationIndentWidth: 4
+ColumnLimit: 100
