@@ -28,6 +28,7 @@
 #include "result.h"
 #include "context.h"
 #include "agent/tool/encoding.h"
+#include "agent/util/json_schema.h"  // #80 统一 schema 校验
 #include "agent/audit/audit_logger.h"
 #include "agent/hook/hook_event.h"   // #50 通用 Hook 事件系统：PermissionRequest
 #include "agent/hook/hook_manager.h" // HookManager::dispatch
@@ -207,7 +208,7 @@ public:
             return perm.error();
         }
 
-        // 4. 输入验证
+        // 4. 输入验证（工具手写的语义校验优先）
         auto validation = tool->validate_input(input, ctx);
         if (validation.is_err()) {
             LOG_WARN("[tool_executor] tool={} invalid input: {}",
@@ -216,6 +217,32 @@ public:
                 tool_name, input, ctx.session_id, ctx.request_id,
                 "deny", "invalid input: " + validation.error().message, 0);
             return validation.error();
+        }
+
+        // 4.5 统一 schema 校验（#80）：作为兜底，仅当工具未通过手写校验拦截时执行。
+        //     这样既保留工具定制的精确错误信息，又为"只声明 schema、不写
+        //     validate_input"的工具补位（默认 validate_input 无条件返回 ok）。
+        //     仅当工具声明了非空 input_schema 时执行；错误码细分：
+        //     缺必填 → MissingArgument，其余（类型/枚举/范围/pattern）→ InvalidInput。
+        auto schema = tool->input_schema();
+        if (!schema.is_null() && !schema.empty()) {
+            auto sres = agent::util::validate_schema(schema, input, tool_name);
+            if (!sres.ok) {
+                // 判定是否存在"缺必填"错误，映射对应错误码
+                bool has_missing = false;
+                for (const auto& e : sres.errors) {
+                    if (e.is_missing) { has_missing = true; break; }
+                }
+                const auto code = has_missing ? Error::Code::MissingArgument
+                                              : Error::Code::InvalidInput;
+                const std::string msg = sres.to_string();
+                LOG_WARN("[tool_executor] tool={} schema validation failed: {}",
+                         tool_name, msg);
+                audit::AuditLogger::instance().log_tool_invoke(
+                    tool_name, input, ctx.session_id, ctx.request_id,
+                    "deny", "schema invalid: " + msg, 0);
+                return Error{code, msg, tool_name};
+            }
         }
 
         // 5. 执行工具（try-catch 包装），返回 ToolResult 或 Error
