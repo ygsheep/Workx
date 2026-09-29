@@ -28,13 +28,15 @@ namespace ftxtui {
 
 /// @brief 供应商管理面板参数
 struct ProviderManagerOptions {
-    std::vector<agent::ProviderConfigEntry>& providers;  ///< 面板持有的供应商列表（引用，改动即时生效）
-    std::string& active_id;                              ///< 当前使用中供应商 id（行首 ● 标记）
-    std::shared_ptr<const agent::ModelCatalog> catalog;  ///< models.dev 目录（模型→上下文自动填充，可空）
-    std::function<void(int)> on_activate;                ///< 设为使用中（参数为 providers 下标，面板会先关闭）
-    std::function<void()> on_commit;                     ///< 列表变更后持久化（app 写 backend.providers）
-    std::function<void()> on_close;                      ///< 关闭回调（恢复焦点等，可空）
-    std::string title;                                   ///< 面板标题（如「供应商管理」）
+    std::vector<agent::ProviderConfigEntry>&
+        providers;           ///< 面板持有的供应商列表（引用，改动即时生效）
+    std::string& active_id;  ///< 当前使用中供应商 id（行首 ● 标记）
+    std::shared_ptr<const agent::ModelCatalog>
+        catalog;  ///< models.dev 目录（模型→上下文自动填充，可空）
+    std::function<void(int)> on_activate;  ///< 设为使用中（参数为 providers 下标，面板会先关闭）
+    std::function<void()> on_commit;  ///< 列表变更后持久化（app 写 backend.providers）
+    std::function<void()> on_close;   ///< 关闭回调（恢复焦点等，可空）
+    std::string title;                ///< 面板标题（如「供应商管理」）
 };
 
 /// @brief 构建供应商管理面板（打开后自动聚焦；esc/关闭置 open=false）

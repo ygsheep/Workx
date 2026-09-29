@@ -39,7 +39,7 @@ using ConfigValue = std::variant<bool, int, double, std::string, nlohmann::json>
 /// @details 暴露配置查询能力，供业务代码读取配置值。
 ///          依赖此接口的代码明确表达"只读"意图，避免误调用写入方法。
 class IConfigReader {
-public:
+   public:
     virtual ~IConfigReader() = default;
 
     /// @brief 检查配置键是否存在
@@ -47,8 +47,7 @@ public:
 
     /// @brief 获取配置值（类型擦除）
     /// @return 成功返回 ConfigValue；失败返回 Error（ConfigMissing）
-    [[nodiscard]] virtual ResultV2<ConfigValue> get_value(
-        const std::string& key) const = 0;
+    [[nodiscard]] virtual ResultV2<ConfigValue> get_value(const std::string& key) const = 0;
 
     /// @brief 获取所有配置键
     [[nodiscard]] virtual std::vector<std::string> get_all_keys() const = 0;
@@ -57,7 +56,7 @@ public:
 
     /// @brief 获取配置值（类型安全）
     /// @return 成功返回 T；失败返回 Error（ConfigMissing 或 ConfigInvalid）
-    template<typename T>
+    template <typename T>
     [[nodiscard]] ResultV2<T> get(const std::string& key) const {
         auto result = get_value(key);
         if (result.is_err()) {
@@ -65,16 +64,14 @@ public:
         }
         const auto& v = result.value();
         if (!std::holds_alternative<T>(v)) {
-            return ResultV2<T>::err(
-                Error::Code::ConfigInvalid,
-                std::format("Type mismatch for config key '{}'", key),
-                key);
+            return ResultV2<T>::err(Error::Code::ConfigInvalid,
+                                    std::format("Type mismatch for config key '{}'", key), key);
         }
         return ResultV2<T>::ok(std::get<T>(v));
     }
 
     /// @brief 获取配置值，失败时返回默认值
-    template<typename T>
+    template <typename T>
     [[nodiscard]] T get_or(const std::string& key, T default_value) const {
         auto result = get<T>(key);
         return result.is_ok() ? std::move(result.value()) : std::move(default_value);
@@ -86,13 +83,12 @@ public:
 ///          与 IConfigPersistence 分离后，CLI 解析层可只依赖此接口，
 ///          表达"只写内存、不持久化"的语义。
 class IConfigWriter {
-public:
+   public:
     virtual ~IConfigWriter() = default;
 
     /// @brief 设置配置值（类型擦除）
     /// @return 成功返回 void；失败返回 Error（ConfigInvalid）
-    virtual ResultV2<void> set_value(
-        const std::string& key, ConfigValue value) = 0;
+    virtual ResultV2<void> set_value(const std::string& key, ConfigValue value) = 0;
 
     /// @brief 删除配置键（key 不存在时视为成功）
     /// @return 成功返回 void
@@ -101,7 +97,7 @@ public:
     // === 模板包装（非虚，委托 set_value）===
 
     /// @brief 设置配置值（类型安全）
-    template<typename T>
+    template <typename T>
     ResultV2<void> set(const std::string& key, T value) {
         return set_value(key, ConfigValue(std::move(value)));
     }
@@ -112,18 +108,16 @@ public:
 ///          与内存读写接口分离后，纯业务逻辑（如工厂构造、工具执行）无需
 ///          依赖文件 I/O 类型，降低耦合面。
 class IConfigPersistence {
-public:
+   public:
     virtual ~IConfigPersistence() = default;
 
     /// @brief 从文件加载配置
     /// @return 成功返回 void；失败返回 Error（ResourceNotFound/ConfigParseFailed）
-    virtual ResultV2<void> load_from_file(
-        const std::filesystem::path& path) = 0;
+    virtual ResultV2<void> load_from_file(const std::filesystem::path& path) = 0;
 
     /// @brief 保存配置到文件
     /// @return 成功返回 void；失败返回 Error（ConfigParseFailed）
-    virtual ResultV2<void> save_to_file(
-        const std::filesystem::path& path) = 0;
+    virtual ResultV2<void> save_to_file(const std::filesystem::path& path) = 0;
 };
 
 /// @brief 配置管理器组合接口（M-4：组合 IConfigReader/IConfigWriter/IConfigPersistence）
@@ -134,9 +128,11 @@ public:
 /// 历史说明：
 /// - 类型擦除的虚函数接口供 DI 注入
 /// - 模板包装方法委托虚函数，调用方可像使用 ConfigManager 一样使用 IConfigManager&
-class WORKX_API IConfigManager : public IConfigReader, public IConfigWriter, public IConfigPersistence {
+class WORKX_API IConfigManager : public IConfigReader,
+                                 public IConfigWriter,
+                                 public IConfigPersistence {
     // 纯抽象组合。模板包装方法已分别移至 IConfigReader / IConfigWriter。
     // 保留 IConfigManager 类型供现有代码作为 DI 注入点，无需改动。
 };
 
-} // namespace agent
+}  // namespace agent

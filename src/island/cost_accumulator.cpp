@@ -16,8 +16,7 @@ namespace {
 
 /// @brief 按单价表精确折算；模型未匹配时回退 deepseek-chat 并标记估算
 /// @return nullptr 表示单价表无任何可用条目（跳过该事件，仅日志）
-const ModelPricing* resolve_pricing(const PricingTable& table,
-                                    const std::string& model,
+const ModelPricing* resolve_pricing(const PricingTable& table, const std::string& model,
                                     bool& is_estimated) {
     if (const auto* p = table.find(model)) {
         is_estimated = p->model != model;
@@ -30,10 +29,9 @@ const ModelPricing* resolve_pricing(const PricingTable& table,
     return nullptr;
 }
 
-} // namespace
+}  // namespace
 
-CostAccumulator::CostAccumulator(agent::IEventBus& bus, PricingTable pricing,
-                                 std::string model)
+CostAccumulator::CostAccumulator(agent::IEventBus& bus, PricingTable pricing, std::string model)
     : m_bus(bus), m_pricing(std::move(pricing)), m_model(std::move(model)) {
     m_tokens.push_back(bus.subscribe<agent::UserInputEvent>(
         [this](const agent::UserInputEvent& e) { on_user_input(e); }));
@@ -62,17 +60,17 @@ void CostAccumulator::set_on_task_completed(std::function<void()> cb) {
     m_on_task_completed = std::move(cb);
 }
 
-CostBreakdown CostAccumulator::calc_delta(const ModelPricing& pricing,
-                                          int input_tokens, int output_tokens,
-                                          int cache_read_tokens, int cache_write_tokens) {
+CostBreakdown CostAccumulator::calc_delta(const ModelPricing& pricing, int input_tokens,
+                                          int output_tokens, int cache_read_tokens,
+                                          int cache_write_tokens) {
     constexpr double kPerMillion = 1'000'000.0;
     CostBreakdown delta;
-    delta.input_usd       = input_tokens / kPerMillion * pricing.input_per_1m;
-    delta.output_usd      = output_tokens / kPerMillion * pricing.output_per_1m;
-    delta.cache_read_usd  = cache_read_tokens / kPerMillion * pricing.cache_read_per_1m;
+    delta.input_usd = input_tokens / kPerMillion * pricing.input_per_1m;
+    delta.output_usd = output_tokens / kPerMillion * pricing.output_per_1m;
+    delta.cache_read_usd = cache_read_tokens / kPerMillion * pricing.cache_read_per_1m;
     delta.cache_write_usd = cache_write_tokens / kPerMillion * pricing.cache_write_per_1m;
-    delta.total_usd = delta.input_usd + delta.output_usd
-                    + delta.cache_read_usd + delta.cache_write_usd;
+    delta.total_usd =
+        delta.input_usd + delta.output_usd + delta.cache_read_usd + delta.cache_write_usd;
     return delta;
 }
 
@@ -123,4 +121,4 @@ void CostAccumulator::publish_update() {
     m_bus.publish_async(ev);
 }
 
-} // namespace island
+}  // namespace island

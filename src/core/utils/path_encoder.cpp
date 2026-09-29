@@ -21,4 +21,4 @@ std::string encode_project_path(const std::filesystem::path& path) {
     return s;
 }
 
-} // namespace core::util
+}  // namespace core::util

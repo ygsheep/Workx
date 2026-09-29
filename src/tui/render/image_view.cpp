@@ -27,8 +27,7 @@ std::string lower_ext(const std::string& path) {
     std::string ext;
     const auto dot = path.find_last_of('.');
     if (dot != std::string::npos) ext = path.substr(dot);
-    for (auto& c : ext)
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return ext;
 }
 
@@ -39,8 +38,8 @@ ftxui::Color rgba_color(const uint8_t* p) {
 }
 
 /// @brief 计算缩放后终端尺寸（像素列宽 cols、终端行数 rows、采样比例 sw/sh）
-void fit_size(const ImageData& img, int avail_w, int avail_h, int* cols,
-              int* rows, float* sw, float* sh) {
+void fit_size(const ImageData& img, int avail_w, int avail_h, int* cols, int* rows, float* sw,
+              float* sh) {
     const int iw = img.width, ih = img.height;
     if (iw <= 0 || ih <= 0) {
         *cols = 1;
@@ -64,15 +63,9 @@ void fit_size(const ImageData& img, int avail_w, int avail_h, int* cols,
 
 /// @brief 半块渲染节点：每个终端单元格显示 2 个源像素（▀ 上=前景、下=背景）
 class ImageNode : public ftxui::Node {
-public:
-    ImageNode(const ImageData& img, int cols, int rows, int scroll, float sw,
-              float sh)
-        : img_(img),
-          cols_(cols),
-          rows_(rows),
-          scroll_(scroll),
-          sw_(sw),
-          sh_(sh) {}
+   public:
+    ImageNode(const ImageData& img, int cols, int rows, int scroll, float sw, float sh)
+        : img_(img), cols_(cols), rows_(rows), scroll_(scroll), sw_(sw), sh_(sh) {}
 
     void ComputeRequirement() override {
         requirement_.min_x = cols_;
@@ -106,8 +99,7 @@ public:
             for (int x = x0; x <= x1; ++x) {
                 const int cell_x = x - x0 - x_off;
                 if (cell_x < 0 || cell_x >= cols_) continue;  // 两侧留白
-                const int sx = std::min(
-                    iw - 1, static_cast<int>(static_cast<float>(cell_x) * sw_));
+                const int sx = std::min(iw - 1, static_cast<int>(static_cast<float>(cell_x) * sw_));
                 const uint8_t* top = &px[(sy0 * iw + sx) * 4];
                 const uint8_t* bot = &px[(sy1 * iw + sx) * 4];
                 ftxui::Cell& cell = screen.CellAt(x, y);
@@ -118,7 +110,7 @@ public:
         }
     }
 
-private:
+   private:
     const ImageData& img_;
     int cols_;
     int rows_;
@@ -131,12 +123,11 @@ private:
 
 bool is_image_file(const std::string& path) {
     const std::string ext = lower_ext(path);
-    return ext == ".png" || ext == ".jpg" || ext == ".jpeg" ||
-           ext == ".bmp" || ext == ".gif" || ext == ".webp" || ext == ".tga";
+    return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp" || ext == ".gif" ||
+           ext == ".webp" || ext == ".tga";
 }
 
-std::shared_ptr<ImageData> decode_image_file(const std::string& path,
-                                             std::string* err) {
+std::shared_ptr<ImageData> decode_image_file(const std::string& path, std::string* err) {
     const auto fail = [&](const std::string& m) {
         if (err) *err = m;
         return std::shared_ptr<ImageData>();
@@ -149,9 +140,8 @@ std::shared_ptr<ImageData> decode_image_file(const std::string& path,
     if (buf.empty()) return fail("文件为空");
 
     int w = 0, h = 0, ch = 0;
-    unsigned char* raw =
-        stbi_load_from_memory(buf.data(), static_cast<int>(buf.size()), &w, &h,
-                              &ch, 4);  // 强制 RGBA
+    unsigned char* raw = stbi_load_from_memory(buf.data(), static_cast<int>(buf.size()), &w, &h,
+                                               &ch, 4);  // 强制 RGBA
     if (!raw) {
         const char* reason = stbi_failure_reason();
         return fail(reason ? reason : "解码失败");
@@ -196,8 +186,8 @@ int image_view_rows(const ImageData& img, int avail_width, int avail_height) {
     return rows;
 }
 
-ftxui::Element build_image_content(const ImageData& img, int avail_width,
-                                   int avail_height, int scroll) {
+ftxui::Element build_image_content(const ImageData& img, int avail_width, int avail_height,
+                                   int scroll) {
     int cols, rows;
     float sw, sh;
     fit_size(img, avail_width, avail_height, &cols, &rows, &sw, &sh);

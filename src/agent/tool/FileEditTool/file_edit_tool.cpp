@@ -107,7 +107,8 @@ size_t count_substring_occurrences(const std::string& haystack, const std::strin
 /// @param from 待替换子串（非空）
 /// @param to 替换后子串
 /// @return 替换后的内容
-std::string replace_all_occurrences(std::string content, const std::string& from, const std::string& to) {
+std::string replace_all_occurrences(std::string content, const std::string& from,
+                                    const std::string& to) {
     if (from.empty()) return content;
     std::string result;
     result.reserve(content.size());
@@ -150,7 +151,7 @@ std::vector<std::string> parse_deny_patterns(const std::string& raw) {
     return patterns;
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 // ============================================================
 // 元数据方法
@@ -184,9 +185,9 @@ const std::string& FileEditTool::prompt() const {
         "To make it unique, include more surrounding context in old_string.\n"
         "- Use replace_all to replace all occurrences of old_string with new_string. "
         "This is useful for renaming variables or making sweeping changes across a file.\n"
-        "- The file_path parameter should be an absolute path (e.g., /home/user/file.txt or C:\\Users\\user\\file.txt); "
-        "relative paths are resolved against the current working directory."
-    };
+        "- The file_path parameter should be an absolute path (e.g., /home/user/file.txt or "
+        "C:\\Users\\user\\file.txt); "
+        "relative paths are resolved against the current working directory."};
     return p;
 }
 
@@ -194,28 +195,19 @@ nlohmann::json FileEditTool::input_schema() const {
     // 对齐 Claude Code z.strictObject → additionalProperties: false
     return {
         {"type", "object"},
-        {"properties", {
-            {"file_path", {
-                {"type", "string"},
-                {"description", "The absolute path to the file to modify"}
-            }},
-            {"old_string", {
-                {"type", "string"},
-                {"description", "The text to replace"}
-            }},
-            {"new_string", {
-                {"type", "string"},
-                {"description", "The text to replace it with (must be different from old_string)"}
-            }},
-            {"replace_all", {
-                {"type", "boolean"},
-                {"description", "Replace all occurrences of old_string (default false)"},
-                {"default", false}
-            }}
-        }},
+        {"properties",
+         {{"file_path",
+           {{"type", "string"}, {"description", "The absolute path to the file to modify"}}},
+          {"old_string", {{"type", "string"}, {"description", "The text to replace"}}},
+          {"new_string",
+           {{"type", "string"},
+            {"description", "The text to replace it with (must be different from old_string)"}}},
+          {"replace_all",
+           {{"type", "boolean"},
+            {"description", "Replace all occurrences of old_string (default false)"},
+            {"default", false}}}}},
         {"required", {"file_path", "old_string", "new_string"}},
-        {"additionalProperties", false}
-    };
+        {"additionalProperties", false}};
 }
 
 // ============================================================
@@ -226,44 +218,38 @@ nlohmann::json FileEditTool::input_schema() const {
 // 权限检查
 // ============================================================
 
-PermissionResult FileEditTool::check_permissions(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+PermissionResult FileEditTool::check_permissions(const nlohmann::json& input,
+                                                 const ToolContext& ctx) const {
     // #36：Bypass 模式完全放行
     if (is_bypass_mode(ctx.permission_mode)) {
         return PermissionResult::ok();
     }
     // #36：Plan 模式禁止编辑文件
     if (deny_write_by_mode(ctx.permission_mode)) {
-        return PermissionResult::err(
-            Error::Code::PermissionDenied,
-            "Edit operations are not allowed in plan mode. "
-            "Switch to default mode to edit files.");
+        return PermissionResult::err(Error::Code::PermissionDenied,
+                                     "Edit operations are not allowed in plan mode. "
+                                     "Switch to default mode to edit files.");
     }
     // #34：路径边界 + 敏感路径拦截
     const std::string path_str = input.value("file_path", "");
     if (path_str.empty()) return PermissionResult::ok();  // 空路径由 validate_input 拦截
     try {
         const std::string expanded = expand_path(path_str, ctx.cwd);
-        auto res = validate_path_access(expanded, ctx.cwd,
-                                        repo_root_allowlist(ctx.git_repo_root));
+        auto res = validate_path_access(expanded, ctx.cwd, repo_root_allowlist(ctx.git_repo_root));
         if (res.is_err()) {
             // 评审 #2：绝对禁止（私钥/凭据）不可确认；越界/可确认敏感路径由用户确认放行
             if (!is_absolutely_forbidden_path(expanded) &&
-                ask_user_confirm(ctx, std::format(
-                    "Edit access requires your approval:\n\n```\n{}\n```\n\n"
-                    "Allow editing this path?", path_str))) {
+                ask_user_confirm(
+                    ctx, std::format("Edit access requires your approval:\n\n```\n{}\n```\n\n"
+                                     "Allow editing this path?",
+                                     path_str))) {
                 return PermissionResult::ok();
             }
-            return PermissionResult::err(
-                Error::Code::PermissionDenied,
-                res.error().message);
+            return PermissionResult::err(Error::Code::PermissionDenied, res.error().message);
         }
     } catch (const std::exception& e) {
-        return PermissionResult::err(
-            Error::Code::PermissionDenied,
-            std::string("Edit path error: ") + e.what());
+        return PermissionResult::err(Error::Code::PermissionDenied,
+                                     std::string("Edit path error: ") + e.what());
     }
     return PermissionResult::ok();
 }
@@ -272,19 +258,20 @@ PermissionResult FileEditTool::check_permissions(
 // 输入验证
 // ============================================================
 
-ValidationResult FileEditTool::validate_input(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+ValidationResult FileEditTool::validate_input(const nlohmann::json& input,
+                                              const ToolContext& ctx) const {
     // 字段存在性与类型检查
     if (!input.contains("file_path") || !input["file_path"].is_string()) {
-        return ValidationResult::err(Error::Code::MissingArgument, "Missing required field: file_path");
+        return ValidationResult::err(Error::Code::MissingArgument,
+                                     "Missing required field: file_path");
     }
     if (!input.contains("old_string") || !input["old_string"].is_string()) {
-        return ValidationResult::err(Error::Code::MissingArgument, "Missing required field: old_string");
+        return ValidationResult::err(Error::Code::MissingArgument,
+                                     "Missing required field: old_string");
     }
     if (!input.contains("new_string") || !input["new_string"].is_string()) {
-        return ValidationResult::err(Error::Code::MissingArgument, "Missing required field: new_string");
+        return ValidationResult::err(Error::Code::MissingArgument,
+                                     "Missing required field: new_string");
     }
 
     const auto& file_path_str = input["file_path"].get<std::string>();
@@ -312,9 +299,8 @@ ValidationResult FileEditTool::validate_input(
     // 对齐 CC checkTeamMemSecrets，但 WorkX 没有 team memory 概念，
     // 通过 tool.edit.scan_secrets 开关让用户自行启用（默认关闭以兼容现有行为）
     // D-5：通过 ctx.config_manager() 解析配置管理器，支持 DI 注入
-    const bool scan_secrets = ctx.config_manager().get_or<bool>(
-        agent::keys::EDIT_SCAN_SECRETS, false
-    );
+    const bool scan_secrets =
+        ctx.config_manager().get_or<bool>(agent::keys::EDIT_SCAN_SECRETS, false);
     if (scan_secrets) {
         std::string secret_error = scan_for_secret_error(new_string);
         if (!secret_error.empty()) {
@@ -324,23 +310,22 @@ ValidationResult FileEditTool::validate_input(
 
     // === 错误码 1: old_string === new_string ===
     if (old_string == new_string) {
-        return ValidationResult::err(Error::Code::InvalidInput,
-            "No changes to make: old_string and new_string are exactly the same."
-        );
+        return ValidationResult::err(
+            Error::Code::InvalidInput,
+            "No changes to make: old_string and new_string are exactly the same.");
     }
 
     // === 错误码 2: deny 规则（ConfigManager 配置） ===
     // 对齐 CC matchingRuleForInput，但 WorkX 简化为单一 deny 列表（无多源合并）
     // D-5：通过 ctx.config_manager() 解析配置管理器，支持 DI 注入
-    const std::string deny_raw = ctx.config_manager().get_or<std::string>(
-        agent::keys::EDIT_DENY_PATTERNS, std::string{}
-    );
+    const std::string deny_raw =
+        ctx.config_manager().get_or<std::string>(agent::keys::EDIT_DENY_PATTERNS, std::string{});
     if (!deny_raw.empty()) {
         auto patterns = parse_deny_patterns(deny_raw);
         if (!patterns.empty() && matches_any_pattern(posix_path, patterns)) {
-            return ValidationResult::err(Error::Code::PermissionDenied,
-                "File is in a directory that is denied by your permission settings."
-            );
+            return ValidationResult::err(
+                Error::Code::PermissionDenied,
+                "File is in a directory that is denied by your permission settings.");
         }
     }
 
@@ -352,9 +337,9 @@ ValidationResult FileEditTool::validate_input(
     // 错误码 5: .ipynb 后缀拒绝
     if (file_path_str.size() >= 6 &&
         file_path_str.compare(file_path_str.size() - 6, 6, ".ipynb") == 0) {
-        return ValidationResult::err(Error::Code::InvalidInput,
-            "File is a Jupyter Notebook. Use the NotebookEditTool instead."
-        );
+        return ValidationResult::err(
+            Error::Code::InvalidInput,
+            "File is a Jupyter Notebook. Use the NotebookEditTool instead.");
     }
 
     const bool exists = fs::exists(canonical, ec);
@@ -363,36 +348,35 @@ ValidationResult FileEditTool::validate_input(
     if (exists) {
         auto file_size = fs::file_size(canonical, ec);
         if (!ec && file_size > MAX_EDIT_FILE_SIZE_BYTES) {
-            return ValidationResult::err(Error::Code::InvalidInput, std::format(
-                "File is too large to edit (size: {} bytes, max: {} bytes).",
-                file_size, MAX_EDIT_FILE_SIZE_BYTES
-            ));
+            return ValidationResult::err(
+                Error::Code::InvalidInput,
+                std::format("File is too large to edit (size: {} bytes, max: {} bytes).", file_size,
+                            MAX_EDIT_FILE_SIZE_BYTES));
         }
     }
 
     // 错误码 4: 文件不存在且 old_string != ""
     if (!exists && !old_string.empty()) {
-        return ValidationResult::err(Error::Code::ResourceNotFound, std::format(
-            "File does not exist: {}. Use the Write tool to create new files.",
-            file_path_str
-        ));
+        return ValidationResult::err(
+            Error::Code::ResourceNotFound,
+            std::format("File does not exist: {}. Use the Write tool to create new files.",
+                        file_path_str));
     }
 
     // 错误码 3: old_string == "" 但文件已存在非空
     if (exists && old_string.empty()) {
         auto file_size = fs::file_size(canonical, ec);
         if (!ec && file_size > 0) {
-            return ValidationResult::err(Error::Code::InvalidInput,
-                "Cannot create new file - file already exists: " + file_path_str
-            );
+            return ValidationResult::err(
+                Error::Code::InvalidInput,
+                "Cannot create new file - file already exists: " + file_path_str);
         }
     }
 
     // 错误码 6/7: 预读检查 + staleness 检测（仅在文件存在时）
     if (exists) {
-        auto check = check_pre_read_and_staleness(
-            canonical.generic_string(), canonical, old_string
-        );
+        auto check =
+            check_pre_read_and_staleness(canonical.generic_string(), canonical, old_string);
         if (check.is_err()) {
             return check.error();
         }
@@ -408,20 +392,22 @@ ValidationResult FileEditTool::validate_input(
 
         // 错误码 8: 未匹配（精确匹配 + 引号规范化匹配均失败）
         if (match_count == 0) {
-            return ValidationResult::err(Error::Code::ResourceNotFound,
-                "String to replace not found in file: " + file_path_str + "\n"
-                "Ensure the old_string matches exactly, including whitespace and newlines."
-            );
+            return ValidationResult::err(
+                Error::Code::ResourceNotFound,
+                "String to replace not found in file: " + file_path_str +
+                    "\n"
+                    "Ensure the old_string matches exactly, including whitespace and newlines.");
         }
 
         // 错误码 9: 多匹配但 replace_all=false
         if (match_count > 1 && !replace_all) {
-            return ValidationResult::err(Error::Code::InvalidInput, std::format(
-                "Found {} matches for old_string in file, but replace_all is false. "
-                "Either provide a more specific old_string with more surrounding context, "
-                "or set replace_all=true to replace all occurrences.",
-                match_count
-            ));
+            return ValidationResult::err(
+                Error::Code::InvalidInput,
+                std::format(
+                    "Found {} matches for old_string in file, but replace_all is false. "
+                    "Either provide a more specific old_string with more surrounding context, "
+                    "or set replace_all=true to replace all occurrences.",
+                    match_count));
         }
     }
 
@@ -432,17 +418,15 @@ ValidationResult FileEditTool::validate_input(
 // 私有辅助：Pre-read + Staleness 检查
 // ============================================================
 
-ValidationResult FileEditTool::check_pre_read_and_staleness(
-    const std::string& canonical_path,
-    const fs::path& file_path,
-    const std::string& old_string
-) {
+ValidationResult FileEditTool::check_pre_read_and_staleness(const std::string& canonical_path,
+                                                            const fs::path& file_path,
+                                                            const std::string& old_string) {
     // 1. Pre-read 强制检查
     auto state = FileReadStateTracker::instance().get_state(canonical_path);
     if (!state.has_value()) {
-        return ValidationResult::err(Error::Code::PermissionDenied,
-            "File has not been read yet. Read it first before editing it."
-        );
+        return ValidationResult::err(
+            Error::Code::PermissionDenied,
+            "File has not been read yet. Read it first before editing it.");
     }
 
     // 1b. 部分视图：仅当 old_string 起始行落在已读范围内时放行
@@ -457,11 +441,12 @@ ValidationResult FileEditTool::check_pre_read_and_staleness(
                 if (current_content[i] == '\n') ++start_line;
             }
             if (!state->covers_line(start_line)) {
-                return ValidationResult::err(Error::Code::PermissionDenied, std::format(
-                    "File was only partially read (edit target line {} is outside the read ranges). "
-                    "Read the relevant section before editing it.",
-                    start_line
-                ));
+                return ValidationResult::err(
+                    Error::Code::PermissionDenied,
+                    std::format("File was only partially read (edit target line {} is outside the "
+                                "read ranges). "
+                                "Read the relevant section before editing it.",
+                                start_line));
             }
         }
         // old_string 未找到：放行，由后续匹配检查给出更准确的错误
@@ -481,10 +466,10 @@ ValidationResult FileEditTool::check_pre_read_and_staleness(
         // 两侧统一剥离末尾 \n 后比较（FileReadStateTracker 约定不含末尾 \n）。
         const auto current_content = read_file_lf_normalized(file_path);
         if (strip_trailing_newline(current_content) != strip_trailing_newline(state->content)) {
-            return ValidationResult::err(Error::Code::InternalError,
+            return ValidationResult::err(
+                Error::Code::InternalError,
                 "File has been modified since read, either by the user or by a linter. "
-                "Read it again before attempting to edit it."
-            );
+                "Read it again before attempting to edit it.");
         }
         // 内容相同：放行（不更新 state.mtime，让下次走相同对比路径）
     }
@@ -503,10 +488,9 @@ ValidationResult FileEditTool::create_backup(const fs::path& file_path) {
     std::error_code ec;
     fs::copy_file(file_path, bak_path, fs::copy_options::overwrite_existing, ec);
     if (ec) {
-        return ValidationResult::err(Error::Code::InternalError,
-            std::format("Failed to create backup '{}': {}",
-                        bak_path.string(), ec.message())
-        );
+        return ValidationResult::err(
+            Error::Code::InternalError,
+            std::format("Failed to create backup '{}': {}", bak_path.string(), ec.message()));
     }
     return ValidationResult::ok();
 }
@@ -515,10 +499,7 @@ ValidationResult FileEditTool::create_backup(const fs::path& file_path) {
 // 执行管道
 // ============================================================
 
-ResultV2<ToolResult> FileEditTool::call(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+ResultV2<ToolResult> FileEditTool::call(const nlohmann::json& input, const ToolContext& ctx) const {
     // 1. 解析输入（已在 validate_input 中校验，此处安全访问）
     FileEditInput edit_input;
     try {
@@ -557,46 +538,42 @@ ResultV2<ToolResult> FileEditTool::call(
             if (!parent_exists) {
                 fs::create_directories(parent_dir, ec);
                 if (ec) {
-                    return ResultV2<ToolResult>::err(Error::Code::InternalError,
-                        std::format("Failed to create directory '{}': {}",
-                                    parent_dir.string(), ec.message())
-                    );
+                    return ResultV2<ToolResult>::err(
+                        Error::Code::InternalError,
+                        std::format("Failed to create directory '{}': {}", parent_dir.string(),
+                                    ec.message()));
                 }
             }
         }
 
         // 写入文件（原子写 + 取消点，#23 P2：临时文件 + rename，中断不留半写）
         if (ctx.is_cancelled()) {
-            return ResultV2<ToolResult>::err(Error::Code::Cancelled,
-                std::format("File creation cancelled for: {}", edit_input.file_path)
-            );
+            return ResultV2<ToolResult>::err(
+                Error::Code::Cancelled,
+                std::format("File creation cancelled for: {}", edit_input.file_path));
         }
         if (!write_file_with_encoding(file_path, edit_input.new_string, Encoding::Utf8,
                                       [&ctx]() { return ctx.is_cancelled(); })) {
             // 取消发生在写临时文件之后：报告 Cancelled 而非写入失败
             if (ctx.is_cancelled()) {
-                return ResultV2<ToolResult>::err(Error::Code::Cancelled,
-                    std::format("File creation cancelled for: {}", edit_input.file_path)
-                );
+                return ResultV2<ToolResult>::err(
+                    Error::Code::Cancelled,
+                    std::format("File creation cancelled for: {}", edit_input.file_path));
             }
-            return ResultV2<ToolResult>::err(Error::Code::InternalError,
-                std::format("Failed to write file: {}", edit_input.file_path)
-            );
+            return ResultV2<ToolResult>::err(
+                Error::Code::InternalError,
+                std::format("Failed to write file: {}", edit_input.file_path));
         }
 
         // 刷新 FileReadStateTracker（写后保持状态一致，允许连续编辑）
         std::error_code mtime_ec;
         const auto new_mtime = fs::last_write_time(file_path, mtime_ec);
         FileReadStateTracker::instance().update_after_write(
-            canonical_key,
-            lf_normalize(edit_input.new_string),
-            mtime_ec ? std::filesystem::file_time_type{} : new_mtime,
-            false
-        );
+            canonical_key, lf_normalize(edit_input.new_string),
+            mtime_ec ? std::filesystem::file_time_type{} : new_mtime, false);
 
-        return ResultV2<ToolResult>::ok(ToolResult::ok(
-            std::format("File created successfully at: {}", file_path.string())
-        ));
+        return ResultV2<ToolResult>::ok(
+            ToolResult::ok(std::format("File created successfully at: {}", file_path.string())));
     }
 
     // 5. 更新模式
@@ -627,10 +604,11 @@ ResultV2<ToolResult> FileEditTool::call(
 
         // 错误码 8: 未匹配（精确匹配 + 引号规范化匹配均失败）
         if (!actual_old_opt.has_value()) {
-            return ResultV2<ToolResult>::err(Error::Code::ResourceNotFound,
-                "String to replace not found in file: " + file_path.string() + "\n"
-                "Ensure the old_string matches exactly, including whitespace and newlines."
-            );
+            return ResultV2<ToolResult>::err(
+                Error::Code::ResourceNotFound,
+                "String to replace not found in file: " + file_path.string() +
+                    "\n"
+                    "Ensure the old_string matches exactly, including whitespace and newlines.");
         }
 
         const std::string& actual_old = *actual_old_opt;
@@ -640,26 +618,25 @@ ResultV2<ToolResult> FileEditTool::call(
 
         // 错误码 9: 多匹配但 replace_all=false
         if (match_count > 1 && !edit_input.replace_all) {
-            return ResultV2<ToolResult>::err(Error::Code::InvalidInput, std::format(
-                "Found {} matches for old_string in file, but replace_all is false. "
-                "Either provide a more specific old_string with more surrounding context, "
-                "or set replace_all=true to replace all occurrences.",
-                match_count
-            ));
+            return ResultV2<ToolResult>::err(
+                Error::Code::InvalidInput,
+                std::format(
+                    "Found {} matches for old_string in file, but replace_all is false. "
+                    "Either provide a more specific old_string with more surrounding context, "
+                    "or set replace_all=true to replace all occurrences.",
+                    match_count));
         }
 
         // 保留原文件引号风格（若文件使用弯引号，将 new_string 的直引号转换为弯引号）
-        std::string actual_new = preserve_quote_style(
-            edit_input.old_string, actual_old, edit_input.new_string
-        );
+        std::string actual_new =
+            preserve_quote_style(edit_input.old_string, actual_old, edit_input.new_string);
 
         if (edit_input.replace_all) {
             new_content = replace_all_occurrences(old_content, actual_old, actual_new);
         } else {
             // 单次替换：替换第一个匹配
             const auto pos = old_content.find(actual_old);
-            new_content = old_content.substr(0, pos) +
-                          actual_new +
+            new_content = old_content.substr(0, pos) + actual_new +
                           old_content.substr(pos + actual_old.size());
         }
     }
@@ -677,9 +654,9 @@ ResultV2<ToolResult> FileEditTool::call(
     // 5e-bis. 取消点（#23 P2）：备份已完成、尚未触碰原文件，可安全中止
     //                 （.bak 保留供人工回滚，原文件未受影响）
     if (ctx.is_cancelled()) {
-        return ResultV2<ToolResult>::err(Error::Code::Cancelled,
-            std::format("File edit cancelled for: {}", edit_input.file_path)
-        );
+        return ResultV2<ToolResult>::err(
+            Error::Code::Cancelled,
+            std::format("File edit cancelled for: {}", edit_input.file_path));
     }
 
     // 5e. 写入文件（保留原行尾风格 + 原编码 + BOM；原子写 #23 P2：
@@ -689,13 +666,13 @@ ResultV2<ToolResult> FileEditTool::call(
                                   [&ctx]() { return ctx.is_cancelled(); })) {
         // 取消发生在写临时文件之后：报告 Cancelled 而非写入失败
         if (ctx.is_cancelled()) {
-            return ResultV2<ToolResult>::err(Error::Code::Cancelled,
-                std::format("File edit cancelled for: {}", edit_input.file_path)
-            );
+            return ResultV2<ToolResult>::err(
+                Error::Code::Cancelled,
+                std::format("File edit cancelled for: {}", edit_input.file_path));
         }
-        return ResultV2<ToolResult>::err(Error::Code::InternalError,
-            std::format("Failed to write file: {}", edit_input.file_path)
-        );
+        return ResultV2<ToolResult>::err(
+            Error::Code::InternalError,
+            std::format("Failed to write file: {}", edit_input.file_path));
     }
 
     // 5f. 刷新 FileReadStateTracker（写后保持状态一致，允许连续编辑）
@@ -704,11 +681,8 @@ ResultV2<ToolResult> FileEditTool::call(
         std::error_code mtime_ec;
         const auto new_mtime = fs::last_write_time(file_path, mtime_ec);
         FileReadStateTracker::instance().update_after_write(
-            canonical_key,
-            lf_normalize(new_content),
-            mtime_ec ? std::filesystem::file_time_type{} : new_mtime,
-            false
-        );
+            canonical_key, lf_normalize(new_content),
+            mtime_ec ? std::filesystem::file_time_type{} : new_mtime, false);
     }
 
     // 5g. 生成 diff 并返回结果（diff 在 LF 版本上生成，便于阅读）
@@ -725,4 +699,4 @@ ResultV2<ToolResult> FileEditTool::call(
     return ResultV2<ToolResult>::ok(ToolResult::ok(std::move(result_text)));
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

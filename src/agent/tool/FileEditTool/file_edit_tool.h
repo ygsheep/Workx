@@ -38,7 +38,8 @@ namespace agent::tool {
 /// @par Phase 1 已实现（v1.1.0）
 /// - input_schema 补全 additionalProperties: false
 /// - prompt 完整 Usage 文本（对齐 CC）
-/// - validate_input P0 检查（old/new 相等、文件大小、存在性、.ipynb、预读、staleness、匹配、唯一性）
+/// - validate_input P0 检查（old/new
+/// 相等、文件大小、存在性、.ipynb、预读、staleness、匹配、唯一性）
 /// - call 基础替换流程（单次/replace_all）
 /// - pre-read 强制检查 + staleness 检测（对齐 FileWriteTool）
 /// - .bak 备份（覆盖前）
@@ -76,7 +77,7 @@ namespace agent::tool {
 /// 所有错误通过 ResultV2<ToolResult>::err(Error) 返回，不抛异常。
 /// 所有 filesystem 操作使用 std::error_code 重载。
 class FileEditTool : public ITool {
-public:
+   public:
     /// @brief 获取工具名称
     /// @return 工具名称常量引用 "Edit"
     const std::string& name() const override;
@@ -99,16 +100,12 @@ public:
     /// @param ctx 工具执行上下文（当前未使用）
     /// @return 验证通过返回 ValidationResult::ok()；
     ///         否则返回错误信息（对应 README §5.3 错误码 0-10）
-    ValidationResult validate_input(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    ValidationResult validate_input(const nlohmann::json& input,
+                                    const ToolContext& ctx) const override;
 
     /// @brief 权限检查（#34/#36：路径边界 + 敏感路径拦截 + Plan/Bypass 模式）
-    PermissionResult check_permissions(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    PermissionResult check_permissions(const nlohmann::json& input,
+                                       const ToolContext& ctx) const override;
 
     /// @brief 执行文件编辑
     /// @param input 输入 JSON 对象（符合 input_schema）
@@ -117,12 +114,9 @@ public:
     ///         - 新建成功："File created successfully at: <path>"
     ///         - 更新成功："The file <path> has been updated successfully.\n" + diff 文本
     ///         - 失败：ResultV2::err（含 pre-read / staleness / 匹配失败 / 备份失败等）
-    ResultV2<ToolResult> call(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    ResultV2<ToolResult> call(const nlohmann::json& input, const ToolContext& ctx) const override;
 
-private:
+   private:
     /// @brief Pre-read 强制检查 + Staleness 检测
     /// @details 对齐 CC validateInput + FileWriteTool::check_pre_read_and_staleness：
     /// - 文件存在但无读取状态 → 拒绝（"File has not been read yet..."）
@@ -133,20 +127,16 @@ private:
     /// @param file_path 文件系统路径（用于 stat）
     /// @param old_string 待替换的旧文本（用于定位编辑目标行；空串表示新建/整文件场景）
     /// @return 通过返回 ok，否则返回错误信息
-    static ValidationResult check_pre_read_and_staleness(
-        const std::string& canonical_path,
-        const std::filesystem::path& file_path,
-        const std::string& old_string
-    );
+    static ValidationResult check_pre_read_and_staleness(const std::string& canonical_path,
+                                                         const std::filesystem::path& file_path,
+                                                         const std::string& old_string);
 
     /// @brief 创建 .bak 备份文件
     /// @details 在同目录下创建 `<file_path>.bak`，覆盖已存在的备份。
     ///          备份失败将中止写入（安全优先）。
     /// @param file_path 待备份文件路径
     /// @return 成功返回 ok，失败返回错误信息
-    static ValidationResult create_backup(
-        const std::filesystem::path& file_path
-    );
+    static ValidationResult create_backup(const std::filesystem::path& file_path);
 };
 
-} // namespace agent::tool
+}  // namespace agent::tool

@@ -30,8 +30,8 @@
 #include "agent/tool/encoding.h"
 #include "agent/util/json_schema.h"  // #80 统一 schema 校验
 #include "agent/audit/audit_logger.h"
-#include "agent/hook/hook_event.h"   // #50 通用 Hook 事件系统：PermissionRequest
-#include "agent/hook/hook_manager.h" // HookManager::dispatch
+#include "agent/hook/hook_event.h"    // #50 通用 Hook 事件系统：PermissionRequest
+#include "agent/hook/hook_manager.h"  // HookManager::dispatch
 
 namespace agent::tool {
 
@@ -48,9 +48,9 @@ constexpr size_t MAX_TOOL_RESULT_LENGTH = 8000;
 /// - `result`：工具实际返回的成功结果（ToolResult）
 /// - `was_truncated`：结果元信息，标记 `result.text` 是否被截断过
 struct ExecutionResult {
-    std::string tool_name;                  ///< 上下文：工具名称
-    ToolResult result;                      ///< 工具返回结果（成功载荷）
-    bool was_truncated{false};              ///< 元信息：result.text 是否被截断
+    std::string tool_name;      ///< 上下文：工具名称
+    ToolResult result;          ///< 工具返回结果（成功载荷）
+    bool was_truncated{false};  ///< 元信息：result.text 是否被截断
 
     /// @brief 结果是否被截断
     bool is_truncated() const noexcept { return was_truncated; }
@@ -66,7 +66,8 @@ struct ExecutionResult {
 /// @details L-2：原签名 `bool truncate_result(std::string& text, ...)` 直接修改入参，
 ///          违反纯函数原则。现改为返回 std::pair，无副作用，可独立测试与复用。
 ///          UTF-8 安全：截断点回退到字符边界，避免在多字节字符中间截断产生无效 UTF-8。
-inline std::pair<std::string, bool> truncate_result(std::string_view text, size_t max_length = MAX_TOOL_RESULT_LENGTH) {
+inline std::pair<std::string, bool> truncate_result(std::string_view text,
+                                                    size_t max_length = MAX_TOOL_RESULT_LENGTH) {
     if (text.length() <= max_length) {
         return {std::string{text}, false};
     }
@@ -112,7 +113,7 @@ inline std::pair<std::string, bool> truncate_result(std::string_view text, size_
 ///   - run_with_safety()：try-catch 包装工具调用，返回 ResultV2<ToolResult>
 ///   - finalize_result()：组装 ExecutionResult + 截断 + 日志
 class WORKX_API ToolExecutor {
-public:
+   public:
     /// @brief 构造函数
     /// @param registry 工具注册表
     explicit ToolExecutor(std::shared_ptr<ToolRegistry> registry)
@@ -123,18 +124,18 @@ public:
     /// @param input 工具输入参数
     /// @param ctx 工具执行上下文
     /// @return 执行结果（V2：ResultV2<ExecutionResult>，错误携带 Error）
-    inline ResultV2<ExecutionResult> execute(
-        const std::string& tool_name,
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const {
+    inline ResultV2<ExecutionResult> execute(const std::string& tool_name,
+                                             const nlohmann::json& input,
+                                             const ToolContext& ctx) const {
         // 仅在可能抛出的序列化处加保护（工具入参可能含非 UTF-8 字节）
         size_t input_size = 0;
-        try { input_size = input.dump().size(); }
-        catch (const std::exception&) { input_size = 0; }
+        try {
+            input_size = input.dump().size();
+        } catch (const std::exception&) {
+            input_size = 0;
+        }
 
-        LOG_INFO("[tool_executor] begin, tool={}, input_size={}, thread={}",
-                 tool_name, input_size,
+        LOG_INFO("[tool_executor] begin, tool={}, input_size={}, thread={}", tool_name, input_size,
                  std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
         const auto t0 = std::chrono::steady_clock::now();
@@ -144,21 +145,17 @@ public:
         if (!tool) {
             LOG_WARN("[tool_executor] tool not found: {}", tool_name);
             audit::AuditLogger::instance().log_tool_invoke(
-                tool_name, input, ctx.session_id, ctx.request_id,
-                "deny", "tool not found", 0);
-            return Error{Error::Code::ResourceNotFound,
-                         "Tool not found: " + tool_name,
-                         tool_name};
+                tool_name, input, ctx.session_id, ctx.request_id, "deny", "tool not found", 0);
+            return Error{Error::Code::ResourceNotFound, "Tool not found: " + tool_name, tool_name};
         }
 
         // 1.5 极简模式守卫：仅放行白名单工具（Skill/Bash/Read/Write/Edit）
         //     第二道防线——schema 过滤后 LLM 仍可能幻觉出其他工具名，这里直接拒绝。
-        if (ctx.session_mode == SessionMode::Minimal &&
-            !is_minimal_mode_tool(tool_name)) {
+        if (ctx.session_mode == SessionMode::Minimal && !is_minimal_mode_tool(tool_name)) {
             LOG_WARN("[tool_executor] tool={} denied by minimal mode", tool_name);
-            audit::AuditLogger::instance().log_tool_invoke(
-                tool_name, input, ctx.session_id, ctx.request_id,
-                "deny", "minimal mode: tool not allowed", 0);
+            audit::AuditLogger::instance().log_tool_invoke(tool_name, input, ctx.session_id,
+                                                           ctx.request_id, "deny",
+                                                           "minimal mode: tool not allowed", 0);
             return Error{Error::Code::PermissionDenied,
                          "Tool '" + tool_name +
                              "' is not available in minimal mode "
@@ -169,12 +166,10 @@ public:
         // 2. 检查取消信号
         if (ctx.is_cancelled()) {
             LOG_INFO("[tool_executor] tool={} cancelled before execution", tool_name);
-            audit::AuditLogger::instance().log_tool_invoke(
-                tool_name, input, ctx.session_id, ctx.request_id,
-                "deny", "cancelled before execution", 0);
-            return Error{Error::Code::Cancelled,
-                         "Tool execution cancelled",
-                         tool_name};
+            audit::AuditLogger::instance().log_tool_invoke(tool_name, input, ctx.session_id,
+                                                           ctx.request_id, "deny",
+                                                           "cancelled before execution", 0);
+            return Error{Error::Code::Cancelled, "Tool execution cancelled", tool_name};
         }
 
         // 2.5 #50 PermissionRequest hook：在常规权限检查前派发，hook 可动态授权/阻断
@@ -188,11 +183,11 @@ public:
             hctx.tool_input = input;
             auto hres = ctx.hook_manager_ptr->dispatch(hook::HookEvent::PermissionRequest, hctx);
             if (hres.blockingError && !hres.blockingError->empty()) {
-                LOG_WARN("[tool_executor] tool={} blocked by PermissionRequest hook: {}",
-                         tool_name, *hres.blockingError);
-                audit::AuditLogger::instance().log_tool_invoke(
-                    tool_name, input, ctx.session_id, ctx.request_id,
-                    "deny", *hres.blockingError, 0);
+                LOG_WARN("[tool_executor] tool={} blocked by PermissionRequest hook: {}", tool_name,
+                         *hres.blockingError);
+                audit::AuditLogger::instance().log_tool_invoke(tool_name, input, ctx.session_id,
+                                                               ctx.request_id, "deny",
+                                                               *hres.blockingError, 0);
                 return Error{Error::Code::PermissionDenied, *hres.blockingError, tool_name};
             }
         }
@@ -200,22 +195,21 @@ public:
         // 3. 权限检查
         auto perm = tool->check_permissions(input, ctx);
         if (perm.is_err()) {
-            LOG_WARN("[tool_executor] tool={} permission denied: {}",
-                     tool_name, perm.error().message);
+            LOG_WARN("[tool_executor] tool={} permission denied: {}", tool_name,
+                     perm.error().message);
             audit::AuditLogger::instance().log_tool_invoke(
-                tool_name, input, ctx.session_id, ctx.request_id,
-                "deny", perm.error().message, 0);
+                tool_name, input, ctx.session_id, ctx.request_id, "deny", perm.error().message, 0);
             return perm.error();
         }
 
         // 4. 输入验证（工具手写的语义校验优先）
         auto validation = tool->validate_input(input, ctx);
         if (validation.is_err()) {
-            LOG_WARN("[tool_executor] tool={} invalid input: {}",
-                     tool_name, validation.error().message);
+            LOG_WARN("[tool_executor] tool={} invalid input: {}", tool_name,
+                     validation.error().message);
             audit::AuditLogger::instance().log_tool_invoke(
-                tool_name, input, ctx.session_id, ctx.request_id,
-                "deny", "invalid input: " + validation.error().message, 0);
+                tool_name, input, ctx.session_id, ctx.request_id, "deny",
+                "invalid input: " + validation.error().message, 0);
             return validation.error();
         }
 
@@ -231,16 +225,18 @@ public:
                 // 判定是否存在"缺必填"错误，映射对应错误码
                 bool has_missing = false;
                 for (const auto& e : sres.errors) {
-                    if (e.is_missing) { has_missing = true; break; }
+                    if (e.is_missing) {
+                        has_missing = true;
+                        break;
+                    }
                 }
-                const auto code = has_missing ? Error::Code::MissingArgument
-                                              : Error::Code::InvalidInput;
+                const auto code =
+                    has_missing ? Error::Code::MissingArgument : Error::Code::InvalidInput;
                 const std::string msg = sres.to_string();
-                LOG_WARN("[tool_executor] tool={} schema validation failed: {}",
-                         tool_name, msg);
-                audit::AuditLogger::instance().log_tool_invoke(
-                    tool_name, input, ctx.session_id, ctx.request_id,
-                    "deny", "schema invalid: " + msg, 0);
+                LOG_WARN("[tool_executor] tool={} schema validation failed: {}", tool_name, msg);
+                audit::AuditLogger::instance().log_tool_invoke(tool_name, input, ctx.session_id,
+                                                               ctx.request_id, "deny",
+                                                               "schema invalid: " + msg, 0);
                 return Error{code, msg, tool_name};
             }
         }
@@ -249,10 +245,10 @@ public:
         auto call_result = run_with_safety(*tool, tool_name, input, ctx);
         if (call_result.is_err()) {
             auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - t0).count();
-            audit::AuditLogger::instance().log_tool_invoke(
-                tool_name, input, ctx.session_id, ctx.request_id,
-                "allow", "", ms, "", {});
+                          std::chrono::steady_clock::now() - t0)
+                          .count();
+            audit::AuditLogger::instance().log_tool_invoke(tool_name, input, ctx.session_id,
+                                                           ctx.request_id, "allow", "", ms, "", {});
             return call_result.error();
         }
 
@@ -260,7 +256,7 @@ public:
         return finalize_result(tool_name, std::move(call_result).value(), input, ctx, t0);
     }
 
-private:
+   private:
     std::shared_ptr<ToolRegistry> registry_;
 
     /// @brief 查找工具（L-B：纯查找，无日志副作用）
@@ -275,34 +271,28 @@ private:
     /// @note H-A：参数类型改为 IToolCallable&（M-5 ISP），明确本方法仅需执行能力，
     ///       不访问元信息或 Guard。ITool 继承 IToolCallable，调用方传 ITool& 可隐式绑定。
     /// @return 成功返回 ToolResult；失败返回 Error
-    inline ResultV2<ToolResult> run_with_safety(
-        IToolCallable& tool,
-        const std::string& tool_name,
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const {
+    inline ResultV2<ToolResult> run_with_safety(IToolCallable& tool, const std::string& tool_name,
+                                                const nlohmann::json& input,
+                                                const ToolContext& ctx) const {
         auto t0 = std::chrono::steady_clock::now();
         try {
             auto call_result = tool.call(input, ctx);
             auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - t0).count();
+                          std::chrono::steady_clock::now() - t0)
+                          .count();
             if (call_result.is_err()) {
-                LOG_INFO("[tool_executor] tool={} end, error, duration={}ms",
-                         tool_name, ms);
+                LOG_INFO("[tool_executor] tool={} end, error, duration={}ms", tool_name, ms);
                 return call_result.error();
             }
-            LOG_INFO("[tool_executor] tool={} end, ok, duration={}ms",
-                     tool_name, ms);
+            LOG_INFO("[tool_executor] tool={} end, ok, duration={}ms", tool_name, ms);
             return call_result;
         } catch (const nlohmann::json::exception& e) {
-            LOG_ERROR("[tool_executor] tool={} JSON exception: {}",
-                      tool_name, e.what());
+            LOG_ERROR("[tool_executor] tool={} JSON exception: {}", tool_name, e.what());
             return Error{Error::Code::ToolExecutionFailed,
                          std::string{"JSON error in tool '"} + tool_name + "': " + e.what(),
                          tool_name};
         } catch (const std::filesystem::filesystem_error& e) {
-            LOG_ERROR("[tool_executor] tool={} filesystem exception: {}",
-                      tool_name, e.what());
+            LOG_ERROR("[tool_executor] tool={} filesystem exception: {}", tool_name, e.what());
             return Error{Error::Code::ToolExecutionFailed,
                          std::string{"Filesystem error in tool '"} + tool_name + "': " + e.what(),
                          tool_name};
@@ -312,16 +302,13 @@ private:
                          std::string{"Out of memory in tool '"} + tool_name + "': " + e.what(),
                          tool_name};
         } catch (const std::exception& e) {
-            LOG_ERROR("[tool_executor] tool={} std::exception: {}",
-                      tool_name, e.what());
+            LOG_ERROR("[tool_executor] tool={} std::exception: {}", tool_name, e.what());
             return Error{Error::Code::ToolExecutionFailed,
-                         std::string{"Error in tool '"} + tool_name + "': " + e.what(),
-                         tool_name};
+                         std::string{"Error in tool '"} + tool_name + "': " + e.what(), tool_name};
         } catch (...) {
             LOG_ERROR("[tool_executor] tool={} unknown exception", tool_name);
             return Error{Error::Code::Unknown,
-                         std::string{"Unknown exception in tool '"} + tool_name + "'",
-                         tool_name};
+                         std::string{"Unknown exception in tool '"} + tool_name + "'", tool_name};
         }
     }
 
@@ -333,12 +320,8 @@ private:
     /// @param t0 起始时间点（用于审计日志耗时计算）
     /// @return 最终的 ExecutionResult
     inline ResultV2<ExecutionResult> finalize_result(
-        const std::string& tool_name,
-        ToolResult result,
-        const nlohmann::json& input,
-        const ToolContext& ctx,
-        std::chrono::steady_clock::time_point t0
-    ) const {
+        const std::string& tool_name, ToolResult result, const nlohmann::json& input,
+        const ToolContext& ctx, std::chrono::steady_clock::time_point t0) const {
         ExecutionResult exec_result;
         exec_result.tool_name = tool_name;
         exec_result.result = std::move(result);
@@ -353,24 +336,26 @@ private:
             auto [truncated_text, was_truncated] = truncate_result(exec_result.result.text);
             exec_result.result.text = std::move(truncated_text);
             exec_result.was_truncated = was_truncated;
-            LOG_INFO("[tool_executor] tool={} result truncated, new_len={}",
-                     tool_name, exec_result.result.text.length());
+            LOG_INFO("[tool_executor] tool={} result truncated, new_len={}", tool_name,
+                     exec_result.result.text.length());
         }
 
         // 审计日志：记录工具调用结果
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - t0).count();
-        audit::AuditLogger::instance().log_tool_invoke(
-            tool_name, input, ctx.session_id, ctx.request_id,
-            "allow", "", ms, exec_result.result.text);
+                      std::chrono::steady_clock::now() - t0)
+                      .count();
+        audit::AuditLogger::instance().log_tool_invoke(tool_name, input, ctx.session_id,
+                                                       ctx.request_id, "allow", "", ms,
+                                                       exec_result.result.text);
 
-        LOG_INFO("[tool_executor] done, tool={}, elapsed_ms={}, result_len={}, "
-                 "truncated={}, thread={}",
-                 tool_name, ms, exec_result.result.text.length(),
-                 exec_result.was_truncated, std::hash<std::thread::id>{}(std::this_thread::get_id()));
+        LOG_INFO(
+            "[tool_executor] done, tool={}, elapsed_ms={}, result_len={}, "
+            "truncated={}, thread={}",
+            tool_name, ms, exec_result.result.text.length(), exec_result.was_truncated,
+            std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
         return ResultV2<ExecutionResult>::ok(std::move(exec_result));
     }
 };
 
-} // namespace agent::tool
+}  // namespace agent::tool

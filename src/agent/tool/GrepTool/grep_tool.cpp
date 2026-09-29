@@ -11,11 +11,11 @@
 
 #include "agent/tool/GrepTool/grep_tool.h"
 
-#include "agent/tool/path_expand.h"        // expand_path
-#include "agent/tool/path_validator.h"     // validate_path_access
-#include "agent/tool/permission_ask.h"      // is_bypass_mode, ask_user_confirm
-#include "core/process/tool_registry.h"     // ToolRegistry::resolve_ripgrep()
-#include "core/process/subprocess.h"        // process::exec()
+#include "agent/tool/path_expand.h"      // expand_path
+#include "agent/tool/path_validator.h"   // validate_path_access
+#include "agent/tool/permission_ask.h"   // is_bypass_mode, ask_user_confirm
+#include "core/process/tool_registry.h"  // ToolRegistry::resolve_ripgrep()
+#include "core/process/subprocess.h"     // process::exec()
 #include "core/utils/error.h"
 
 #include <algorithm>
@@ -39,8 +39,7 @@ const std::string& GrepTool::name() const {
 const std::string& GrepTool::description() const {
     static const std::string d{
         "Searches file contents using regex or literal patterns. "
-        "Backed by ripgrep for high performance."
-    };
+        "Backed by ripgrep for high performance."};
     return d;
 }
 
@@ -75,25 +74,34 @@ const std::string& GrepTool::prompt() const {
         "- For literal strings (like error messages), set `regex=false` to avoid "
         "accidental regex metacharacter issues.\n"
         "- The search is anchored at the `path` directory; results use paths "
-        "relative to it.\n"
-    };
+        "relative to it.\n"};
     return p;
 }
 
 nlohmann::json GrepTool::input_schema() const {
-    return {
-        {"type", "object"},
-        {"properties", {
-            {"pattern", {{"type", "string"}, {"description", "The search pattern (regex or literal)"}}},
-            {"path", {{"type", "string"}, {"description", "The directory or file to search in (defaults to cwd)"}}},
-            {"case_insensitive", {{"type", "boolean"}, {"description", "Ignore case"}, {"default", false}}},
-            {"regex", {{"type", "boolean"}, {"description", "Treat pattern as regex (true) or literal (false)"}, {"default", true}}},
-            {"glob", {{"type", "string"}, {"description", "File name glob filter, e.g. '*.cpp' or '*.{h,cpp}'"}}},
-            {"max_matches", {{"type", "integer"}, {"description", "Maximum matches to return"}, {"default", 200}, {"minimum", 1}}}
-        }},
-        {"required", {"pattern"}},
-        {"additionalProperties", false}
-    };
+    return {{"type", "object"},
+            {"properties",
+             {{"pattern",
+               {{"type", "string"}, {"description", "The search pattern (regex or literal)"}}},
+              {"path",
+               {{"type", "string"},
+                {"description", "The directory or file to search in (defaults to cwd)"}}},
+              {"case_insensitive",
+               {{"type", "boolean"}, {"description", "Ignore case"}, {"default", false}}},
+              {"regex",
+               {{"type", "boolean"},
+                {"description", "Treat pattern as regex (true) or literal (false)"},
+                {"default", true}}},
+              {"glob",
+               {{"type", "string"},
+                {"description", "File name glob filter, e.g. '*.cpp' or '*.{h,cpp}'"}}},
+              {"max_matches",
+               {{"type", "integer"},
+                {"description", "Maximum matches to return"},
+                {"default", 200},
+                {"minimum", 1}}}}},
+            {"required", {"pattern"}},
+            {"additionalProperties", false}};
 }
 
 // ============================================================
@@ -139,8 +147,7 @@ std::string truncate_matches(std::string_view output, int max_matches) {
             pos = (nl < output.size()) ? nl + 1 : nl;
             // 检查是否还有更多行
             if (pos < output.size()) {
-                result += std::format(
-                    "\n... (truncated, showing first {} matches)", max_matches);
+                result += std::format("\n... (truncated, showing first {} matches)", max_matches);
             }
             break;
         }
@@ -149,16 +156,14 @@ std::string truncate_matches(std::string_view output, int max_matches) {
     return result;
 }
 
-} // namespace
+}  // namespace
 
 // ============================================================
 // 权限检查（#60：路径边界校验，与 Read 工具一致）
 // ============================================================
 
-PermissionResult GrepTool::check_permissions(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+PermissionResult GrepTool::check_permissions(const nlohmann::json& input,
+                                             const ToolContext& ctx) const {
     if (is_bypass_mode(ctx.permission_mode)) {
         return PermissionResult::ok();
     }
@@ -171,23 +176,21 @@ PermissionResult GrepTool::check_permissions(
     while (std::getline(ss, part, '|')) {
         try {
             const std::string expanded = expand_path(part, ctx.cwd);
-            auto res = validate_path_access(expanded, ctx.cwd,
-                                            repo_root_allowlist(ctx.git_repo_root));
+            auto res =
+                validate_path_access(expanded, ctx.cwd, repo_root_allowlist(ctx.git_repo_root));
             if (res.is_err()) {
                 if (!is_absolutely_forbidden_path(expanded) &&
-                    ask_user_confirm(ctx, std::format(
-                        "Search access requires your approval:\n\n```\n{}\n```\n\n"
-                        "Allow searching this path?", part))) {
+                    ask_user_confirm(
+                        ctx, std::format("Search access requires your approval:\n\n```\n{}\n```\n\n"
+                                         "Allow searching this path?",
+                                         part))) {
                     continue;
                 }
-                return PermissionResult::err(
-                    Error::Code::PermissionDenied,
-                    res.error().message);
+                return PermissionResult::err(Error::Code::PermissionDenied, res.error().message);
             }
         } catch (const std::exception& e) {
-            return PermissionResult::err(
-                Error::Code::PermissionDenied,
-                std::string("Grep path error: ") + e.what());
+            return PermissionResult::err(Error::Code::PermissionDenied,
+                                         std::string("Grep path error: ") + e.what());
         }
     }
     return PermissionResult::ok();
@@ -197,19 +200,16 @@ PermissionResult GrepTool::check_permissions(
 // 执行
 // ============================================================
 
-ResultV2<ToolResult> GrepTool::call(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+ResultV2<ToolResult> GrepTool::call(const nlohmann::json& input, const ToolContext& ctx) const {
     // 1. 解析输入
     if (!input.contains("pattern") || !input["pattern"].is_string()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput, "Grep: missing or invalid 'pattern'");
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                         "Grep: missing or invalid 'pattern'");
     }
     std::string pattern = input["pattern"].get<std::string>();
     if (pattern.empty()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput, "Grep: 'pattern' must not be empty");
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                         "Grep: 'pattern' must not be empty");
     }
 
     bool case_insensitive = input.value("case_insensitive", false);
@@ -232,9 +232,8 @@ ResultV2<ToolResult> GrepTool::call(
 
     std::error_code ec;
     if (!fs::exists(search_path, ec)) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::ResourceNotFound,
-            "Grep: path does not exist: " + search_path);
+        return ResultV2<ToolResult>::err(Error::Code::ResourceNotFound,
+                                         "Grep: path does not exist: " + search_path);
     }
 
     // 3. 解析 ripgrep 路径（配置 > bundled > PATH）
@@ -281,9 +280,7 @@ ResultV2<ToolResult> GrepTool::call(
     // 取消信号：绑定到 ctx
     if (ctx.cancel_flag != nullptr) {
         const std::atomic<bool>* flag = ctx.cancel_flag;
-        opts.is_cancelled = [flag]() {
-            return flag->load(std::memory_order_acquire);
-        };
+        opts.is_cancelled = [flag]() { return flag->load(std::memory_order_acquire); };
     }
 
     // 5. 执行 rg
@@ -291,8 +288,7 @@ ResultV2<ToolResult> GrepTool::call(
     if (exec_result.is_err()) {
         const auto& err = exec_result.error();
         return ResultV2<ToolResult>::err(
-            err.code,
-            std::format("Grep: failed to execute ripgrep: {}", err.message));
+            err.code, std::format("Grep: failed to execute ripgrep: {}", err.message));
     }
 
     const auto& out = exec_result.value();
@@ -303,28 +299,23 @@ ResultV2<ToolResult> GrepTool::call(
         // rg 报错（如正则语法错误、路径无权限等）
         std::string err_msg = out.stderr_text;
         if (err_msg.empty()) err_msg = "ripgrep reported an error (exit code 2)";
-        return ResultV2<ToolResult>::err(
-            Error::Code::ToolExecutionFailed,
-            std::format("Grep: {}", err_msg));
+        return ResultV2<ToolResult>::err(Error::Code::ToolExecutionFailed,
+                                         std::format("Grep: {}", err_msg));
     }
 
     if (out.cancelled) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::Cancelled,
-            "Grep: search was cancelled");
+        return ResultV2<ToolResult>::err(Error::Code::Cancelled, "Grep: search was cancelled");
     }
 
     if (out.timed_out) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::ToolExecutionFailed,
-            "Grep: search timed out (30s)");
+        return ResultV2<ToolResult>::err(Error::Code::ToolExecutionFailed,
+                                         "Grep: search timed out (30s)");
     }
 
     // 7. 格式化输出
     //    exit_code == 1 表示无匹配，返回友好提示
     if (out.exit_code == 1 || out.stdout_text.empty()) {
-        return ResultV2<ToolResult>::ok(
-            ToolResult::ok("No matches found for pattern: " + pattern));
+        return ResultV2<ToolResult>::ok(ToolResult::ok("No matches found for pattern: " + pattern));
     }
 
     // exit_code == 0：有匹配，截断并返回
@@ -336,4 +327,4 @@ ResultV2<ToolResult> GrepTool::call(
     return ResultV2<ToolResult>::ok(ToolResult::ok(std::move(formatted)));
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

@@ -49,7 +49,8 @@ MessageNode assistant_msg(std::string text) {
 TEST_CASE("estimate_markdown_height matches plain paragraphs", "[layout][markdown]") {
     const std::string md = "line one\nline two\n\nline three";
     REQUIRE(estimate_markdown_height(md, 240) == rendered_md_height(md));
-    REQUIRE(estimate_markdown_height(md, 240) == 6);  // 3 物理行 × 段落行距2；空行（emptyElement）不占行
+    REQUIRE(estimate_markdown_height(md, 240) ==
+            6);  // 3 物理行 × 段落行距2；空行（emptyElement）不占行
 }
 
 TEST_CASE("estimate_markdown_height matches code block with language tag", "[layout][markdown]") {
@@ -64,7 +65,8 @@ TEST_CASE("estimate_markdown_height matches code block without language", "[layo
     REQUIRE(estimate_markdown_height(md, 240) == 4);  // 2 代码行 + 2 上下留白
 }
 
-TEST_CASE("estimate_markdown_height matches empty code block (not rendered)", "[layout][markdown]") {
+TEST_CASE("estimate_markdown_height matches empty code block (not rendered)",
+          "[layout][markdown]") {
     const std::string md = "```\n```";
     REQUIRE(estimate_markdown_height(md, 240) == rendered_md_height(md));
     REQUIRE(estimate_markdown_height(md, 240) == 0);
@@ -140,7 +142,8 @@ TEST_CASE("estimate_message_height matches empty assistant message", "[layout][m
     REQUIRE(estimate_message_height(m, 240) == 0);  // 无正文 → 无操作按钮栏
 }
 
-TEST_CASE("estimate_message_height matches streaming empty assistant message", "[layout][message]") {
+TEST_CASE("estimate_message_height matches streaming empty assistant message",
+          "[layout][message]") {
     MessageNode m = assistant_msg("");
     m.streaming = true;
     REQUIRE(estimate_message_height(m, 240) == rendered_height(m));
@@ -255,7 +258,8 @@ TEST_CASE("estimate_message_height matches tool card with file path header", "[l
     t.result = "line1\nline2";
     m.tool_calls.push_back(t);
     REQUIRE(estimate_message_height(m, 240) == rendered_height(m));
-    // 展开工具卡：正文 1×2=2 + 卡：头 1 + 路径行 1 + 结果（status 1+vPad 2+2 行=...见下）+ 卡前空 1 + 按钮栏 1 = 14
+    // 展开工具卡：正文 1×2=2 + 卡：头 1 + 路径行 1 + 结果（status 1+vPad 2+2 行=...见下）+ 卡前空 1
+    // + 按钮栏 1 = 14
     REQUIRE(estimate_message_height(m, 240) == 14);
 }
 
@@ -270,7 +274,8 @@ TEST_CASE("estimate_message_height ignores tool card non-json arguments", "[layo
     t.result = "line1";
     m.tool_calls.push_back(t);
     REQUIRE(estimate_message_height(m, 240) == rendered_height(m));
-    // 展开工具卡（无路径行）：正文 1×2=2 + 卡：头 1 + 结果（status 1+vPad 2+1 行）+ 卡前空 1 + 按钮栏 1 = 9
+    // 展开工具卡（无路径行）：正文 1×2=2 + 卡：头 1 + 结果（status 1+vPad 2+1 行）+ 卡前空 1 +
+    // 按钮栏 1 = 9
     REQUIRE(estimate_message_height(m, 240) == 9);
 }
 

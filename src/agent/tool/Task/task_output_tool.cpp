@@ -21,16 +21,21 @@ namespace {
 /// @brief 任务状态 → 字符串（对齐 TS TaskStatusSchema 风格）
 std::string status_string(TaskStatus status) {
     switch (status) {
-        case TaskStatus::Pending:   return "pending";
-        case TaskStatus::Running:   return "running";
-        case TaskStatus::Completed: return "completed";
-        case TaskStatus::Cancelled: return "cancelled";
-        case TaskStatus::Failed:    return "failed";
+        case TaskStatus::Pending:
+            return "pending";
+        case TaskStatus::Running:
+            return "running";
+        case TaskStatus::Completed:
+            return "completed";
+        case TaskStatus::Cancelled:
+            return "cancelled";
+        case TaskStatus::Failed:
+            return "failed";
     }
     return "unknown";
 }
 
-} // namespace
+}  // namespace
 
 const std::string& TaskOutputTool::name() const {
     static const std::string n{"TaskOutput"};
@@ -46,46 +51,44 @@ const std::string& TaskOutputTool::prompt() const {
     static const std::string p{
         "Reads the output and status of a background task (e.g. a sub-agent launched by Agent). "
         "Requires the task_id returned by Agent. "
-        "With block=true (default) waits up to timeout_ms for the task to finish."
-    };
+        "With block=true (default) waits up to timeout_ms for the task to finish."};
     return p;
 }
 
 nlohmann::json TaskOutputTool::input_schema() const {
     return {
         {"type", "object"},
-        {"properties", {
-            {"task_id", {{"type", "string"}, {"description", "The task ID to get output from"}}},
-            {"block", {{"type", "boolean"}, {"description", "Whether to wait for completion (default true)"}}},
-            {"timeout", {{"type", "number"}, {"description", "Max wait time in ms (default 30000, max 600000)"}}}
-        }},
+        {"properties",
+         {{"task_id", {{"type", "string"}, {"description", "The task ID to get output from"}}},
+          {"block",
+           {{"type", "boolean"}, {"description", "Whether to wait for completion (default true)"}}},
+          {"timeout",
+           {{"type", "number"},
+            {"description", "Max wait time in ms (default 30000, max 600000)"}}}}},
         {"required", {"task_id"}},
-        {"additionalProperties", false}
-    };
+        {"additionalProperties", false}};
 }
 
-ResultV2<ToolResult> TaskOutputTool::call(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+ResultV2<ToolResult> TaskOutputTool::call(const nlohmann::json& input,
+                                          const ToolContext& ctx) const {
     if (input.is_null() || !input.is_object()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput, "TaskOutput: input must be an object");
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                         "TaskOutput: input must be an object");
     }
     const std::string task_id = input.value("task_id", "");
     if (task_id.empty()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::MissingArgument, "TaskOutput: 'task_id' is required");
+        return ResultV2<ToolResult>::err(Error::Code::MissingArgument,
+                                         "TaskOutput: 'task_id' is required");
     }
     if (ctx.task_manager_ptr == nullptr) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::NotImplemented, "TaskOutput: no task manager available");
+        return ResultV2<ToolResult>::err(Error::Code::NotImplemented,
+                                         "TaskOutput: no task manager available");
     }
 
     auto task = ctx.task_manager_ptr->find_task(task_id);
     if (task == nullptr) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::ResourceNotFound, std::format("No task found with ID: {}", task_id));
+        return ResultV2<ToolResult>::err(Error::Code::ResourceNotFound,
+                                         std::format("No task found with ID: {}", task_id));
     }
 
     // 阻塞等待完成（100ms 轮询，对齐 TS 语义）
@@ -95,8 +98,8 @@ ResultV2<ToolResult> TaskOutputTool::call(
 
     bool timed_out = false;
     if (block && !task->isFinished()) {
-        const auto deadline = std::chrono::steady_clock::now()
-                              + std::chrono::milliseconds(timeout_ms);
+        const auto deadline =
+            std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
         while (!task->isFinished()) {
             if (std::chrono::steady_clock::now() >= deadline) {
                 timed_out = true;
@@ -110,8 +113,7 @@ ResultV2<ToolResult> TaskOutputTool::call(
         {"task_id", task_id},
         {"status", status_string(task->getStatus())},
         {"timed_out", timed_out},
-        {"output", task->output()}
-    }.dump()));
+        {"output", task->output()}}.dump()));
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

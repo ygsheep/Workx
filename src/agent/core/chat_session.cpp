@@ -11,8 +11,8 @@
 #include "agent/core/agent_type.h"          // 0.6.x：#31 AgentType 枚举 + 别名解析
 #include "agent/core/goal_guarded_agent.h"  // 0.6.x：#31 GoalGuardedAgent + parse_goal
 #include "agent/core/query_engine.h"        // 0.6.x：QueryEngine 唯一编排入口
-#include "agent/plan/plan_coordinator.h"   // #54：Plan Mode V2 五阶段协调器
-#include "agent/tool/path_matcher.h"       // #54：~/.workx/plan 家目录展开
+#include "agent/plan/plan_coordinator.h"    // #54：Plan Mode V2 五阶段协调器
+#include "agent/tool/path_matcher.h"        // #54：~/.workx/plan 家目录展开
 #include "agent/message/types.h"
 #include "agent/tool/tool_kind.h"
 #include "agent/tool/TodoStore/todo_store.h"  // #24：待办清单持久化接线
@@ -23,7 +23,7 @@
 #include "agent/mcp/mcp_client_manager.h"  // #56 方案 D：MCP 连接管理器成员
 #include "agent/config/app_config.h"
 #include "agent/tool/AgentTool/agent_tool.h"  // #54：SubAgentLaunchOptions / launch_sub_agent（explore 并行）
-#include "agent/hook/hook_manager.h"  // #50 通用 Hook 事件系统：会话级 SessionStart/End
+#include "agent/hook/hook_manager.h"   // #50 通用 Hook 事件系统：会话级 SessionStart/End
 #include "agent/audit/audit_logger.h"  // 会话生命周期审计
 #include "core/task/task_manager.h"
 #include "core/config/config_manager.h"
@@ -67,7 +67,7 @@ std::string now_iso() {
     return buf;
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 namespace {
 
@@ -87,7 +87,7 @@ void extract_file_path_touches(const std::string& text, skill::TouchCollector& c
     }
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 // ============================================================
 // ChatSession::ReActEventPublisher — 3.2 IReActObserver 实现
@@ -101,40 +101,31 @@ void ChatSession::ReActEventPublisher::on_thought(const ReActStep& step) {
     // 注意：description 只用简短占位。流式期间 on_token 已通过
     // StreamTokenEvent 把 thought_text 完整渲染到终端，这里若再
     // 写完整文本会导致 UI 重复显示同一份内容。
-    m_bus.publish_async(AgentStepEvent{
-        .step_id = std::format("thought-{}", step.step_number),
-        .step_number = step.step_number,
-        .description = "(thinking)"
-    });
+    m_bus.publish_async(AgentStepEvent{.step_id = std::format("thought-{}", step.step_number),
+                                       .step_number = step.step_number,
+                                       .description = "(thinking)"});
     // P3：有 tool_use 时发布 StepDoneEvent（而非 StreamDoneEvent），
     // 让 UI 知道本轮 LLM 流式输出结束，但不触发会话级结束动作。
     // 原实现发布 StreamDoneEvent 导致语义污染：UI 误显示完成、
     // token 统计被 0 值覆盖、状态机错误转 IDLE、光标错位。
     if (!step.tool_uses.empty()) {
-        m_bus.publish_async(StepDoneEvent{
-            .session_id = m_session_id,
-            .full_content = step.thought_text,
-            .full_reasoning = step.reasoning,
-            .generation_ms = step.duration_ms
-        });
+        m_bus.publish_async(StepDoneEvent{.session_id = m_session_id,
+                                          .full_content = step.thought_text,
+                                          .full_reasoning = step.reasoning,
+                                          .generation_ms = step.duration_ms});
     }
 }
 
 void ChatSession::ReActEventPublisher::on_action(const ReActStep& step) {
-    m_bus.publish_async(ToolCallEvent{
-        .tool_name = step.tool_name,
-        .arguments = step.tool_input.dump(),
-        .call_id = step.tool_use_id,
-        .tool_type = tool::infer_tool_type(step.tool_name)
-    });
+    m_bus.publish_async(ToolCallEvent{.tool_name = step.tool_name,
+                                      .arguments = step.tool_input.dump(),
+                                      .call_id = step.tool_use_id,
+                                      .tool_type = tool::infer_tool_type(step.tool_name)});
 }
 
 void ChatSession::ReActEventPublisher::on_observation(const ReActStep& step) {
     m_bus.publish_async(ToolResultEvent{
-        .call_id = step.tool_use_id,
-        .result = step.observation,
-        .is_error = step.is_error
-    });
+        .call_id = step.tool_use_id, .result = step.observation, .is_error = step.is_error});
 }
 
 void ChatSession::ReActEventPublisher::on_final_answer(const ReActStep& /*step*/) {
@@ -143,70 +134,60 @@ void ChatSession::ReActEventPublisher::on_final_answer(const ReActStep& /*step*/
 
 void ChatSession::ReActEventPublisher::on_token(const std::string& content_delta,
                                                 const std::string& reasoning_delta) {
-    m_bus.publish_async(StreamTokenEvent{
-        .session_id = m_session_id,
-        .content_delta = content_delta,
-        .reasoning_delta = reasoning_delta,
-        .is_thinking = !reasoning_delta.empty(),
-        .token_count = 0
-    });
+    m_bus.publish_async(StreamTokenEvent{.session_id = m_session_id,
+                                         .content_delta = content_delta,
+                                         .reasoning_delta = reasoning_delta,
+                                         .is_thinking = !reasoning_delta.empty(),
+                                         .token_count = 0});
 }
 
 // ============================================================
 // 构造与析构
 // ============================================================
 
-ChatSession::ChatSession(std::unique_ptr<ICompletionProvider> provider,
-                         ITaskManager& task_manager,
-                         IEventBus& event_bus,
-                         IConfigManager& config_manager,
-                         int retry_delay_ms,
+ChatSession::ChatSession(std::unique_ptr<ICompletionProvider> provider, ITaskManager& task_manager,
+                         IEventBus& event_bus, IConfigManager& config_manager, int retry_delay_ms,
                          std::string session_id)
-    : m_provider(std::move(provider))
-    , m_session_id(std::move(session_id))
-    , m_cwd(std::filesystem::current_path().string())
-    , m_task_manager(task_manager)
-    , m_event_bus(event_bus)
-    , m_config_manager(config_manager)
-{
+    : m_provider(std::move(provider)),
+      m_session_id(std::move(session_id)),
+      m_cwd(std::filesystem::current_path().string()),
+      m_task_manager(task_manager),
+      m_event_bus(event_bus),
+      m_config_manager(config_manager) {
     // H-3：从配置管理器读取重试配置，统一委托给 HttpRetryPolicy
     // 注意：仅当配置中显式设置时才覆盖，否则使用 preset 传入的值（可为不同 provider 设置不同延迟）
     auto& cfg = m_config_manager.get();
-    m_retry_policy.max_retries = cfg.has("backend.retry_count")
-        ? cfg.get_or<int>("backend.retry_count", 3)
-        : 3;
+    m_retry_policy.max_retries =
+        cfg.has("backend.retry_count") ? cfg.get_or<int>("backend.retry_count", 3) : 3;
     m_retry_policy.base_delay_ms = cfg.has("backend.retry_delay_ms")
-        ? cfg.get_or<int>("backend.retry_delay_ms", retry_delay_ms)
-        : retry_delay_ms;
+                                       ? cfg.get_or<int>("backend.retry_delay_ms", retry_delay_ms)
+                                       : retry_delay_ms;
 
     // DS_CACHE H-3：注册压缩器暂停回调，发布 CompactionPausedEvent 到 EventBus
-    m_compactor.set_paused_callback(
-        [this](bool paused, int consecutive_compacts, int32_t tokens, float ratio,
-               const std::string& notice) {
-            m_event_bus.get().publish_async(CompactionPausedEvent{
-                .session_id = m_session_id,
-                .paused = paused,
-                .consecutive_compacts = static_cast<int32_t>(consecutive_compacts),
-                .tokens_before = tokens,
-                .ratio = ratio,
-                .notice = notice
-            });
-        });
+    m_compactor.set_paused_callback([this](bool paused, int consecutive_compacts, int32_t tokens,
+                                           float ratio, const std::string& notice) {
+        m_event_bus.get().publish_async(CompactionPausedEvent{
+            .session_id = m_session_id,
+            .paused = paused,
+            .consecutive_compacts = static_cast<int32_t>(consecutive_compacts),
+            .tokens_before = tokens,
+            .ratio = ratio,
+            .notice = notice});
+    });
 
     // DS_CACHE M-4：注入 LLM 摘要回调（compact 阶段调用，失败自动 fallback 到机械折叠）
     // 捕获 this 以访问 m_provider；provider 生命周期与 ChatSession 绑定，安全。
-    m_compactor.set_summarize_fn(
-        [this](const std::vector<ChatMessage>& middle) {
-            return this->summarize_with_llm(middle);
-        });
+    m_compactor.set_summarize_fn([this](const std::vector<ChatMessage>& middle) {
+        return this->summarize_with_llm(middle);
+    });
 
     // #24：接线 TodoStore 事件总线（变更后发布 TodoUpdatedEvent → UI 侧边栏/StatusBar）
     tool::TodoStore::instance().set_event_bus(&m_event_bus.get());
 
     // #50：装配会话级 HookManager（SessionStart/SessionEnd 事件；复用循环级同一装配逻辑）。
     //      会话级无独立工具 registry，agent 类型 hook 在此降级为纯 prompt 判定（白名单可空）。
-    m_hooks = hook::make_hook_manager(m_config_manager.get(), nullptr,
-                                      m_provider.get(), &m_event_bus.get());
+    m_hooks = hook::make_hook_manager(m_config_manager.get(), nullptr, m_provider.get(),
+                                      &m_event_bus.get());
 
     subscribe_interrupt();
     subscribe_sub_agent_persistence();
@@ -305,8 +286,7 @@ void ChatSession::set_system_prompt(const std::string& prompt) {
     persist_system_prompt(reason);
 }
 
-void ChatSession::set_system_prompt_builder(
-    std::function<std::string(tool::SessionMode)> builder) {
+void ChatSession::set_system_prompt_builder(std::function<std::string(tool::SessionMode)> builder) {
     std::lock_guard<std::mutex> lock(m_state_mutex);
     m_system_prompt_builder = std::move(builder);
 }
@@ -352,9 +332,7 @@ std::shared_ptr<mcp::McpClientManager> ChatSession::mcp_manager() const {
     return m_mcp_manager;
 }
 
-skill::TouchCollector& ChatSession::touch_collector() {
-    return m_touch_collector;
-}
+skill::TouchCollector& ChatSession::touch_collector() { return m_touch_collector; }
 
 void ChatSession::clear_history() {
     // 生成中安全：清空消息前先取消并等待当前任务，避免与 ReActLoop 竞争 m_messages。
@@ -374,8 +352,8 @@ void ChatSession::clear_history() {
     // 消息队列：清空待发送缓存（避免残留消息进入新历史/被误冲刷）
     clear_pending_queue();
     // 审计：会话结束（清空历史）
-    audit::AuditLogger::instance().log_session_lifecycle(
-        audit::EventType::SessionEnd, m_session_id);
+    audit::AuditLogger::instance().log_session_lifecycle(audit::EventType::SessionEnd,
+                                                         m_session_id);
 }
 
 void ChatSession::set_compactor_context_window(int32_t context_window_tokens) {
@@ -406,10 +384,8 @@ void ChatSession::append_skill_event(const agent::session::SkillEvent& ev) {
     if (store) store->append_skill(ev);
 }
 
-void ChatSession::configure_session_store(const std::string& project_dir,
-                                           const std::string& cwd,
-                                           const std::string& model,
-                                           const std::string& git_branch) {
+void ChatSession::configure_session_store(const std::string& project_dir, const std::string& cwd,
+                                          const std::string& model, const std::string& git_branch) {
     // 锁内仅做状态写入；SessionStart hook 派发在锁外执行（可长耗时，含 command/http/prompt）
     std::string disp_hook_session_id;
     std::string disp_hook_cwd;
@@ -422,8 +398,8 @@ void ChatSession::configure_session_store(const std::string& project_dir,
         m_store_model = model;
         m_store_git_branch = git_branch;
         // 审计：会话开始（启动装配时必然调用，保证审计日志文件必然生成）
-        audit::AuditLogger::instance().log_session_lifecycle(
-            audit::EventType::SessionStart, m_session_id);
+        audit::AuditLogger::instance().log_session_lifecycle(audit::EventType::SessionStart,
+                                                             m_session_id);
 
         // #50 SessionStart hook：会话装配完成、首条消息前触发一次（每个 ChatSession 实例仅一次）
         if (m_hooks && !m_hooks->empty() && !m_session_start_hook_fired) {
@@ -447,8 +423,7 @@ bool ChatSession::restore_from_file(const std::string& file_path) {
 
     std::lock_guard<std::mutex> lock(m_state_mutex);
     // 追加到已有消息（不清空），支持恢复后继续对话
-    m_messages.insert(m_messages.end(),
-                      std::make_move_iterator(messages.begin()),
+    m_messages.insert(m_messages.end(), std::make_move_iterator(messages.begin()),
                       std::make_move_iterator(messages.end()));
     return true;
 }
@@ -476,7 +451,8 @@ bool ChatSession::set_provider(std::unique_ptr<ICompletionProvider> provider) {
     return true;
 }
 
-bool ChatSession::switch_session(const std::string& file_path) {    // 加载历史消息和元信息（文件 I/O 在锁外执行）
+bool ChatSession::switch_session(
+    const std::string& file_path) {  // 加载历史消息和元信息（文件 I/O 在锁外执行）
     // 生成中安全：切换会话前先取消并等待当前任务完全退出。
     // ReActLoop::run 通过非 const 引用直接读写 m_messages，若此处（UI 线程）并发 move
     // m_messages，会与任务线程形成数据竞争 → 堆损坏（resume 后重发消息崩溃的 UAF 根因）。
@@ -526,8 +502,8 @@ bool ChatSession::switch_session(const std::string& file_path) {    // 加载历
         persist_system_prompt("resume");
     }
     // 审计：切换到恢复的会话
-    audit::AuditLogger::instance().log_session_lifecycle(
-        audit::EventType::SessionStart, new_session_id);
+    audit::AuditLogger::instance().log_session_lifecycle(audit::EventType::SessionStart,
+                                                         new_session_id);
 
     return true;
 }
@@ -566,8 +542,8 @@ void ChatSession::new_session() {
     tool::TodoStore::instance().restore_todos(new_session_id, {});
     wire_todo_persistence();
     // 审计：新会话开始
-    audit::AuditLogger::instance().log_session_lifecycle(
-        audit::EventType::SessionStart, new_session_id);
+    audit::AuditLogger::instance().log_session_lifecycle(audit::EventType::SessionStart,
+                                                         new_session_id);
 }
 
 void ChatSession::wire_todo_persistence() {
@@ -581,9 +557,7 @@ void ChatSession::wire_todo_persistence() {
     if (!store) return;
     tool::TodoStore::instance().set_persist_callback(
         session_id,
-        [store](const std::vector<core::todo::TodoItem>& todos) {
-            store->append_todo(todos);
-        });
+        [store](const std::vector<core::todo::TodoItem>& todos) { store->append_todo(todos); });
 }
 
 bool ChatSession::rename_session(const std::string& title) {
@@ -633,8 +607,8 @@ void ChatSession::persist_message(const ChatMessage& msg) {
         try {
             namespace fs = std::filesystem;
             fs::path session_file = fs::path(lazy_project_dir) / (m_session_id + ".jsonl");
-            auto new_store = std::make_shared<agent::session::SessionStore>(
-                session_file.string(), m_session_id);
+            auto new_store =
+                std::make_shared<agent::session::SessionStore>(session_file.string(), m_session_id);
             if (!new_store->open()) return;
             new_store->append_session_start(lazy_cwd, lazy_model, lazy_git_branch);
             // 写入 store 后再持久化消息
@@ -670,11 +644,16 @@ void ChatSession::persist_message(const ChatMessage& msg) {
                 size_t byte_pos = 0;
                 while (char_count < 20 && byte_pos < title.size()) {
                     unsigned char c = static_cast<unsigned char>(title[byte_pos]);
-                    if (c < 0x80) byte_pos += 1;
-                    else if ((c & 0xE0) == 0xC0) byte_pos += 2;
-                    else if ((c & 0xF0) == 0xE0) byte_pos += 3;
-                    else if ((c & 0xF8) == 0xF0) byte_pos += 4;
-                    else byte_pos += 1;
+                    if (c < 0x80)
+                        byte_pos += 1;
+                    else if ((c & 0xE0) == 0xC0)
+                        byte_pos += 2;
+                    else if ((c & 0xF0) == 0xE0)
+                        byte_pos += 3;
+                    else if ((c & 0xF8) == 0xF0)
+                        byte_pos += 4;
+                    else
+                        byte_pos += 1;
                     ++char_count;
                 }
                 title = title.substr(0, byte_pos);
@@ -685,14 +664,11 @@ void ChatSession::persist_message(const ChatMessage& msg) {
             }
             break;
         case ChatMessage::Role::Assistant:
-            store->append_assistant_message(uuid, "", msg.content,
-                                            msg.reasoning_content,
-                                            msg.tool_uses, timestamp,
-                                            msg.reasoning_ms);
+            store->append_assistant_message(uuid, "", msg.content, msg.reasoning_content,
+                                            msg.tool_uses, timestamp, msg.reasoning_ms);
             break;
         case ChatMessage::Role::Tool:
-            store->append_tool_message(uuid, "", msg.tool_call_id,
-                                       msg.tool_name, msg.content,
+            store->append_tool_message(uuid, "", msg.tool_call_id, msg.tool_name, msg.content,
                                        msg.is_error, timestamp);
             break;
         default:
@@ -722,14 +698,12 @@ void ChatSession::persist_messages_range(size_t start_idx, const std::string& pa
                 break;
             case ChatMessage::Role::Assistant:
                 store->append_assistant_message(uuid, current_parent, msg.content,
-                                                msg.reasoning_content,
-                                                msg.tool_uses, timestamp,
+                                                msg.reasoning_content, msg.tool_uses, timestamp,
                                                 msg.reasoning_ms);
                 break;
             case ChatMessage::Role::Tool:
-                store->append_tool_message(uuid, current_parent, msg.tool_call_id,
-                                           msg.tool_name, msg.content,
-                                           msg.is_error, timestamp);
+                store->append_tool_message(uuid, current_parent, msg.tool_call_id, msg.tool_name,
+                                           msg.content, msg.is_error, timestamp);
                 break;
             default:
                 break;
@@ -787,8 +761,8 @@ std::string ChatSession::summarize_with_llm(const std::vector<ChatMessage>& midd
         copy.image_paths.clear();
         req.messages.push_back(std::move(copy));
     }
-    req.max_tokens = 1024;       // 摘要无需过长
-    req.temperature = 0.3f;      // 低温度保证忠实
+    req.max_tokens = 1024;   // 摘要无需过长
+    req.temperature = 0.3f;  // 低温度保证忠实
     req.stream = true;
 
     // 提交流式请求
@@ -834,11 +808,10 @@ std::string ChatSession::summarize_with_llm(const std::vector<ChatMessage>& midd
 void ChatSession::regenerate() {
     // 检查是否正在生成
     if (m_generating.load()) {
-        m_event_bus.get().publish_async(StreamErrorEvent{
-            .session_id = m_session_id,
-            .message = "Still generating, cannot regenerate",
-            .retryable = true
-        });
+        m_event_bus.get().publish_async(
+            StreamErrorEvent{.session_id = m_session_id,
+                             .message = "Still generating, cannot regenerate",
+                             .retryable = true});
         return;
     }
 
@@ -846,12 +819,10 @@ void ChatSession::regenerate() {
     std::vector<std::string> last_user_images;
     {
         std::lock_guard<std::mutex> lock(m_state_mutex);
-        while (!m_messages.empty() &&
-               m_messages.back().role == ChatMessage::Role::Assistant) {
+        while (!m_messages.empty() && m_messages.back().role == ChatMessage::Role::Assistant) {
             m_messages.pop_back();
         }
-        if (!m_messages.empty() &&
-            m_messages.back().role == ChatMessage::Role::User) {
+        if (!m_messages.empty() && m_messages.back().role == ChatMessage::Role::User) {
             last_user_text = m_messages.back().content;
             last_user_images = m_messages.back().image_paths;
             m_messages.pop_back();
@@ -865,11 +836,10 @@ void ChatSession::regenerate() {
 void ChatSession::regenerate_from(const std::string& user_text) {
     // 检查是否正在生成
     if (m_generating.load()) {
-        m_event_bus.get().publish_async(StreamErrorEvent{
-            .session_id = m_session_id,
-            .message = "Still generating, cannot regenerate",
-            .retryable = true
-        });
+        m_event_bus.get().publish_async(
+            StreamErrorEvent{.session_id = m_session_id,
+                             .message = "Still generating, cannot regenerate",
+                             .retryable = true});
         return;
     }
 
@@ -877,7 +847,7 @@ void ChatSession::regenerate_from(const std::string& user_text) {
     {
         std::lock_guard<std::mutex> lock(m_state_mutex);
         // 从后往前找最后一条匹配的用户消息，删除该用户消息及其后所有消息
-        //（run_completion 会重新 push 该用户消息，避免重复）
+        // （run_completion 会重新 push 该用户消息，避免重复）
         for (auto it = m_messages.rbegin(); it != m_messages.rend(); ++it) {
             if (it->role == ChatMessage::Role::User && it->content == user_text) {
                 last_user_images = it->image_paths;
@@ -889,8 +859,7 @@ void ChatSession::regenerate_from(const std::string& user_text) {
     run_completion(user_text, last_user_images);
 }
 
-void ChatSession::send_message(const std::string& text,
-                               const std::vector<std::string>& images) {
+void ChatSession::send_message(const std::string& text, const std::vector<std::string>& images) {
     if (m_generating.load()) {
         // 模型忙碌：进入待发送队列（不丢消息；Ctrl+Enter 由 TUI 先行 request_flush）
         enqueue_message(text, images);
@@ -904,8 +873,7 @@ void ChatSession::send_message(const std::string& text,
 // 消息队列（模型忙碌时缓存用户输入，工具轮边界/整轮结束冲刷）
 // ============================================================
 
-bool ChatSession::enqueue_message(const std::string& text,
-                                  const std::vector<std::string>& images) {
+bool ChatSession::enqueue_message(const std::string& text, const std::vector<std::string>& images) {
     // 模型空闲时入队无意义：调用方（TUI send_input）应走 send_message 直接发送。
     // 返回 false 让调用方回退到直接发送路径。
     if (!m_generating.load()) return false;
@@ -915,7 +883,8 @@ bool ChatSession::enqueue_message(const std::string& text,
     item.text = text;
     item.images = images;
     item.queued_at_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
     {
         std::lock_guard<std::mutex> lock(m_queue_mutex);
         m_pending_queue.push_back(std::move(item));
@@ -1010,12 +979,11 @@ void ChatSession::flush_pending_after_run() {
     run_completion(merge_queued_text(items));
 }
 
-std::string ChatSession::merge_queued_text(
-    const std::vector<QueuedMessageItem>& items) {
+std::string ChatSession::merge_queued_text(const std::vector<QueuedMessageItem>& items) {
     std::string merged;
     for (size_t i = 0; i < items.size(); ++i) {
-        merged += std::format("[排队消息 {}/{}]\n{}\n━━━━━━━━━━\n",
-                              i + 1, items.size(), items[i].text);
+        merged +=
+            std::format("[排队消息 {}/{}]\n{}\n━━━━━━━━━━\n", i + 1, items.size(), items[i].text);
     }
     return merged;
 }
@@ -1127,8 +1095,7 @@ std::vector<ChatMessage> ChatSession::get_messages() const {
 // DS_CACHE M-3：session_cache_stats() 已删除（死代码，TUI 使用 token_stats_model）
 
 void ChatSession::run_completion(const std::string& user_text,
-                                 const std::vector<std::string>& images,
-                                 int retry_attempt) {
+                                 const std::vector<std::string>& images, int retry_attempt) {
     // B.1：拆分后的 run_completion 仅做顶层调度，agent 循环逻辑分发到子方法
     // 子方法返回 AgentStepResult，决定下一步动作（避免 goto 跨变量声明）
 
@@ -1151,7 +1118,8 @@ void ChatSession::run_completion(const std::string& user_text,
             for (const auto& sk : activated) {
                 if (m_activated_skills.contains(sk->name())) continue;
                 if (sk->agent().has_value() &&
-                    (active_agent.empty() || sk->agent().value() != active_agent)) continue;
+                    (active_agent.empty() || sk->agent().value() != active_agent))
+                    continue;
                 command::CommandContext sctx;
                 sctx.cwd = m_cwd;
                 sctx.session_id = m_session_id;
@@ -1178,14 +1146,17 @@ void ChatSession::run_completion(const std::string& user_text,
                             for (const auto& obj : arr) {
                                 hook::HookDefinition def = hook::HookDefinition::from_json(obj);
                                 if (def.command.empty() && def.url.empty() && def.prompt.empty()) {
-                                    LOG_WARN("[hook] frontmatter hook def missing command/url/prompt, skipped: {}",
-                                             obj.dump());
+                                    LOG_WARN(
+                                        "[hook] frontmatter hook def missing command/url/prompt, "
+                                        "skipped: {}",
+                                        obj.dump());
                                     continue;
                                 }
                                 m_hooks->register_hook(std::move(def));
                             }
                         } catch (const std::exception& e) {
-                            LOG_WARN("[hook] invalid frontmatter hooks JSON, skipped: {}", e.what());
+                            LOG_WARN("[hook] invalid frontmatter hooks JSON, skipped: {}",
+                                     e.what());
                         }
                     }
                 }
@@ -1196,9 +1167,8 @@ void ChatSession::run_completion(const std::string& user_text,
                 effective_text = prefix + user_text;
             }
         }
-        ChatMessage user_msg = images.empty()
-            ? ChatMessage::user(effective_text)
-            : ChatMessage::user(effective_text, images);
+        ChatMessage user_msg = images.empty() ? ChatMessage::user(effective_text)
+                                              : ChatMessage::user(effective_text, images);
         {
             std::lock_guard<std::mutex> lock(m_state_mutex);
             m_messages.push_back(user_msg);
@@ -1208,188 +1178,265 @@ void ChatSession::run_completion(const std::string& user_text,
     }
 
     m_event_bus.get().publish_async(BackendStatusEvent{
-        .status = BackendStatusEvent::Connecting,
-        .backend_name = "session",
-        .error = {}
-    });
+        .status = BackendStatusEvent::Connecting, .backend_name = "session", .error = {}});
 
     m_generating.store(true);
 
     // H-3：拷贝 HttpRetryPolicy 到任务闭包（不可变结构体，线程安全）
     HttpRetryPolicy retry_policy = m_retry_policy;
 
-    auto task = m_task_manager.get().launch("completion",
-        [this, retry_attempt, retry_policy, user_text]
-        (const std::atomic<bool>& should_cancel) {
+    auto task = m_task_manager.get().launch(
+        "completion",
+        [this, retry_attempt, retry_policy, user_text](const std::atomic<bool>& should_cancel) {
             // 顶层异常安全网：确保任何未捕获异常都能重置 m_generating 并通知 UI
             try {
-            // ---- 构建 tools_schema ----
-            nlohmann::json tools_schema = nlohmann::json::array();
-            if (m_tool_registry && m_tool_registry->size() > 0) {
-                // 极简模式：仅暴露 Skill/Bash/Read/Write/Edit 五个工具
-                //（其余工具对 LLM 不可见，配合 ToolExecutor 守卫双重保障）
-                if (session_mode() == tool::SessionMode::Minimal) {
-                    tools_schema = m_tool_registry->get_schemas_by_names(
-                        {tool::kMinimalModeToolNames,
-                         tool::kMinimalModeToolNames + tool::kMinimalModeToolCount});
-                } else {
-                    tools_schema = m_tool_registry->get_all_schemas();
+                // ---- 构建 tools_schema ----
+                nlohmann::json tools_schema = nlohmann::json::array();
+                if (m_tool_registry && m_tool_registry->size() > 0) {
+                    // 极简模式：仅暴露 Skill/Bash/Read/Write/Edit 五个工具
+                    // （其余工具对 LLM 不可见，配合 ToolExecutor 守卫双重保障）
+                    if (session_mode() == tool::SessionMode::Minimal) {
+                        tools_schema = m_tool_registry->get_schemas_by_names(
+                            {tool::kMinimalModeToolNames,
+                             tool::kMinimalModeToolNames + tool::kMinimalModeToolCount});
+                    } else {
+                        tools_schema = m_tool_registry->get_all_schemas();
+                    }
                 }
-            }
 
-            // ---- 0.6.x：QueryEngine 统一编排入口（验收标准：唯一 loop 入口）----
-            // 按 agent.active 解析 AgentType 构造 ReAct/GoalGuarded，注入同一套依赖 +
-            // 会话级权限状态 + 查询追踪调用链。普通对话（agent.active 空）走 ReAct，
-            // 行为与以往手动 ReActLoop 完全一致（回归零差异）。
-            const auto active_agent_conf =
-                m_config_manager.get().get_or<std::string>(agent::keys::AGENT_ACTIVE, "");
-            const std::string goal_spec =
-                m_config_manager.get().get_or<std::string>(agent::keys::AGENT_GOAL, "");
+                // ---- 0.6.x：QueryEngine 统一编排入口（验收标准：唯一 loop 入口）----
+                // 按 agent.active 解析 AgentType 构造 ReAct/GoalGuarded，注入同一套依赖 +
+                // 会话级权限状态 + 查询追踪调用链。普通对话（agent.active 空）走 ReAct，
+                // 行为与以往手动 ReActLoop 完全一致（回归零差异）。
+                const auto active_agent_conf =
+                    m_config_manager.get().get_or<std::string>(agent::keys::AGENT_ACTIVE, "");
+                const std::string goal_spec =
+                    m_config_manager.get().get_or<std::string>(agent::keys::AGENT_GOAL, "");
 
-            // 依赖与旧 ReActLoop 手动构造同源（provider/registry/config_manager/
-            // task_manager/cwd/compactor/event_bus/touch 注入路径一一对应）。
-            GoalAgentDeps gdeps{
-                .provider = m_provider.get(),
-                .registry = m_tool_registry,
-                .config_manager = &m_config_manager.get(),
-                .task_manager = &m_task_manager.get(),
-                .cwd = m_cwd,
-                .external_compactor = &m_compactor,
-                .event_bus = &m_event_bus.get(),
-                .touch_collector = &m_touch_collector,
-                .file_index_invalidator = m_file_index_invalidator,
-                .session_id = m_session_id,
-                // 消息队列：模型忙碌时前端入队的用户消息，在 ReAct 工具轮边界
-                // 合并为单条 user 消息注入循环（Ctrl+Enter 显式冲刷请求）。
-                // 本 lambda 运行于任务线程，this 生命周期由 ChatSession 任务管理保证。
-                .queue_inject_cb = [this](std::vector<ChatMessage>& messages) {
-                    inject_pending_queue(messages);
-                },
-                // #56 方案 C：命令注册表 → ToolContext（AgentTool skill 预加载来源）
-                .command_registry = m_command_registry,
-                // #56 方案 D：父会话全局 MCP 管理器（AgentTool 子 Agent mcpServers 引用复用来源）
-                .mcp_manager = m_mcp_manager,
-            };
-            QueryEngine query_engine(std::move(gdeps));
+                // 依赖与旧 ReActLoop 手动构造同源（provider/registry/config_manager/
+                // task_manager/cwd/compactor/event_bus/touch 注入路径一一对应）。
+                GoalAgentDeps gdeps{
+                    .provider = m_provider.get(),
+                    .registry = m_tool_registry,
+                    .config_manager = &m_config_manager.get(),
+                    .task_manager = &m_task_manager.get(),
+                    .cwd = m_cwd,
+                    .external_compactor = &m_compactor,
+                    .event_bus = &m_event_bus.get(),
+                    .touch_collector = &m_touch_collector,
+                    .file_index_invalidator = m_file_index_invalidator,
+                    .session_id = m_session_id,
+                    // 消息队列：模型忙碌时前端入队的用户消息，在 ReAct 工具轮边界
+                    // 合并为单条 user 消息注入循环（Ctrl+Enter 显式冲刷请求）。
+                    // 本 lambda 运行于任务线程，this 生命周期由 ChatSession 任务管理保证。
+                    .queue_inject_cb =
+                        [this](std::vector<ChatMessage>& messages) {
+                            inject_pending_queue(messages);
+                        },
+                    // #56 方案 C：命令注册表 → ToolContext（AgentTool skill 预加载来源）
+                    .command_registry = m_command_registry,
+                    // #56 方案 D：父会话全局 MCP 管理器（AgentTool 子 Agent mcpServers
+                    // 引用复用来源）
+                    .mcp_manager = m_mcp_manager,
+                };
+                QueryEngine query_engine(std::move(gdeps));
 
-            // #45#28：注入会话级权限状态（Default/Plan/Bypass 三态 + Plan 退出恢复），
-            // 由 QueryEngine 落到 ReAct 循环与 GoalGuarded 内部循环（后者此前缺失）。
-            // 回调写回 ChatSession（受 m_state_mutex 保护）统一状态源，对齐
-            // EnterPlanMode/ExitPlanModeV2/on_permission_mode_changed（H-1 PR #46 评审）。
-            {   
-                std::lock_guard<std::mutex> lock(m_state_mutex);
-                query_engine.set_permission(PermissionSnapshot{
-                    .mode = m_permission_mode,
-                    .before_plan = m_permission_mode_before_plan,
-                    .on_changed = [this](tool::PermissionMode mode,
-                                         tool::PermissionMode before_plan,
-                                         bool in_plan) {
-                        std::lock_guard<std::mutex> lk(m_state_mutex);
-                        m_permission_mode = mode;
-                        m_permission_mode_before_plan = before_plan;
-                        // 工具路径（EnterPlanMode/ExitPlanModeV2）同步工作模式：
-                        // 进入计划 → 模式=计划；退出计划 → 回落到标准模式
-                        if (in_plan) {
-                            m_session_mode = tool::SessionMode::Plan;
-                        } else if (m_session_mode == tool::SessionMode::Plan) {
-                            m_session_mode = tool::SessionMode::Standard;
+                // #45#28：注入会话级权限状态（Default/Plan/Bypass 三态 + Plan 退出恢复），
+                // 由 QueryEngine 落到 ReAct 循环与 GoalGuarded 内部循环（后者此前缺失）。
+                // 回调写回 ChatSession（受 m_state_mutex 保护）统一状态源，对齐
+                // EnterPlanMode/ExitPlanModeV2/on_permission_mode_changed（H-1 PR #46 评审）。
+                {
+                    std::lock_guard<std::mutex> lock(m_state_mutex);
+                    query_engine.set_permission(PermissionSnapshot{
+                        .mode = m_permission_mode,
+                        .before_plan = m_permission_mode_before_plan,
+                        .on_changed =
+                            [this](tool::PermissionMode mode, tool::PermissionMode before_plan,
+                                   bool in_plan) {
+                                std::lock_guard<std::mutex> lk(m_state_mutex);
+                                m_permission_mode = mode;
+                                m_permission_mode_before_plan = before_plan;
+                                // 工具路径（EnterPlanMode/ExitPlanModeV2）同步工作模式：
+                                // 进入计划 → 模式=计划；退出计划 → 回落到标准模式
+                                if (in_plan) {
+                                    m_session_mode = tool::SessionMode::Plan;
+                                } else if (m_session_mode == tool::SessionMode::Plan) {
+                                    m_session_mode = tool::SessionMode::Standard;
+                                }
+                            },
+                    });
+                    // 注入会话工作模式（标准/计划/极简）：极简模式白名单守卫依据
+                    query_engine.set_session_mode(m_session_mode);
+                }
+
+                // 3.2：使用 IReActObserver 接口替代 lambda 回调
+                // ReActEventPublisher 内部完成 ReActStep → IEventBus 事件转换
+                ReActEventPublisher publisher(m_event_bus, m_session_id);
+
+                // ---- DS_CACHE: 捕获前缀形状（用于本轮结束后的缓存劣化归因）----
+                // H-2：cur_shape 在 run() 后二次捕获，以传入压缩器 rewrite_version。
+                //      prev_shape 从上一轮 m_last_prefix_shape 读取（含上轮的 rewrite_version）。
+                PrefixShape prev_shape;
+                size_t messages_before_loop =
+                    0;  // 项目会话恢复：记录 loop 前消息数，用于批量持久化
+                {
+                    std::lock_guard<std::mutex> lock(m_state_mutex);
+                    prev_shape = m_last_prefix_shape;
+                    messages_before_loop = m_messages.size();
+                }
+                // 预捕获仅用于 prev_shape 为空（首轮）时的 prefix_hash 基线；
+                // 真正的 cur_shape 在 run() 返回后用 react_result.rewrite_version 二次捕获
+                PrefixShape cur_shape_baseline = capture_shape(m_system_prompt, tools_schema, 0);
+                if (prev_shape.prefix_hash.empty()) {
+                    std::lock_guard<std::mutex> lock(m_state_mutex);
+                    m_last_prefix_shape = cur_shape_baseline;
+                }
+
+                // ---- 执行 Agent 循环（QueryEngine 按 agent.active 路由，唯一入口）----
+                // 目标守卫 goal 来自 agent.goal；goal_spec 原文透传用于 AgentDoneEvent/
+                // AgentVerdictEvent 展示。observer 用 ReActEventPublisher 发布步骤事件。
+                AgentRunContext run_ctx{
+                    .messages = &m_messages,
+                    .system_prompt = m_system_prompt,
+                    .tools_schema = tools_schema,
+                    .should_cancel = &should_cancel,
+                    .goal = parse_goal(goal_spec),
+                    .goal_spec = goal_spec,
+                    .observer = &publisher,
+                };
+                AgentRunResult run_result =
+                    query_engine.run(m_config_manager.get(), std::move(run_ctx));
+                ReActResult react_result = std::move(run_result.react);
+
+                // 记录本会话已分发的后台任务（P1-1 定向取消）：切会话/清除/析构时精确取消
+                if (!run_result.background_task_id.empty()) {
+                    std::lock_guard<std::mutex> lock(m_state_mutex);
+                    m_background_task_ids.push_back(run_result.background_task_id);
+                }
+
+                // 思考时长回填：reasoning_ms（本 turn 所有 Thought
+                // 阶段实际耗时）仅在流式结束后可知， 持久化前回填到本轮最后一条 assistant
+                // 消息（写入 JSONL 的 reasoningMs 字段）
+                if (react_result.reasoning_ms > 0.0) {
+                    std::lock_guard<std::mutex> lock(m_state_mutex);
+                    for (auto it = m_messages.rbegin(); it != m_messages.rend(); ++it) {
+                        if (it->role == ChatMessage::Role::Assistant) {
+                            it->reasoning_ms = react_result.reasoning_ms;
+                            break;
                         }
-                    },
-                });
-                // 注入会话工作模式（标准/计划/极简）：极简模式白名单守卫依据
-                query_engine.set_session_mode(m_session_mode);
-            }
-
-            // 3.2：使用 IReActObserver 接口替代 lambda 回调
-            // ReActEventPublisher 内部完成 ReActStep → IEventBus 事件转换
-            ReActEventPublisher publisher(m_event_bus, m_session_id);
-
-            // ---- DS_CACHE: 捕获前缀形状（用于本轮结束后的缓存劣化归因）----
-            // H-2：cur_shape 在 run() 后二次捕获，以传入压缩器 rewrite_version。
-            //      prev_shape 从上一轮 m_last_prefix_shape 读取（含上轮的 rewrite_version）。
-            PrefixShape prev_shape;
-            size_t messages_before_loop = 0;  // 项目会话恢复：记录 loop 前消息数，用于批量持久化
-            {
-                std::lock_guard<std::mutex> lock(m_state_mutex);
-                prev_shape = m_last_prefix_shape;
-                messages_before_loop = m_messages.size();
-            }
-            // 预捕获仅用于 prev_shape 为空（首轮）时的 prefix_hash 基线；
-            // 真正的 cur_shape 在 run() 返回后用 react_result.rewrite_version 二次捕获
-            PrefixShape cur_shape_baseline = capture_shape(m_system_prompt, tools_schema, 0);
-            if (prev_shape.prefix_hash.empty()) {
-                std::lock_guard<std::mutex> lock(m_state_mutex);
-                m_last_prefix_shape = cur_shape_baseline;
-            }
-
-            // ---- 执行 Agent 循环（QueryEngine 按 agent.active 路由，唯一入口）----
-            // 目标守卫 goal 来自 agent.goal；goal_spec 原文透传用于 AgentDoneEvent/
-            // AgentVerdictEvent 展示。observer 用 ReActEventPublisher 发布步骤事件。
-            AgentRunContext run_ctx{
-                .messages = &m_messages,
-                .system_prompt = m_system_prompt,
-                .tools_schema = tools_schema,
-                .should_cancel = &should_cancel,
-                .goal = parse_goal(goal_spec),
-                .goal_spec = goal_spec,
-                .observer = &publisher,
-            };
-            AgentRunResult run_result =
-                query_engine.run(m_config_manager.get(), std::move(run_ctx));
-            ReActResult react_result = std::move(run_result.react);
-
-            // 记录本会话已分发的后台任务（P1-1 定向取消）：切会话/清除/析构时精确取消
-            if (!run_result.background_task_id.empty()) {
-                std::lock_guard<std::mutex> lock(m_state_mutex);
-                m_background_task_ids.push_back(run_result.background_task_id);
-            }
-
-            // 思考时长回填：reasoning_ms（本 turn 所有 Thought 阶段实际耗时）仅在流式结束后可知，
-            // 持久化前回填到本轮最后一条 assistant 消息（写入 JSONL 的 reasoningMs 字段）
-            if (react_result.reasoning_ms > 0.0) {
-                std::lock_guard<std::mutex> lock(m_state_mutex);
-                for (auto it = m_messages.rbegin(); it != m_messages.rend(); ++it) {
-                    if (it->role == ChatMessage::Role::Assistant) {
-                        it->reasoning_ms = react_result.reasoning_ms;
-                        break;
                     }
                 }
-            }
 
-            // 项目会话恢复：批量持久化 ReActLoop 新增的 assistant/tool 消息
-            persist_messages_range(messages_before_loop);
+                // 项目会话恢复：批量持久化 ReActLoop 新增的 assistant/tool 消息
+                persist_messages_range(messages_before_loop);
 
-            // H-2：用 react_result.rewrite_version 二次捕获 cur_shape，使 log_rewrite 归因生效
-            PrefixShape cur_shape = capture_shape(m_system_prompt, tools_schema,
-                                                  react_result.rewrite_version);
-            {
-                std::lock_guard<std::mutex> lock(m_state_mutex);
-                m_last_prefix_shape = cur_shape;
-            }
-
-            // ============================================================
-            // 结果处理
-            // ============================================================
-
-            // ---- 用户中断 ----
-            if (react_result.was_interrupted) {
-                if (!react_result.partial_content.empty()) {
-                    ChatMessage partial_msg = ChatMessage::assistant(react_result.partial_content);
-                    if (!react_result.partial_reasoning.empty()) {
-                        partial_msg.reasoning_content = react_result.partial_reasoning;
-                    }
-                    {
-                        std::lock_guard<std::mutex> lock(m_state_mutex);
-                        m_messages.push_back(partial_msg);
-                    }
-                    // 项目会话恢复：持久化中断时的 partial 消息
-                    persist_message(partial_msg);
+                // H-2：用 react_result.rewrite_version 二次捕获 cur_shape，使 log_rewrite 归因生效
+                PrefixShape cur_shape =
+                    capture_shape(m_system_prompt, tools_schema, react_result.rewrite_version);
+                {
+                    std::lock_guard<std::mutex> lock(m_state_mutex);
+                    m_last_prefix_shape = cur_shape;
                 }
+
+                // ============================================================
+                // 结果处理
+                // ============================================================
+
+                // ---- 用户中断 ----
+                if (react_result.was_interrupted) {
+                    if (!react_result.partial_content.empty()) {
+                        ChatMessage partial_msg =
+                            ChatMessage::assistant(react_result.partial_content);
+                        if (!react_result.partial_reasoning.empty()) {
+                            partial_msg.reasoning_content = react_result.partial_reasoning;
+                        }
+                        {
+                            std::lock_guard<std::mutex> lock(m_state_mutex);
+                            m_messages.push_back(partial_msg);
+                        }
+                        // 项目会话恢复：持久化中断时的 partial 消息
+                        persist_message(partial_msg);
+                    }
+                    m_event_bus.get().publish_async(StreamDoneEvent{
+                        .session_id = m_session_id,
+                        .full_content = react_result.partial_content,
+                        .full_reasoning = react_result.partial_reasoning,
+                        .was_interrupted = true,
+                        .prompt_tokens = react_result.prompt_tokens,
+                        .generated_tokens = react_result.generated_tokens,
+                        .cache_creation_input_tokens = react_result.cache_creation_input_tokens,
+                        .cache_read_input_tokens = react_result.cache_read_input_tokens,
+                        .prompt_cache_hit_tokens = react_result.prompt_cache_hit_tokens,
+                        .prompt_cache_miss_tokens = react_result.prompt_cache_miss_tokens,
+                        .prompt_ms = react_result.prompt_ms,
+                        .generation_ms = react_result.generation_ms,
+                        .reasoning_ms = react_result.reasoning_ms});
+                    m_generating.store(false);
+                    flush_pending_after_run();  // 队列收尾冲刷（中断也算本轮结束）
+                    return;
+                }
+
+                // ---- 错误处理 ----
+                // H-7：纯函数 compute_retry 决策，I/O 由 run_completion 执行
+                if (react_result.was_error) {
+                    auto decision = compute_retry(react_result, retry_policy, retry_attempt);
+
+                    switch (decision.action) {
+                        case RetryAction::Sleep: {
+                            // 可重试：发布重试提示事件 + 可中断等待 + 递归重试
+                            m_event_bus.get().publish_async(StreamErrorEvent{
+                                .session_id = m_session_id,
+                                .message =
+                                    std::format("Error: {}, retrying in {}ms... ({}/{})",
+                                                react_result.error_message, decision.delay_ms,
+                                                retry_attempt + 1, retry_policy.max_retries),
+                                .retryable = true});
+
+                            // 可中断的等待
+                            auto wait_until = std::chrono::steady_clock::now() +
+                                              std::chrono::milliseconds(decision.delay_ms);
+                            while (std::chrono::steady_clock::now() < wait_until) {
+                                if (should_cancel) {
+                                    m_generating.store(false);
+                                    flush_pending_after_run();  // 等待期被打断：本轮终止，收尾冲刷
+                                    return;
+                                }
+                                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                            }
+
+                            if (!should_cancel) {
+                                // 保留工具调用上下文：不删除已成功的 tool call/result 消息
+                                // ReAct loop 在流式失败时不会添加 partial assistant 消息，
+                                // 所以 m_messages 中只有成功的 round，直接重试即可
+                                run_completion(user_text, {}, retry_attempt + 1);
+                                // 递归重试已接管 m_generating（保持 true），本任务退出；
+                                // 队列由重试任务的终止路径冲刷，此处不重复冲刷。
+                                return;
+                            }
+                            break;
+                        }
+                        case RetryAction::Stop:
+                            // 不可重试：发布终止事件
+                            m_event_bus.get().publish_async(
+                                StreamErrorEvent{.session_id = m_session_id,
+                                                 .message = react_result.error_message,
+                                                 .retryable = false});
+                            break;
+                        case RetryAction::Continue:
+                            // 无错误路径，理论上不应进入（was_error=true 时不会返回 Continue）
+                            break;
+                    }
+                    m_generating.store(false);
+                    flush_pending_after_run();  // 不可重试错误终止：收尾冲刷
+                    return;
+                }
+
+                // ---- 成功完成 ----
                 m_event_bus.get().publish_async(StreamDoneEvent{
                     .session_id = m_session_id,
-                    .full_content = react_result.partial_content,
-                    .full_reasoning = react_result.partial_reasoning,
-                    .was_interrupted = true,
+                    .full_content = react_result.final_answer,
+                    .full_reasoning = react_result.final_reasoning,
+                    .was_interrupted = false,
                     .prompt_tokens = react_result.prompt_tokens,
                     .generated_tokens = react_result.generated_tokens,
                     .cache_creation_input_tokens = react_result.cache_creation_input_tokens,
@@ -1398,144 +1445,61 @@ void ChatSession::run_completion(const std::string& user_text,
                     .prompt_cache_miss_tokens = react_result.prompt_cache_miss_tokens,
                     .prompt_ms = react_result.prompt_ms,
                     .generation_ms = react_result.generation_ms,
-                    .reasoning_ms = react_result.reasoning_ms
+                    .reasoning_ms = react_result.reasoning_ms});
+
+                // DS_CACHE M-3：移除 m_cache_hit_total/m_cache_miss_total 累加（死代码已删除）
+                // TUI 通过 token_stats_model 的 update_from_usage 自行累计
+
+                // DS_CACHE: 发布缓存诊断事件（前缀变化归因）
+                // 仅当前缀变化或本轮有 cache 数据时发布，避免无意义事件刷屏
+                if (!prev_shape.prefix_hash.empty() || react_result.prompt_cache_hit_tokens > 0 ||
+                    react_result.prompt_cache_miss_tokens > 0) {
+                    auto diag =
+                        compare_shape(prev_shape, cur_shape, react_result.prompt_cache_hit_tokens,
+                                      react_result.prompt_cache_miss_tokens);
+                    if (diag.prefix_changed || diag.cache_miss_tokens > 0) {
+                        m_event_bus.get().publish_async(
+                            CacheDiagnosticsEvent{.session_id = m_session_id,
+                                                  .prefix_hash = diag.prefix_hash,
+                                                  .prefix_changed = diag.prefix_changed,
+                                                  .reasons = diag.reasons,
+                                                  .cache_hit_tokens = diag.cache_hit_tokens,
+                                                  .cache_miss_tokens = diag.cache_miss_tokens});
+                    }
+                }
+
+                m_event_bus.get().publish_async(AgentDoneEvent{
+                    .final_response = react_result.final_answer,
+                    .total_steps = static_cast<int32_t>(react_result.steps.size()),
+                    .total_tool_calls = react_result.total_tool_calls,
+                    .total_duration_ms = react_result.total_duration_ms,
+                    // 0.6.x：透传实际 Agent 类型与目标守卫终态（QueryTracker 调用链溯源）
+                    .agent_type = static_cast<int32_t>(run_result.agent_type),
+                    .goal_status = static_cast<int32_t>(react_result.goal_status),
+                    .goal_spec = goal_spec,
                 });
+
                 m_generating.store(false);
-                flush_pending_after_run();  // 队列收尾冲刷（中断也算本轮结束）
-                return;
-            }
+                flush_pending_after_run();  // 成功完成：队列仍有未发消息则开启新一轮
 
-            // ---- 错误处理 ----
-            // H-7：纯函数 compute_retry 决策，I/O 由 run_completion 执行
-            if (react_result.was_error) {
-                auto decision = compute_retry(react_result, retry_policy, retry_attempt);
-
-                switch (decision.action) {
-                case RetryAction::Sleep: {
-                    // 可重试：发布重试提示事件 + 可中断等待 + 递归重试
-                    m_event_bus.get().publish_async(StreamErrorEvent{
-                        .session_id = m_session_id,
-                        .message = std::format(
-                            "Error: {}, retrying in {}ms... ({}/{})",
-                            react_result.error_message, decision.delay_ms,
-                            retry_attempt + 1, retry_policy.max_retries),
-                        .retryable = true
-                    });
-
-                    // 可中断的等待
-                    auto wait_until = std::chrono::steady_clock::now() +
-                                      std::chrono::milliseconds(decision.delay_ms);
-                    while (std::chrono::steady_clock::now() < wait_until) {
-                        if (should_cancel) {
-                            m_generating.store(false);
-                            flush_pending_after_run();  // 等待期被打断：本轮终止，收尾冲刷
-                            return;
-                        }
-                        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                    }
-
-                    if (!should_cancel) {
-                        // 保留工具调用上下文：不删除已成功的 tool call/result 消息
-                        // ReAct loop 在流式失败时不会添加 partial assistant 消息，
-                        // 所以 m_messages 中只有成功的 round，直接重试即可
-                        run_completion(user_text, {}, retry_attempt + 1);
-                        // 递归重试已接管 m_generating（保持 true），本任务退出；
-                        // 队列由重试任务的终止路径冲刷，此处不重复冲刷。
-                        return;
-                    }
-                    break;
-                }
-                case RetryAction::Stop:
-                    // 不可重试：发布终止事件
-                    m_event_bus.get().publish_async(StreamErrorEvent{
-                        .session_id = m_session_id,
-                        .message = react_result.error_message,
-                        .retryable = false
-                    });
-                    break;
-                case RetryAction::Continue:
-                    // 无错误路径，理论上不应进入（was_error=true 时不会返回 Continue）
-                    break;
-                }
-                m_generating.store(false);
-                flush_pending_after_run();  // 不可重试错误终止：收尾冲刷
-                return;
-            }
-
-            // ---- 成功完成 ----
-            m_event_bus.get().publish_async(StreamDoneEvent{
-                .session_id = m_session_id,
-                .full_content = react_result.final_answer,
-                .full_reasoning = react_result.final_reasoning,
-                .was_interrupted = false,
-                .prompt_tokens = react_result.prompt_tokens,
-                .generated_tokens = react_result.generated_tokens,
-                .cache_creation_input_tokens = react_result.cache_creation_input_tokens,
-                .cache_read_input_tokens = react_result.cache_read_input_tokens,
-                .prompt_cache_hit_tokens = react_result.prompt_cache_hit_tokens,
-                .prompt_cache_miss_tokens = react_result.prompt_cache_miss_tokens,
-                .prompt_ms = react_result.prompt_ms,
-                .generation_ms = react_result.generation_ms,
-                .reasoning_ms = react_result.reasoning_ms
-            });
-
-            // DS_CACHE M-3：移除 m_cache_hit_total/m_cache_miss_total 累加（死代码已删除）
-            // TUI 通过 token_stats_model 的 update_from_usage 自行累计
-
-            // DS_CACHE: 发布缓存诊断事件（前缀变化归因）
-            // 仅当前缀变化或本轮有 cache 数据时发布，避免无意义事件刷屏
-            if (!prev_shape.prefix_hash.empty() || react_result.prompt_cache_hit_tokens > 0
-                || react_result.prompt_cache_miss_tokens > 0) {
-                auto diag = compare_shape(prev_shape, cur_shape,
-                                          react_result.prompt_cache_hit_tokens,
-                                          react_result.prompt_cache_miss_tokens);
-                if (diag.prefix_changed || diag.cache_miss_tokens > 0) {
-                    m_event_bus.get().publish_async(CacheDiagnosticsEvent{
-                        .session_id = m_session_id,
-                        .prefix_hash = diag.prefix_hash,
-                        .prefix_changed = diag.prefix_changed,
-                        .reasons = diag.reasons,
-                        .cache_hit_tokens = diag.cache_hit_tokens,
-                        .cache_miss_tokens = diag.cache_miss_tokens
-                    });
-                }
-            }
-
-            m_event_bus.get().publish_async(AgentDoneEvent{
-                .final_response = react_result.final_answer,
-                .total_steps = static_cast<int32_t>(react_result.steps.size()),
-                .total_tool_calls = react_result.total_tool_calls,
-                .total_duration_ms = react_result.total_duration_ms,
-                // 0.6.x：透传实际 Agent 类型与目标守卫终态（QueryTracker 调用链溯源）
-                .agent_type = static_cast<int32_t>(run_result.agent_type),
-                .goal_status = static_cast<int32_t>(react_result.goal_status),
-                .goal_spec = goal_spec,
-            });
-
-            m_generating.store(false);
-            flush_pending_after_run();  // 成功完成：队列仍有未发消息则开启新一轮
-
-            } // end try
+            }  // end try
             catch (const std::exception& e) {
                 m_event_bus.get().publish_async(StreamErrorEvent{
                     .session_id = m_session_id,
                     .message = std::format("Fatal error in completion task: {}", e.what()),
-                    .retryable = false
-                });
+                    .retryable = false});
                 m_generating.store(false);
                 flush_pending_after_run();
             } catch (...) {
-                m_event_bus.get().publish_async(StreamErrorEvent{
-                    .session_id = m_session_id,
-                    .message = "Fatal unknown error in completion task",
-                    .retryable = false
-                });
+                m_event_bus.get().publish_async(
+                    StreamErrorEvent{.session_id = m_session_id,
+                                     .message = "Fatal unknown error in completion task",
+                                     .retryable = false});
                 m_generating.store(false);
                 flush_pending_after_run();
             }
         },
-        TaskType::Normal
-    );
+        TaskType::Normal);
 
     // 跟踪当前后台任务，用于析构等待
     {
@@ -1553,8 +1517,7 @@ void ChatSession::run_completion(const std::string& user_text,
 // ============================================================
 
 RetryDecision ChatSession::compute_retry(const ReActResult& react_result,
-                                         const HttpRetryPolicy& retry_policy,
-                                         int attempt) {
+                                         const HttpRetryPolicy& retry_policy, int attempt) {
     // 无错误：继续执行（非错误路径）
     if (!react_result.was_error) {
         return RetryDecision{RetryAction::Continue, 0};
@@ -1562,8 +1525,8 @@ RetryDecision ChatSession::compute_retry(const ReActResult& react_result,
 
     // 可重试判定：①未超 max_retries ②HttpRetryPolicy.is_retryable 通过
     // http_status=0 表示业务错误（非 HTTP），由 error_message 内容判断
-    const bool can_retry = attempt < retry_policy.max_retries
-                           && HttpRetryPolicy::is_retryable(0, react_result.error_message);
+    const bool can_retry = attempt < retry_policy.max_retries &&
+                           HttpRetryPolicy::is_retryable(0, react_result.error_message);
 
     if (!can_retry) {
         return RetryDecision{RetryAction::Stop, 0};
@@ -1599,10 +1562,18 @@ nlohmann::json ChatSession::serialize_state() const {
     for (const auto& msg : messages_copy) {
         nlohmann::json m;
         switch (msg.role) {
-            case ChatMessage::Role::System:    m["role"] = "system"; break;
-            case ChatMessage::Role::User:      m["role"] = "user"; break;
-            case ChatMessage::Role::Assistant: m["role"] = "assistant"; break;
-            case ChatMessage::Role::Tool:      m["role"] = "tool"; break;
+            case ChatMessage::Role::System:
+                m["role"] = "system";
+                break;
+            case ChatMessage::Role::User:
+                m["role"] = "user";
+                break;
+            case ChatMessage::Role::Assistant:
+                m["role"] = "assistant";
+                break;
+            case ChatMessage::Role::Tool:
+                m["role"] = "tool";
+                break;
         }
         m["content"] = msg.content;
         if (!msg.reasoning_content.empty()) {
@@ -1647,22 +1618,26 @@ ChatSession::deserialize_state(const nlohmann::json& j) {
 
                 // H-6：const operator[] 在 missing key 上触发 assert，必须先 contains 检查
                 if (!m.contains("role")) {
-                    return Result<std::pair<std::vector<ChatMessage>, std::string>, std::string>::err(
-                        "Message missing 'role' field");
+                    return Result<std::pair<std::vector<ChatMessage>, std::string>,
+                                  std::string>::err("Message missing 'role' field");
                 }
                 if (!m.contains("content")) {
-                    return Result<std::pair<std::vector<ChatMessage>, std::string>, std::string>::err(
-                        "Message missing 'content' field");
+                    return Result<std::pair<std::vector<ChatMessage>, std::string>,
+                                  std::string>::err("Message missing 'content' field");
                 }
 
                 std::string role_str = m["role"].get<std::string>();
-                if (role_str == "system")          msg.role = ChatMessage::Role::System;
-                else if (role_str == "user")       msg.role = ChatMessage::Role::User;
-                else if (role_str == "assistant")  msg.role = ChatMessage::Role::Assistant;
-                else if (role_str == "tool")       msg.role = ChatMessage::Role::Tool;
+                if (role_str == "system")
+                    msg.role = ChatMessage::Role::System;
+                else if (role_str == "user")
+                    msg.role = ChatMessage::Role::User;
+                else if (role_str == "assistant")
+                    msg.role = ChatMessage::Role::Assistant;
+                else if (role_str == "tool")
+                    msg.role = ChatMessage::Role::Tool;
                 else {
-                    return Result<std::pair<std::vector<ChatMessage>, std::string>, std::string>::err(
-                        std::format("Unknown role: {}", role_str));
+                    return Result<std::pair<std::vector<ChatMessage>, std::string>,
+                                  std::string>::err(std::format("Unknown role: {}", role_str));
                 }
 
                 msg.content = m["content"].get<std::string>();
@@ -1709,8 +1684,7 @@ ChatSession::deserialize_state(const nlohmann::json& j) {
 }
 
 // C-1：一次性加锁提交状态到成员
-void ChatSession::commit_state(std::vector<ChatMessage> messages,
-                                std::string system_prompt) {
+void ChatSession::commit_state(std::vector<ChatMessage> messages, std::string system_prompt) {
     bool record_resume = !system_prompt.empty();
     {
         std::lock_guard<std::mutex> lock(m_state_mutex);
@@ -1738,30 +1712,26 @@ Result<void, std::string> ChatSession::save_session(const std::string& path) con
 
         std::ofstream file(path);
         if (!file.is_open()) {
-            return Result<void, std::string>::err(
-                std::format("Failed to create file: {}", path));
+            return Result<void, std::string>::err(std::format("Failed to create file: {}", path));
         }
         file << j.dump(2);
         file.close();
         return Result<void, std::string>::ok();
 
     } catch (const std::exception& e) {
-        return Result<void, std::string>::err(
-            std::format("Error saving session: {}", e.what()));
+        return Result<void, std::string>::err(std::format("Error saving session: {}", e.what()));
     }
 }
 
 Result<void, std::string> ChatSession::load_session(const std::string& path) {
     if (!std::filesystem::exists(path)) {
-        return Result<void, std::string>::err(
-            std::format("File not found: {}", path));
+        return Result<void, std::string>::err(std::format("File not found: {}", path));
     }
 
     try {
         std::ifstream file(path);
         if (!file.is_open()) {
-            return Result<void, std::string>::err(
-                std::format("Failed to open file: {}", path));
+            return Result<void, std::string>::err(std::format("Failed to open file: {}", path));
         }
 
         nlohmann::json j;
@@ -1778,11 +1748,9 @@ Result<void, std::string> ChatSession::load_session(const std::string& path) {
         return Result<void, std::string>::ok();
 
     } catch (const nlohmann::json::parse_error& e) {
-        return Result<void, std::string>::err(
-            std::format("JSON parse error: {}", e.what()));
+        return Result<void, std::string>::err(std::format("JSON parse error: {}", e.what()));
     } catch (const std::exception& e) {
-        return Result<void, std::string>::err(
-            std::format("Error loading session: {}", e.what()));
+        return Result<void, std::string>::err(std::format("Error loading session: {}", e.what()));
     }
 }
 
@@ -1794,8 +1762,8 @@ Result<void, std::string> ChatSession::load_session(const std::string& path) {
 // ============================================================
 
 void ChatSession::subscribe_interrupt() {
-    m_interrupt_token = m_event_bus.get().subscribe<InterruptEvent>(
-        [this](const InterruptEvent& /*e*/) {
+    m_interrupt_token =
+        m_event_bus.get().subscribe<InterruptEvent>([this](const InterruptEvent& /*e*/) {
             // 1) 快速断开 LLM 流（保留原有路径）
             if (m_provider) {
                 m_provider->interrupt();
@@ -1811,8 +1779,7 @@ void ChatSession::subscribe_interrupt() {
             if (task) {
                 task->cancel();
             }
-        }
-    );
+        });
 }
 
 void ChatSession::unsubscribe_interrupt() {
@@ -1820,8 +1787,8 @@ void ChatSession::unsubscribe_interrupt() {
 }
 
 void ChatSession::subscribe_sub_agent_persistence() {
-    m_sub_progress_token = m_event_bus.get().subscribe<SubAgentProgressEvent>(
-        [this](const SubAgentProgressEvent& e) {
+    m_sub_progress_token =
+        m_event_bus.get().subscribe<SubAgentProgressEvent>([this](const SubAgentProgressEvent& e) {
             // final 步由 SubAgentCompletedEvent 承载，UI 不渲染，跳过持久化
             if (e.step_type == "final") return;
             agent::session::SubAgentEvent ev;
@@ -1877,8 +1844,7 @@ void ChatSession::subscribe_plan_events() {
     // 由下方 m_plan_sub_completed_token 回投 m_plan_coordinator->on_explore_task_done。
     // 权限模式取 Plan（只读）：launch_sub_agent 内会对非只读工具过滤，杜绝写/执行能力。
     m_plan_coordinator->set_explore_runner(
-        [this](const std::string& task_id, const std::string& /*area*/,
-               const std::string& prompt) {
+        [this](const std::string& task_id, const std::string& /*area*/, const std::string& prompt) {
             tool::SubAgentLaunchOptions opts;
             opts.task_id = task_id;
             opts.prompt = prompt;
@@ -1896,8 +1862,8 @@ void ChatSession::subscribe_plan_events() {
         });
 
     // 进入 Plan（EnterPlanMode 事件）→ 启动 interview/探索流程
-    m_plan_enter_token = m_event_bus.get().subscribe<EnterPlanModeEvent>(
-        [this](const EnterPlanModeEvent& e) {
+    m_plan_enter_token =
+        m_event_bus.get().subscribe<EnterPlanModeEvent>([this](const EnterPlanModeEvent& e) {
             if (!m_plan_coordinator) return;
             m_plan_coordinator->begin_plan(e.reason);
             // interview 开启路径：收集的约束以进入原因代填，随后自动推进探索。
@@ -1911,8 +1877,8 @@ void ChatSession::subscribe_plan_events() {
         });
 
     // 退出 Plan（ExitPlanModeV2 工具批准/驳回）→ 推进阶段终态
-    m_plan_exit_token = m_event_bus.get().subscribe<ExitPlanModeEvent>(
-        [this](const ExitPlanModeEvent& e) {
+    m_plan_exit_token =
+        m_event_bus.get().subscribe<ExitPlanModeEvent>([this](const ExitPlanModeEvent& e) {
             if (!m_plan_coordinator) return;
             m_plan_coordinator->set_approved(e.approved);
             // #54：审批时消费结构化 critical_files（工具缺省 → 产物已聚合；工具显式传入 →
@@ -1942,8 +1908,7 @@ void ChatSession::unsubscribe_plan_events() {
 void ChatSession::maybe_persist_plan_artifact() {
     if (!m_plan_coordinator) return;
     const auto& art = m_plan_coordinator->artifact();
-    if (m_plan_coordinator->stage() != plan::PlanStage::AwaitingApproval ||
-        art.markdown.empty()) {
+    if (m_plan_coordinator->stage() != plan::PlanStage::AwaitingApproval || art.markdown.empty()) {
         return;
     }
     namespace fs = std::filesystem;
@@ -1958,5 +1923,4 @@ void ChatSession::maybe_persist_plan_artifact() {
     }
 }
 
-} // namespace agent
-
+}  // namespace agent

@@ -15,30 +15,25 @@
 
 namespace agent {
 
-ReActLoopAdapter::ReActLoopAdapter(std::unique_ptr<ReActLoop> loop)
-    : m_loop(std::move(loop)) {}
+ReActLoopAdapter::ReActLoopAdapter(std::unique_ptr<ReActLoop> loop) : m_loop(std::move(loop)) {}
 
 AgentRunResult ReActLoopAdapter::run(AgentRunContext ctx) {
     AgentRunResult out;
     out.agent_type = type();
-    out.react = m_loop->run(
-        *ctx.messages, ctx.system_prompt, ctx.tools_schema,
-        ctx.should_cancel ? *ctx.should_cancel : kNeverCancel(),
-        ctx.observer);
+    out.react = m_loop->run(*ctx.messages, ctx.system_prompt, ctx.tools_schema,
+                            ctx.should_cancel ? *ctx.should_cancel : kNeverCancel(), ctx.observer);
     return out;
 }
 
-GoalGuardedLoopAdapter::GoalGuardedLoopAdapter(GoalAgentDeps deps)
-    : m_deps(std::move(deps)) {}
+GoalGuardedLoopAdapter::GoalGuardedLoopAdapter(GoalAgentDeps deps) : m_deps(std::move(deps)) {}
 
 AgentRunResult GoalGuardedLoopAdapter::run(AgentRunContext ctx) {
     AgentRunResult out;
     out.agent_type = type();
     GoalGuardedAgent agent(m_deps);
-    out.react = agent.run(
-        *ctx.messages, ctx.system_prompt, ctx.tools_schema,
-        ctx.should_cancel ? *ctx.should_cancel : kNeverCancel(),
-        ctx.goal, ctx.goal_spec, ctx.observer);
+    out.react = agent.run(*ctx.messages, ctx.system_prompt, ctx.tools_schema,
+                          ctx.should_cancel ? *ctx.should_cancel : kNeverCancel(), ctx.goal,
+                          ctx.goal_spec, ctx.observer);
     return out;
 }
 
@@ -47,8 +42,7 @@ const std::atomic<bool>& kNeverCancel() {
     return k;
 }
 
-ScriptLoopAdapter::ScriptLoopAdapter(GoalAgentDeps deps)
-    : m_deps(std::move(deps)) {}
+ScriptLoopAdapter::ScriptLoopAdapter(GoalAgentDeps deps) : m_deps(std::move(deps)) {}
 
 AgentRunResult ScriptLoopAdapter::run(AgentRunContext ctx) {
     AgentRunResult out;
@@ -58,8 +52,7 @@ AgentRunResult ScriptLoopAdapter::run(AgentRunContext ctx) {
     return out;
 }
 
-BatchLoopAdapter::BatchLoopAdapter(GoalAgentDeps deps)
-    : m_deps(std::move(deps)) {}
+BatchLoopAdapter::BatchLoopAdapter(GoalAgentDeps deps) : m_deps(std::move(deps)) {}
 
 AgentRunResult BatchLoopAdapter::run(AgentRunContext ctx) {
     AgentRunResult out;
@@ -69,8 +62,7 @@ AgentRunResult BatchLoopAdapter::run(AgentRunContext ctx) {
     return out;
 }
 
-WatchLoopAdapter::WatchLoopAdapter(GoalAgentDeps deps)
-    : m_deps(std::move(deps)) {}
+WatchLoopAdapter::WatchLoopAdapter(GoalAgentDeps deps) : m_deps(std::move(deps)) {}
 
 AgentRunResult WatchLoopAdapter::run(AgentRunContext ctx) {
     AgentRunResult out;
@@ -114,8 +106,8 @@ nlohmann::json strip_background_forbidden_tools(const nlohmann::json& schema) {
     if (!schema.is_array()) return schema;
     nlohmann::json out = nlohmann::json::array();
     for (const auto& item : schema) {
-        const bool forbidden = item.is_object() &&
-                               item.value("name", std::string{}) == kBackgroundForbiddenTool;
+        const bool forbidden =
+            item.is_object() && item.value("name", std::string{}) == kBackgroundForbiddenTool;
         if (!forbidden) {
             out.push_back(item);
         }
@@ -123,10 +115,9 @@ nlohmann::json strip_background_forbidden_tools(const nlohmann::json& schema) {
     return out;
 }
 
-} // namespace
+}  // namespace
 
-BackgroundLoopAdapter::BackgroundLoopAdapter(const GoalAgentDeps& deps)
-    : m_deps(deps) {}
+BackgroundLoopAdapter::BackgroundLoopAdapter(const GoalAgentDeps& deps) : m_deps(deps) {}
 
 void BackgroundLoopAdapter::cancel() const noexcept {
     if (m_task_id.empty() || !m_deps.task_manager) {
@@ -157,8 +148,7 @@ AgentRunResult BackgroundLoopAdapter::run(AgentRunContext ctx) {
     if (!m_deps.task_manager || !m_deps.provider) {
         out.react.was_error = true;
         out.react.goal_status = GoalStatus::Failed;
-        out.react.error_message =
-            "background agent requires a live task manager and LLM provider";
+        out.react.error_message = "background agent requires a live task manager and LLM provider";
         LOG_WARN("[background_agent] missing task_manager/provider");
         return out;
     }
@@ -185,7 +175,7 @@ AgentRunResult BackgroundLoopAdapter::run(AgentRunContext ctx) {
     // 拷贝需要跨 run() 存活的值语义依赖（字符串 / json），指针仅保留会话稳定的。
     GoalAgentDeps deps = m_deps;
     // 消息队列归属主会话前台循环：后台任务在独立消息缓冲中运行，不消费主会话队列
-    //（否则后台/前台并发冲刷时队列可能被后台任务抢先注入，与用户预期不符）。
+    // （否则后台/前台并发冲刷时队列可能被后台任务抢先注入，与用户预期不符）。
     deps.queue_inject_cb = nullptr;
     const std::string system_prompt = std::move(ctx.system_prompt);
     // P2-3：后台不暴露 AgentTool（防异步递归派生子 Agent/后台任务）
@@ -193,76 +183,73 @@ AgentRunResult BackgroundLoopAdapter::run(AgentRunContext ctx) {
         deps.registry ? deps.registry->get_all_schemas() : nlohmann::json::array());
 
     // 供后台子线程取消句柄：ChatSession 经 result.background_task_id 或 cancel() 定向取消
-    m_deps.task_manager->launch(task_id,
-        [deps, task_id, user_text, system_prompt, tools_schema]
-        (const std::atomic<bool>& should_cancel) {
-            // 底层默认 ReAct 循环（ReActLoopFactory::make 注入会话权限/事件/压缩器）
-            auto loop = ReActLoopFactory::make(deps, deps.registry, ReActLoop::Config{});
-            std::vector<ChatMessage> messages;
-            messages.push_back(ChatMessage::user(user_text));
+    m_deps.task_manager->launch(task_id, [deps, task_id, user_text, system_prompt,
+                                          tools_schema](const std::atomic<bool>& should_cancel) {
+        // 底层默认 ReAct 循环（ReActLoopFactory::make 注入会话权限/事件/压缩器）
+        auto loop = ReActLoopFactory::make(deps, deps.registry, ReActLoop::Config{});
+        std::vector<ChatMessage> messages;
+        messages.push_back(ChatMessage::user(user_text));
 
-            // observer 仅捕获最小依赖（P3-2）：指针 + id，避免按值拷贝大结构体；
-            // 每次回调按需 find_task（P2-1），不持有对局部 task_ptr 的引用。
-            auto* task_manager = deps.task_manager;
-            auto* event_bus = deps.event_bus;
-            ReActResult result = loop->run(messages, system_prompt, tools_schema,
-                should_cancel,
-                [task_manager, event_bus, task_id](const ReActStep& step) {
-                    const std::string line = format_step_line(step);
-                    if (task_manager && !line.empty()) {
-                        if (const auto task = task_manager->find_task(task_id)) {
-                            task->append_output(line);
-                        }
-                    }
-                    // 进度事件：增量通知（不注入主会话 LLM 上下文），供第二层渲染
-                    if (event_bus != nullptr && !line.empty()) {
-                        event_bus->publish_async(BackgroundProgressEvent{
-                            .task_id = task_id,
-                            .step_number = step.step_number,
-                            .step_type = step_type_str(step.type),
-                            .content = line,
-                            .thought_text = step.thought_text,
-                            .tool_name = step.tool_name,
-                            .tool_input = step.tool_input.is_null()
-                                              ? std::string{}
-                                              : step.tool_input.dump(),
-                            .observation = step.observation,
-                            .is_error = step.is_error,
-                            .duration_ms = step.duration_ms,
-                        });
-                    }
-                });
+        // observer 仅捕获最小依赖（P3-2）：指针 + id，避免按值拷贝大结构体；
+        // 每次回调按需 find_task（P2-1），不持有对局部 task_ptr 的引用。
+        auto* task_manager = deps.task_manager;
+        auto* event_bus = deps.event_bus;
+        ReActResult result =
+            loop->run(messages, system_prompt, tools_schema, should_cancel,
+                      [task_manager, event_bus, task_id](const ReActStep& step) {
+                          const std::string line = format_step_line(step);
+                          if (task_manager && !line.empty()) {
+                              if (const auto task = task_manager->find_task(task_id)) {
+                                  task->append_output(line);
+                              }
+                          }
+                          // 进度事件：增量通知（不注入主会话 LLM 上下文），供第二层渲染
+                          if (event_bus != nullptr && !line.empty()) {
+                              event_bus->publish_async(BackgroundProgressEvent{
+                                  .task_id = task_id,
+                                  .step_number = step.step_number,
+                                  .step_type = step_type_str(step.type),
+                                  .content = line,
+                                  .thought_text = step.thought_text,
+                                  .tool_name = step.tool_name,
+                                  .tool_input = step.tool_input.is_null() ? std::string{}
+                                                                          : step.tool_input.dump(),
+                                  .observation = step.observation,
+                                  .is_error = step.is_error,
+                                  .duration_ms = step.duration_ms,
+                              });
+                          }
+                      });
 
-            // 收尾：错误/最终答案写入输出缓冲 + 无条件发布完成事件（L-5 约定）
-            std::string summary;
-            if (result.was_error) {
-                summary = std::format("Error: {}", result.error_message);
-            } else if (!result.final_answer.empty()) {
-                summary = std::format("Final: {}", result.final_answer);
+        // 收尾：错误/最终答案写入输出缓冲 + 无条件发布完成事件（L-5 约定）
+        std::string summary;
+        if (result.was_error) {
+            summary = std::format("Error: {}", result.error_message);
+        } else if (!result.final_answer.empty()) {
+            summary = std::format("Final: {}", result.final_answer);
+        }
+        if (summary.empty()) {
+            summary = "(后台任务无文本输出)";
+        }
+        if (task_manager) {
+            if (const auto task = task_manager->find_task(task_id)) {
+                task->append_output(summary);
             }
-            if (summary.empty()) {
-                summary = "(后台任务无文本输出)";
-            }
-            if (task_manager) {
-                if (const auto task = task_manager->find_task(task_id)) {
-                    task->append_output(summary);
-                }
-            }
-            if (event_bus != nullptr) {
-                event_bus->publish_async(BackgroundCompletedEvent{
-                    .task_id = task_id,
-                    .final_answer = summary,
-                    .was_error = result.was_error,
-                    .duration_ms = static_cast<double>(result.total_duration_ms),
-                });
-            }
-        });
+        }
+        if (event_bus != nullptr) {
+            event_bus->publish_async(BackgroundCompletedEvent{
+                .task_id = task_id,
+                .final_answer = summary,
+                .was_error = result.was_error,
+                .duration_ms = static_cast<double>(result.total_duration_ms),
+            });
+        }
+    });
 
     // 主 turn 立即返回，不阻塞主对话
     out.react.final_answer =
-        std::format("后台任务已启动（task: {}）。可继续对话，进度与完成会通过事件通知。",
-                    task_id);
+        std::format("后台任务已启动（task: {}）。可继续对话，进度与完成会通过事件通知。", task_id);
     return out;
 }
 
-} // namespace agent
+}  // namespace agent

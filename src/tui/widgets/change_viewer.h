@@ -19,15 +19,14 @@ namespace ftxtui {
 
 /// @brief 修改点行命中区（鼠标点击选中用）
 struct ChangeHit {
-    int index = -1;          ///< 修改点下标（changes.changes 下标）
-    ftxui::Box box;          ///< 命中区屏幕 box
+    int index = -1;  ///< 修改点下标（changes.changes 下标）
+    ftxui::Box box;  ///< 命中区屏幕 box
 };
 
 /// @brief 构建变更记录 tab 组件（修改点 Menu + hunk + 目的展开）
 /// @param changes 变更记录状态（App 持有）
 /// @param on_jump 选中修改点 Enter 回调（App 跳转文件 tab）
-ftxui::Component make_change_viewer(ChangeViewState* changes,
-                                    std::function<void()> on_jump);
+ftxui::Component make_change_viewer(ChangeViewState* changes, std::function<void()> on_jump);
 
 /// @brief 变更记录视图渲染（纯元素）
 /// @param changes 变更记录状态

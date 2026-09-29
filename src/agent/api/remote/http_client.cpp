@@ -65,7 +65,8 @@ struct CurlShareLocks {
     }
 };
 
-void curl_share_lock_cb(CURL* /*handle*/, curl_lock_data data, curl_lock_access /*access*/, void* /*userptr*/) {
+void curl_share_lock_cb(CURL* /*handle*/, curl_lock_data data, curl_lock_access /*access*/,
+                        void* /*userptr*/) {
     int idx = static_cast<int>(data);
     if (idx >= 0 && idx < CurlShareLocks::kLockDataCount) {
         CurlShareLocks::instance().mutexes[idx].lock();
@@ -100,7 +101,7 @@ CURLSH* shared_curl_share() {
 ///          改用 *_STR 字符串形式；按编译期版本选择，避免 -Werror 下
 ///          -Wdeprecated-declarations 升级为错误导致 Linux 编译失败。
 void restrict_allowed_protocols(CURL* curl) {
-#if LIBCURL_VERSION_NUM >= 0x075500   // 7.85.0
+#if LIBCURL_VERSION_NUM >= 0x075500  // 7.85.0
     curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
     curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "http,https");
 #else
@@ -109,7 +110,7 @@ void restrict_allowed_protocols(CURL* curl) {
 #endif
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 // ============================================================
 // URL 解析
@@ -136,15 +137,16 @@ ParsedUrl HttpClient::parse_url(const std::string& url) {
     auto get_part = [&](CURLUPart p) -> std::string {
         char* c = nullptr;
         if (curl_url_get(hurl, p, &c, 0) == CURLUE_OK && c) {
-            std::string s(c); curl_free(c); return s;
+            std::string s(c);
+            curl_free(c);
+            return s;
         }
         return {};
     };
     result.scheme = get_part(CURLUPART_SCHEME);
-    result.host   = get_part(CURLUPART_HOST);
-    result.port   = get_part(CURLUPART_PORT);
-    if (result.port.empty())
-        result.port = (result.scheme == "https") ? "443" : "80";
+    result.host = get_part(CURLUPART_HOST);
+    result.port = get_part(CURLUPART_PORT);
+    if (result.port.empty()) result.port = (result.scheme == "https") ? "443" : "80";
     {
         std::string p = get_part(CURLUPART_PATH);
         if (p.empty()) p = "/";
@@ -160,8 +162,7 @@ ParsedUrl HttpClient::parse_url(const std::string& url) {
 // ============================================================
 
 static size_t write_cb(void* ptr, size_t size, size_t nmemb, void* userdata) {
-    static_cast<std::string*>(userdata)->append(
-        static_cast<const char*>(ptr), size * nmemb);
+    static_cast<std::string*>(userdata)->append(static_cast<const char*>(ptr), size * nmemb);
     return size * nmemb;
 }
 
@@ -207,9 +208,9 @@ static curl_socket_t ssrf_opensocket_cb(void* /*clientp*/, curlsocktype /*purpos
 // Sync GET（V2-2：返回 ResultV2<HttpResponse>）
 // ============================================================
 
-ResultV2<HttpResponse> HttpClient::get(const std::string& url,
-                                       const std::vector<std::pair<std::string, std::string>>& headers,
-                                       int timeout_ms) {
+ResultV2<HttpResponse> HttpClient::get(
+    const std::string& url, const std::vector<std::pair<std::string, std::string>>& headers,
+    int timeout_ms) {
     LOG_DEBUG("[http] GET {} timeout={}ms", url, timeout_ms);
     // #25 P3-1：SSRF 预检（防御纵深）——开启防护时先解析 URL，命中内网直接拒绝，
     // 提供比连接钩子更清晰的错误信息（连接钩子仍兜底重定向后的最终目标）
@@ -220,17 +221,14 @@ ResultV2<HttpResponse> HttpClient::get(const std::string& url,
             LOG_WARN("[http] GET {} 目标解析到内网/回环/链路本地地址，SSRF 防护拒绝", url);
             return ResultV2<HttpResponse>::err(
                 Error::Code::PermissionDenied,
-                "SSRF 防护：目标主机解析到内网/回环/链路本地地址，已拒绝请求",
-                url);
+                "SSRF 防护：目标主机解析到内网/回环/链路本地地址，已拒绝请求", url);
         }
     }
     CURL* curl = curl_easy_init();
     if (!curl) {
         LOG_ERROR("[http] GET {} curl_easy_init failed", url);
-        return ResultV2<HttpResponse>::err(
-            Error::Code::InternalError,
-            "curl_easy_init failed",
-            url);
+        return ResultV2<HttpResponse>::err(Error::Code::InternalError, "curl_easy_init failed",
+                                           url);
     }
 
     std::string body;
@@ -261,8 +259,7 @@ ResultV2<HttpResponse> HttpClient::get(const std::string& url,
     }
 
     struct curl_slist* hl = nullptr;
-    for (const auto& [k, v] : headers)
-        hl = curl_slist_append(hl, (k + ": " + v).c_str());
+    for (const auto& [k, v] : headers) hl = curl_slist_append(hl, (k + ": " + v).c_str());
     if (hl) curl_easy_setopt(curl, CURLOPT_HTTPHEADER, hl);
 
     CURLcode rc = curl_easy_perform(curl);
@@ -272,8 +269,7 @@ ResultV2<HttpResponse> HttpClient::get(const std::string& url,
         LOG_ERROR("[http] GET {} failed: {} (rc={})", url, err_msg, static_cast<int>(rc));
         if (hl) curl_slist_free_all(hl);
         curl_easy_cleanup(curl);
-        return ResultV2<HttpResponse>::err(
-            Error::from_curl_code(static_cast<int>(rc), url));
+        return ResultV2<HttpResponse>::err(Error::from_curl_code(static_cast<int>(rc), url));
     }
 
     HttpResponse resp;
@@ -297,12 +293,9 @@ ResultV2<HttpResponse> HttpClient::get(const std::string& url,
 // ============================================================
 
 ResultV2<HttpResponse> HttpClient::post(
-        const std::string& url,
-        const std::vector<std::pair<std::string, std::string>>& headers,
-        const std::string& body,
-        int timeout_ms) {
-    LOG_DEBUG("[http] POST {} body_len={} timeout={}ms",
-              url, body.size(), timeout_ms);
+    const std::string& url, const std::vector<std::pair<std::string, std::string>>& headers,
+    const std::string& body, int timeout_ms) {
+    LOG_DEBUG("[http] POST {} body_len={} timeout={}ms", url, body.size(), timeout_ms);
     // #25 P3-1：SSRF 预检（防御纵深），与 get() 一致
     if (m_block_private_ips) {
         const ParsedUrl parsed = parse_url(url);
@@ -311,17 +304,14 @@ ResultV2<HttpResponse> HttpClient::post(
             LOG_WARN("[http] POST {} 目标解析到内网/回环/链路本地地址，SSRF 防护拒绝", url);
             return ResultV2<HttpResponse>::err(
                 Error::Code::PermissionDenied,
-                "SSRF 防护：目标主机解析到内网/回环/链路本地地址，已拒绝请求",
-                url);
+                "SSRF 防护：目标主机解析到内网/回环/链路本地地址，已拒绝请求", url);
         }
     }
     CURL* curl = curl_easy_init();
     if (!curl) {
         LOG_ERROR("[http] POST {} curl_easy_init failed", url);
-        return ResultV2<HttpResponse>::err(
-            Error::Code::InternalError,
-            "curl_easy_init failed",
-            url);
+        return ResultV2<HttpResponse>::err(Error::Code::InternalError, "curl_easy_init failed",
+                                           url);
     }
 
     std::string out_body;
@@ -352,8 +342,7 @@ ResultV2<HttpResponse> HttpClient::post(
     }
 
     struct curl_slist* hl = nullptr;
-    for (const auto& [k, v] : headers)
-        hl = curl_slist_append(hl, (k + ": " + v).c_str());
+    for (const auto& [k, v] : headers) hl = curl_slist_append(hl, (k + ": " + v).c_str());
     if (hl) curl_easy_setopt(curl, CURLOPT_HTTPHEADER, hl);
 
     CURLcode rc = curl_easy_perform(curl);
@@ -363,8 +352,7 @@ ResultV2<HttpResponse> HttpClient::post(
         LOG_ERROR("[http] POST {} failed: {} (rc={})", url, err_msg, static_cast<int>(rc));
         if (hl) curl_slist_free_all(hl);
         curl_easy_cleanup(curl);
-        return ResultV2<HttpResponse>::err(
-            Error::from_curl_code(static_cast<int>(rc), url));
+        return ResultV2<HttpResponse>::err(Error::from_curl_code(static_cast<int>(rc), url));
     }
 
     HttpResponse resp;
@@ -388,31 +376,29 @@ ResultV2<HttpResponse> HttpClient::post(
 // ============================================================
 
 class StreamSession : public std::enable_shared_from_this<StreamSession> {
-public:
+   public:
     CURL* easy_handle() const { return m_curl; }
 
     StreamSession(const ParsedUrl& url,
-                 const std::vector<std::pair<std::string, std::string>>& headers,
-                 const std::string& body,
-                 std::shared_ptr<SSEStreamReader> reader,
-                 std::function<void()> on_complete,
-                 const int timeout_ms,
-                 const bool block_private_ips)
-        : m_body(body)
-        , m_reader(std::move(reader))
-        , m_on_complete(std::move(on_complete))
-        // H-2：总时长超时（Timer-based），默认 120 秒
-        // timeout_ms 作为空闲超时（LOW_SPEED_TIME），总时长超时独立配置
-        // 当 timeout_ms > 0 时，总时长 = max(timeout_ms, 120000) 确保不短于空闲超时
-        , m_total_timeout_ms(timeout_ms > 0 ? (std::max)(timeout_ms, 120000) : 120000)
-        , m_start_time(std::chrono::steady_clock::now())
-    {
+                  const std::vector<std::pair<std::string, std::string>>& headers,
+                  const std::string& body, std::shared_ptr<SSEStreamReader> reader,
+                  std::function<void()> on_complete, const int timeout_ms,
+                  const bool block_private_ips)
+        : m_body(body),
+          m_reader(std::move(reader)),
+          m_on_complete(std::move(on_complete))
+          // H-2：总时长超时（Timer-based），默认 120 秒
+          // timeout_ms 作为空闲超时（LOW_SPEED_TIME），总时长超时独立配置
+          // 当 timeout_ms > 0 时，总时长 = max(timeout_ms, 120000) 确保不短于空闲超时
+          ,
+          m_total_timeout_ms(timeout_ms > 0 ? (std::max)(timeout_ms, 120000) : 120000),
+          m_start_time(std::chrono::steady_clock::now()) {
         m_curl = curl_easy_init();
         if (!m_curl) return;
 
         std::string full_url = url.scheme + "://" + url.host;
         if ((url.scheme == "https" && url.port != "443") ||
-            (url.scheme == "http"  && url.port != "80"))
+            (url.scheme == "http" && url.port != "80"))
             full_url += ":" + url.port;
         full_url += url.target;
 
@@ -449,8 +435,7 @@ public:
 
         for (const auto& [k, v] : headers)
             m_header_list = curl_slist_append(m_header_list, (k + ": " + v).c_str());
-        if (m_header_list)
-            curl_easy_setopt(m_curl, CURLOPT_HTTPHEADER, m_header_list);
+        if (m_header_list) curl_easy_setopt(m_curl, CURLOPT_HTTPHEADER, m_header_list);
     }
 
     ~StreamSession() {
@@ -466,7 +451,10 @@ public:
     }
 
     void run(CURLM* multi) {
-        if (!m_curl) { finish("curl init failed"); return; }
+        if (!m_curl) {
+            finish("curl init failed");
+            return;
+        }
         m_multi = multi;
         m_added_to_multi.store(true);
         curl_multi_add_handle(m_multi, m_curl);
@@ -522,18 +510,16 @@ public:
             return;
         }
         LOG_DEBUG("[http][stream] transfer done HTTP {}", http_code);
-        if (m_reader && !m_reader->is_finished())
-            m_reader->finish();
+        if (m_reader && !m_reader->is_finished()) m_reader->finish();
         if (m_on_complete) m_on_complete();
     }
 
     // 主动以错误完成会话（供 HttpClient::async_post_stream 在 curl 初始化失败时调用）
     void finish_with_error(const std::string& err) { finish(err); }
 
-private:
+   private:
     void finish(const std::string& err) const {
-        if (m_reader && !m_reader->is_finished())
-            m_reader->finish(err);
+        if (m_reader && !m_reader->is_finished()) m_reader->finish(err);
         if (m_on_complete) m_on_complete();
     }
 
@@ -552,12 +538,13 @@ private:
 
         if (self->m_reader)
             // C.10：直接传 string_view，避免每个 SSE chunk 都构造 std::string 拷贝
-            self->m_reader->feed_data(std::string_view(
-                static_cast<const char*>(ptr), size * nmemb));
+            self->m_reader->feed_data(
+                std::string_view(static_cast<const char*>(ptr), size * nmemb));
 
         // 数据接收进度：每 256KB 记录一次（避免高频日志）
-        const size_t received = self->m_bytes_received.fetch_add(size * nmemb,
-            std::memory_order_relaxed) + size * nmemb;
+        const size_t received =
+            self->m_bytes_received.fetch_add(size * nmemb, std::memory_order_relaxed) +
+            size * nmemb;
         if (received / (256 * 1024) != (received - size * nmemb) / (256 * 1024)) {
             LOG_INFO("[http][stream] received_bytes={}KB", received / 1024);
         }
@@ -618,13 +605,15 @@ struct HttpClient::Impl {
                             }
                             // 也从 reader map 清理（C.4：完善 sessions_by_reader 清理路径）
                             // expired 的 weak_ptr 在此统一回收，避免长生命周期下 map 无限增长
-                            for (auto rit = sessions_by_reader.begin(); rit != sessions_by_reader.end(); ) {
-                                if (rit->second.expired()) rit = sessions_by_reader.erase(rit);
-                                else ++rit;
+                            for (auto rit = sessions_by_reader.begin();
+                                 rit != sessions_by_reader.end();) {
+                                if (rit->second.expired())
+                                    rit = sessions_by_reader.erase(rit);
+                                else
+                                    ++rit;
                             }
                         }
-                        if (session)
-                            session->on_transfer_done(msg->data.result);
+                        if (session) session->on_transfer_done(msg->data.result);
                     }
                 }
 
@@ -677,7 +666,10 @@ struct HttpClient::Impl {
             sessions_by_handle.clear();
             sessions_by_reader.clear();
         }
-        if (multi) { curl_multi_cleanup(multi); multi = nullptr; }
+        if (multi) {
+            curl_multi_cleanup(multi);
+            multi = nullptr;
+        }
     }
 };
 
@@ -685,18 +677,14 @@ struct HttpClient::Impl {
 // HttpClient 接口
 // ============================================================
 
-HttpClient::HttpClient()
-    : m_impl(std::make_unique<Impl>()) {}
+HttpClient::HttpClient() : m_impl(std::make_unique<Impl>()) {}
 
 HttpClient::~HttpClient() { shutdown(); }
 
-void HttpClient::async_post_stream(
-        const std::string& url,
-        const std::vector<std::pair<std::string, std::string>>& headers,
-        const std::string& body,
-        std::shared_ptr<SSEStreamReader> reader,
-        std::function<void()> on_complete,
-        int timeout_ms) const {
+void HttpClient::async_post_stream(const std::string& url,
+                                   const std::vector<std::pair<std::string, std::string>>& headers,
+                                   const std::string& body, std::shared_ptr<SSEStreamReader> reader,
+                                   std::function<void()> on_complete, int timeout_ms) const {
     LOG_INFO("[http][stream] POST {} body_len={} timeout={}ms", url, body.size(), timeout_ms);
     auto parsed = parse_url(url);
     // H-4：URL 解析失败（scheme 为空）时直接 finish reader，避免构造 "://" 怪 URL
@@ -709,8 +697,7 @@ void HttpClient::async_post_stream(
     auto* key = reader.get();
 
     const auto session = std::make_shared<StreamSession>(
-        parsed, headers, body, reader, std::move(on_complete), timeout_ms,
-        m_block_private_ips);
+        parsed, headers, body, reader, std::move(on_complete), timeout_ms, m_block_private_ips);
 
     if (!session->easy_handle()) {
         // curl 初始化失败：主动 finish reader 让上层能收到错误，避免 next() 无限阻塞
@@ -741,19 +728,17 @@ void HttpClient::cancel_stream(SSEStreamReader* reader) {
             if (session) {
                 session->cancel();
                 auto hit = m_impl->sessions_by_handle.find(session->easy_handle());
-                if (hit != m_impl->sessions_by_handle.end())
-                    m_impl->sessions_by_handle.erase(hit);
+                if (hit != m_impl->sessions_by_handle.end()) m_impl->sessions_by_handle.erase(hit);
             }
             m_impl->sessions_by_reader.erase(it);
         }
     }
     // session 彻底移除后，安全触发完成回调
-    if (session)
-        session->on_transfer_done(CURLE_OK);
+    if (session) session->on_transfer_done(CURLE_OK);
 }
 
 void HttpClient::shutdown() {
     if (m_impl) m_impl->shutdown();
 }
 
-} // namespace agent
+}  // namespace agent

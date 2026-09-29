@@ -33,10 +33,9 @@ uint32_t current_pid() noexcept {
 #endif
 }
 
-} // namespace
+}  // namespace
 
-IslandServer::IslandServer(IslandServerConfig cfg,
-                           std::unique_ptr<ipc::ITransport> listener,
+IslandServer::IslandServer(IslandServerConfig cfg, std::unique_ptr<ipc::ITransport> listener,
                            RegistryWriter* registry)
     : m_cfg(std::move(cfg)),
       m_listener(listener ? std::move(listener) : ipc::create_listener()),
@@ -52,9 +51,7 @@ IslandServer::IslandServer(IslandServerConfig cfg,
     }
 }
 
-IslandServer::~IslandServer() {
-    stop();
-}
+IslandServer::~IslandServer() { stop(); }
 
 void IslandServer::start() {
     if (m_running.exchange(true)) return;
@@ -64,9 +61,8 @@ void IslandServer::start() {
     // 等待监听端点就绪（accept 线程完成 CreateNamedPipe），避免客户端抢连失败
     {
         std::unique_lock<std::mutex> lock(m_listening_mutex);
-        m_listening_cv.wait_for(lock, std::chrono::seconds(5), [this] {
-            return m_listening_ok.load() || m_stop.load();
-        });
+        m_listening_cv.wait_for(lock, std::chrono::seconds(5),
+                                [this] { return m_listening_ok.load() || m_stop.load(); });
     }
     // 启动即写入注册文件（GUI 扫描发现本 TUI）
     if (m_registry) {
@@ -174,8 +170,8 @@ void IslandServer::publisher_loop() {
             std::lock_guard<std::mutex> ring_lock(m_ring_mutex);
             if (m_ring.empty()) return false;
             std::lock_guard<std::mutex> conn_lock(m_conn_mutex);
-            return static_cast<bool>(m_conn) && m_hello_received.load()
-                && m_ring.back().seq >= m_next_seq.load();
+            return static_cast<bool>(m_conn) && m_hello_received.load() &&
+                   m_ring.back().seq >= m_next_seq.load();
         });
 
         if (m_stop.load()) break;
@@ -190,7 +186,8 @@ void IslandServer::publisher_loop() {
             }
             m_next_seq.store(sentinel + 1);
         }
-        std::shared_ptr<ipc::ITransport> conn;        {
+        std::shared_ptr<ipc::ITransport> conn;
+        {
             std::lock_guard<std::mutex> conn_lock(m_conn_mutex);
             conn = m_conn;
         }
@@ -206,8 +203,7 @@ void IslandServer::handle_connection(const std::shared_ptr<ipc::ITransport>& con
     while (!m_stop.load()) {
         const ssize_t n = conn->read(chunk);
         if (n <= 0) break;  // EOF / 错误
-        buffer.append(reinterpret_cast<const char*>(chunk.data()),
-                      static_cast<size_t>(n));
+        buffer.append(reinterpret_cast<const char*>(chunk.data()), static_cast<size_t>(n));
 
         size_t pos = 0;
         while (true) {
@@ -247,7 +243,7 @@ void IslandServer::handle_request(const std::shared_ptr<ipc::ITransport>& conn,
 #ifdef WORKX_BUILD_INFO
             {"tui_version", "workx-" WORKX_BUILD_INFO
 #ifdef WORKX_FILE_VERSION
-             " (files: " WORKX_FILE_VERSION ")"
+                            " (files: " WORKX_FILE_VERSION ")"
 #endif
             },
 #elif defined(WORKX_VERSION)
@@ -282,21 +278,22 @@ void IslandServer::handle_request(const std::shared_ptr<ipc::ITransport>& conn,
 
     // 其余请求（refresh_balance / get_model_pricing / get_session_summary）→ 回调
     if (!m_request_handler) {
-        write_lines(conn, {serialize_response(id, false, nlohmann::json{
-            {"error", "unsupported request: " + type}})});
+        write_lines(
+            conn, {serialize_response(id, false,
+                                      nlohmann::json{{"error", "unsupported request: " + type}})});
         return;
     }
     nlohmann::json result = m_request_handler(type, data);
     if (result.is_null()) {
-        write_lines(conn, {serialize_response(id, false, nlohmann::json{
-            {"error", "unsupported request: " + type}})});
+        write_lines(
+            conn, {serialize_response(id, false,
+                                      nlohmann::json{{"error", "unsupported request: " + type}})});
         return;
     }
     write_lines(conn, {serialize_response(id, true, result)});
 }
 
-void IslandServer::replay_from(const std::shared_ptr<ipc::ITransport>& conn,
-                               int64_t last_seq) {
+void IslandServer::replay_from(const std::shared_ptr<ipc::ITransport>& conn, int64_t last_seq) {
     std::vector<std::string> lines;
     {
         std::lock_guard<std::mutex> lock(m_ring_mutex);
@@ -338,4 +335,4 @@ void IslandServer::refresh_registry_heartbeat() {
     m_registry->write(entry);
 }
 
-} // namespace island
+}  // namespace island

@@ -35,10 +35,8 @@ std::string lower(std::string_view s) {
 ///          仅纯数字 host 参与网段判断（域名不做 DNS 解析，纯函数约束）。
 bool is_private_ip_host(std::string_view host) {
     auto to_u32 = [](unsigned a, unsigned b, unsigned c, unsigned d) {
-        return (static_cast<uint32_t>(a) << 24) |
-               (static_cast<uint32_t>(b) << 16) |
-               (static_cast<uint32_t>(c) << 8) |
-               static_cast<uint32_t>(d);
+        return (static_cast<uint32_t>(a) << 24) | (static_cast<uint32_t>(b) << 16) |
+               (static_cast<uint32_t>(c) << 8) | static_cast<uint32_t>(d);
     };
     auto in_range = [&](uint32_t ip, uint32_t base, uint32_t mask) {
         return (ip & mask) == (base & mask);
@@ -117,8 +115,8 @@ bool url_ssrf(std::string_view cmd) {
         size_t host_end = host_start;
         while (host_end < c.size()) {
             const char ch = c[host_end];
-            if (ch == '/' || ch == '"' || ch == '\'' || ch == ' ' || ch == '\t' ||
-                ch == '&' || ch == ';' || ch == '|' || ch == '>') {
+            if (ch == '/' || ch == '"' || ch == '\'' || ch == ' ' || ch == '\t' || ch == '&' ||
+                ch == ';' || ch == '|' || ch == '>') {
                 break;
             }
             ++host_end;
@@ -167,8 +165,8 @@ std::vector<std::string> tokenize(std::string_view command) {
             cur.push_back(c);
             continue;
         }
-        if (std::isspace(static_cast<unsigned char>(c)) || c == '|' || c == '&' ||
-            c == ';' || c == '>' || c == '<') {
+        if (std::isspace(static_cast<unsigned char>(c)) || c == '|' || c == '&' || c == ';' ||
+            c == '>' || c == '<') {
             if (!cur.empty()) {
                 tokens.push_back(cur);
                 cur.clear();
@@ -212,7 +210,8 @@ bool destructive_regex(std::string_view command) {
             for (; j < tokens.size(); ++j) {
                 const std::string t = unquote(tokens[j]);
                 if (t.empty() || t[0] != '-') break;
-                if (t.find('r') != std::string::npos || t.find('f') != std::string::npos) has_rf = true;
+                if (t.find('r') != std::string::npos || t.find('f') != std::string::npos)
+                    has_rf = true;
             }
             if (!has_rf || j >= tokens.size()) continue;
             const std::string target = unquote(tokens[j]);
@@ -257,8 +256,7 @@ bool env_leak_regex(std::string_view command) {
             // 排除设置形式：env KEY=VAL cmd（下一个 token 含 '=' 且不含路径分隔符）
             if (i + 1 < tokens.size()) {
                 const std::string next = unquote(tokens[i + 1]);
-                if (next.find('=') != std::string::npos &&
-                    next.find('/') == std::string::npos &&
+                if (next.find('=') != std::string::npos && next.find('/') == std::string::npos &&
                     next.find('\\') == std::string::npos) {
                     continue;  // 设置环境变量的合法用法
                 }
@@ -274,23 +272,18 @@ bool env_leak_regex(std::string_view command) {
     return false;
 }
 
-} // namespace
+}  // namespace
 
-bool contains_destructive_command(std::string_view command) {
-    return destructive_regex(command);
-}
+bool contains_destructive_command(std::string_view command) { return destructive_regex(command); }
 
-bool is_ssrf_target(std::string_view command) {
-    return url_ssrf(command);
-}
+bool is_ssrf_target(std::string_view command) { return url_ssrf(command); }
 
-bool leaks_env_vars(std::string_view command) {
-    return env_leak_regex(command);
-}
+bool leaks_env_vars(std::string_view command) { return env_leak_regex(command); }
 
 ShellRisk detect_shell_risk(std::string_view command) {
     uint32_t risk = static_cast<uint32_t>(ShellRisk::None);
-    if (contains_destructive_command(command)) risk |= static_cast<uint32_t>(ShellRisk::Destructive);
+    if (contains_destructive_command(command))
+        risk |= static_cast<uint32_t>(ShellRisk::Destructive);
     if (is_ssrf_target(command)) risk |= static_cast<uint32_t>(ShellRisk::SSRF);
     if (leaks_env_vars(command)) risk |= static_cast<uint32_t>(ShellRisk::EnvLeak);
     return static_cast<ShellRisk>(risk);
@@ -308,11 +301,8 @@ std::string shell_risk_description(ShellRisk risk) {
     return desc;
 }
 
-bool is_command_cwd_allowed(
-    std::string_view cwd,
-    std::string_view base,
-    const std::vector<std::string>& allowlist
-) {
+bool is_command_cwd_allowed(std::string_view cwd, std::string_view base,
+                            const std::vector<std::string>& allowlist) {
     if (cwd.empty() || base.empty()) return false;
     std::error_code ec;
     const std::filesystem::path p(cwd);
@@ -339,4 +329,4 @@ bool is_command_cwd_allowed(
     return false;
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

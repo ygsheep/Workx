@@ -31,13 +31,21 @@ class IEventBus;
 class ICompletionProvider;
 
 // 前向声明：HookManager（#50 通用 Hook 事件系统，工具线程触发 PermissionRequest / Subagent* 事件）
-namespace hook { class HookManager; }
+namespace hook {
+class HookManager;
+}
 
-// 前向声明：McpClientManager（#56 方案 D，MCP 连接管理器；完整类型位于 agent/mcp/mcp_client_manager.h）
-namespace mcp { class McpClientManager; }
+// 前向声明：McpClientManager（#56 方案 D，MCP 连接管理器；完整类型位于
+// agent/mcp/mcp_client_manager.h）
+namespace mcp {
+class McpClientManager;
+}
 
-// 前向声明：CommandRegistry（#56 方案 C，命令注册表；完整类型位于 agent/command/inclaude/registry.h）
-namespace command { class CommandRegistry; }
+// 前向声明：CommandRegistry（#56 方案 C，命令注册表；完整类型位于
+// agent/command/inclaude/registry.h）
+namespace command {
+class CommandRegistry;
+}
 
 namespace tool {
 
@@ -91,16 +99,16 @@ inline bool is_minimal_mode_tool(std::string_view name) {
     return false;
 }
 
-    /// @brief 工具 touch 回调类型
-    /// @details 工具执行过程中上报访问过的文件路径（绝对路径），
-    ///          由 ReActLoop 注入，用于 conditional skills 的路径匹配。
-    /// @param path 访问的文件路径（绝对路径）
-    using TouchCallback = std::function<void(const std::string& path)>;
+/// @brief 工具 touch 回调类型
+/// @details 工具执行过程中上报访问过的文件路径（绝对路径），
+///          由 ReActLoop 注入，用于 conditional skills 的路径匹配。
+/// @param path 访问的文件路径（绝对路径）
+using TouchCallback = std::function<void(const std::string& path)>;
 
-    /// @brief 文件系统变更回调类型
-    /// @details 工具写入/删除文件后调用（无参数），由宿主注入，
-    ///          用于通知宿主失效文件索引（如 TUI @ 补全索引）等缓存。
-    using FileSystemChangedCallback = std::function<void()>;
+/// @brief 文件系统变更回调类型
+/// @details 工具写入/删除文件后调用（无参数），由宿主注入，
+///          用于通知宿主失效文件索引（如 TUI @ 补全索引）等缓存。
+using FileSystemChangedCallback = std::function<void()>;
 
 /// @brief 工具执行上下文
 ///
@@ -112,18 +120,18 @@ inline bool is_minimal_mode_tool(std::string_view name) {
 /// - 任务管理器（用于后台任务）
 /// - 进度回调
 struct ToolContext {
-    std::string cwd;                        ///< 工作目录
-    std::string session_id;                 ///< 会话 ID
-    std::string request_id;                 ///< 请求 ID（每次 turn 生成，审计/缓存链路关联）
-    std::string model;                      ///< 当前模型名称（来自 provider 配置）
-    nlohmann::json options;                 ///< 额外选项
+    std::string cwd;         ///< 工作目录
+    std::string session_id;  ///< 会话 ID
+    std::string request_id;  ///< 请求 ID（每次 turn 生成，审计/缓存链路关联）
+    std::string model;       ///< 当前模型名称（来自 provider 配置）
+    nlohmann::json options;  ///< 额外选项
 
     /// @brief #30：git 环境字段（运行时注入，非会话持久化元数据）
     /// @details 由 ReActLoop 在 turn 开始时通过 git 命令探测，供工具做改前
     ///          分支/未提交改动风险提示。全部为空/默认值表示当前不在 git 仓库内。
-    std::string git_branch;               ///< 当前分支（非仓库则为空）
-    bool git_has_uncommitted = false;     ///< 是否有未提交改动
-    std::string git_repo_root;            ///< 仓库根目录（非仓库则为空）
+    std::string git_branch;            ///< 当前分支（非仓库则为空）
+    bool git_has_uncommitted = false;  ///< 是否有未提交改动
+    std::string git_repo_root;         ///< 仓库根目录（非仓库则为空）
 
     /// @brief #30：只读历史摘要（当前 turn 前用户指令/约束的文本摘要）
     /// @details 由 ReActLoop 在 turn 开始时从对话历史构建（最近若干条 user 消息，
@@ -305,9 +313,9 @@ struct ToolContext {
         }
     }
 
-private:
-    std::atomic<bool> cancelled_{false};    ///< 内部取消标志（fallback）
+   private:
+    std::atomic<bool> cancelled_{false};  ///< 内部取消标志（fallback）
 };
 
-} // namespace agent::tool
-} // namespace agent
+}  // namespace tool
+}  // namespace agent

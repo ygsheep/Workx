@@ -31,34 +31,56 @@ namespace fs = std::filesystem;
 
 std::string_view to_string(EventType type) noexcept {
     switch (type) {
-        case EventType::ToolInvoke:                return "tool.invoke";
-        case EventType::ToolPermissionDecision:    return "tool.permission.decision";
-        case EventType::ToolPermissionDenied:      return "tool.permission.denied";
-        case EventType::ToolResultTruncated:       return "tool.result.truncated";
-        case EventType::SecurityDangerousCommand:  return "security.dangerous_command";
-        case EventType::SecuritySensitiveFile:     return "security.sensitive_file";
-        case EventType::SecuritySecretDetected:    return "security.secret_detected";
-        case EventType::SecuritySandboxDisabled:   return "security.sandbox_disabled";
-        case EventType::SecuritySandboxDegraded:   return "security.sandbox_degraded";
-        case EventType::SecurityPathTraversal:     return "security.path_traversal";
-        case EventType::SecuritySymlinkBypass:     return "security.symlink_bypass";
-        case EventType::SecuritySSRFAttempt:       return "security.ssrf_attempt";
-        case EventType::SecurityEnvVarLeak:        return "security.env_var_leak";
-        case EventType::SessionStart:              return "session.start";
-        case EventType::SessionEnd:                return "session.end";
-        case EventType::AgentStart:                return "agent.start";
-        case EventType::AgentDone:                 return "agent.done";
-        case EventType::AgentInterrupted:          return "agent.interrupted";
-        case EventType::AgentMaxIterations:        return "agent.max_iterations";
+        case EventType::ToolInvoke:
+            return "tool.invoke";
+        case EventType::ToolPermissionDecision:
+            return "tool.permission.decision";
+        case EventType::ToolPermissionDenied:
+            return "tool.permission.denied";
+        case EventType::ToolResultTruncated:
+            return "tool.result.truncated";
+        case EventType::SecurityDangerousCommand:
+            return "security.dangerous_command";
+        case EventType::SecuritySensitiveFile:
+            return "security.sensitive_file";
+        case EventType::SecuritySecretDetected:
+            return "security.secret_detected";
+        case EventType::SecuritySandboxDisabled:
+            return "security.sandbox_disabled";
+        case EventType::SecuritySandboxDegraded:
+            return "security.sandbox_degraded";
+        case EventType::SecurityPathTraversal:
+            return "security.path_traversal";
+        case EventType::SecuritySymlinkBypass:
+            return "security.symlink_bypass";
+        case EventType::SecuritySSRFAttempt:
+            return "security.ssrf_attempt";
+        case EventType::SecurityEnvVarLeak:
+            return "security.env_var_leak";
+        case EventType::SessionStart:
+            return "session.start";
+        case EventType::SessionEnd:
+            return "session.end";
+        case EventType::AgentStart:
+            return "agent.start";
+        case EventType::AgentDone:
+            return "agent.done";
+        case EventType::AgentInterrupted:
+            return "agent.interrupted";
+        case EventType::AgentMaxIterations:
+            return "agent.max_iterations";
     }
     return "unknown";
 }
 
 std::string_view to_string(Severity sev) noexcept {
     switch (sev) {
-        case Severity::Info:     return "info";
-        case Severity::Warn:     return "warn";
-        case Severity::Critical: return "critical";
+        case Severity::Info:
+            return "info";
+        case Severity::Warn:
+            return "warn";
+        case Severity::Critical:
+            return "critical";
     }
     return "unknown";
 }
@@ -72,9 +94,7 @@ AuditLogger& AuditLogger::instance() noexcept {
     return inst;
 }
 
-AuditLogger::~AuditLogger() {
-    flush();
-}
+AuditLogger::~AuditLogger() { flush(); }
 
 void AuditLogger::init(const std::string& file_path, size_t max_size_mb, size_t retention_days) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -125,17 +145,11 @@ void AuditLogger::log(AuditEvent event) {
 // 便捷方法
 // ============================================================================
 
-void AuditLogger::log_tool_invoke(
-    const std::string& tool_name,
-    const nlohmann::json& input,
-    const std::string& session_id,
-    const std::string& request_id,
-    std::string_view decision,
-    std::string_view decision_reason,
-    int64_t duration_ms,
-    std::string_view output,
-    const std::vector<std::string>& security_flags) {
-
+void AuditLogger::log_tool_invoke(const std::string& tool_name, const nlohmann::json& input,
+                                  const std::string& session_id, const std::string& request_id,
+                                  std::string_view decision, std::string_view decision_reason,
+                                  int64_t duration_ms, std::string_view output,
+                                  const std::vector<std::string>& security_flags) {
     AuditEvent ev;
     ev.type = EventType::ToolInvoke;
     ev.severity = security_flags.empty() ? Severity::Info : Severity::Warn;
@@ -153,12 +167,8 @@ void AuditLogger::log_tool_invoke(
     log(std::move(ev));
 }
 
-void AuditLogger::log_security(
-    EventType type,
-    const std::string& detail,
-    const std::string& session_id,
-    std::string_view tool_name) {
-
+void AuditLogger::log_security(EventType type, const std::string& detail,
+                               const std::string& session_id, std::string_view tool_name) {
     AuditEvent ev;
     ev.type = type;
     ev.severity = Severity::Critical;
@@ -179,11 +189,13 @@ void AuditLogger::log_session_lifecycle(EventType type, const std::string& sessi
     log(std::move(ev));
 }
 
-void AuditLogger::log_agent_lifecycle(EventType type, const std::string& session_id, int iteration) {
+void AuditLogger::log_agent_lifecycle(EventType type, const std::string& session_id,
+                                      int iteration) {
     AuditEvent ev;
     ev.type = type;
     ev.severity = (type == EventType::AgentInterrupted || type == EventType::AgentMaxIterations)
-                  ? Severity::Warn : Severity::Info;
+                      ? Severity::Warn
+                      : Severity::Info;
     ev.session_id = session_id;
     ev.user = current_user_host();
     if (iteration > 0) {
@@ -206,17 +218,17 @@ std::string AuditLogger::serialize(const AuditEvent& event) const {
     j["event_type"] = std::string(to_string(event.type));
     j["severity"] = std::string(to_string(event.severity));
 
-    if (!event.session_id.empty())  j["session_id"] = event.session_id;
-    if (!event.request_id.empty())  j["request_id"] = event.request_id;
-    if (!event.trace_id.empty())    j["trace_id"] = event.trace_id;
-    if (!event.tool_name.empty())   j["tool_name"] = event.tool_name;
-    if (!event.input.is_null())     j["input"] = event.input;
-    if (!event.decision.empty())    j["decision"] = event.decision;
+    if (!event.session_id.empty()) j["session_id"] = event.session_id;
+    if (!event.request_id.empty()) j["request_id"] = event.request_id;
+    if (!event.trace_id.empty()) j["trace_id"] = event.trace_id;
+    if (!event.tool_name.empty()) j["tool_name"] = event.tool_name;
+    if (!event.input.is_null()) j["input"] = event.input;
+    if (!event.decision.empty()) j["decision"] = event.decision;
     if (!event.decision_reason.empty()) j["decision_reason"] = event.decision_reason;
-    if (event.duration_ms > 0)      j["duration_ms"] = event.duration_ms;
+    if (event.duration_ms > 0) j["duration_ms"] = event.duration_ms;
     if (!event.output_summary.empty()) j["output_summary"] = event.output_summary;
     if (!event.security_flags.empty()) j["security_flags"] = event.security_flags;
-    if (!event.user.empty())        j["user"] = event.user;
+    if (!event.user.empty()) j["user"] = event.user;
 
     // UTF-8 兜底：递归清洗所有字符串字段，避免工具入参/输出含非 UTF-8
     // 字节（如 GBK 子进程 stdout）时 j.dump() 抛出 nlohmann 的 type_error.316。
@@ -242,9 +254,8 @@ nlohmann::json AuditLogger::redact_input(const nlohmann::json& input) const {
 
     // 提取关键字段（避免记录全量输入导致日志爆炸）
     // 优先提取：file_path / command / pattern / path / url / cwd
-    static const std::vector<std::string> kKeyFields = {
-        "file_path", "command", "pattern", "path", "url", "cwd", "query"
-    };
+    static const std::vector<std::string> kKeyFields = {"file_path", "command", "pattern", "path",
+                                                        "url",       "cwd",     "query"};
 
     nlohmann::json redacted;
     for (const auto& key : kKeyFields) {
@@ -330,8 +341,7 @@ void AuditLogger::cleanup_expired() {
 std::string AuditLogger::timestamp_now() const {
     auto now = std::chrono::system_clock::now();
     auto t = std::chrono::system_clock::to_time_t(now);
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        now.time_since_epoch()) % 1000;
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
 
     std::tm tm{};
 #ifdef _WIN32
@@ -342,14 +352,14 @@ std::string AuditLogger::timestamp_now() const {
 
     // 计算时区偏移（分钟）
     auto offset_min = [](const std::tm& t) -> int {
-        #ifdef _WIN32
+#ifdef _WIN32
         (void)t;
         long tz_offset;
         _get_timezone(&tz_offset);
         return static_cast<int>(-tz_offset / 60);
-        #else
+#else
         return t.tm_gmtoff / 60;
-        #endif
+#endif
     }(tm);
 
     char sign = offset_min >= 0 ? '+' : '-';
@@ -357,10 +367,9 @@ std::string AuditLogger::timestamp_now() const {
     int om = std::abs(offset_min) % 60;
 
     std::ostringstream ss;
-    ss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%S")
-       << '.' << std::setfill('0') << std::setw(3) << ms.count()
-       << sign << std::setfill('0') << std::setw(2) << oh
-       << ':' << std::setfill('0') << std::setw(2) << om;
+    ss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%S") << '.' << std::setfill('0') << std::setw(3)
+       << ms.count() << sign << std::setfill('0') << std::setw(2) << oh << ':' << std::setfill('0')
+       << std::setw(2) << om;
     return ss.str();
 }
 
@@ -374,4 +383,4 @@ std::string AuditLogger::current_user_host() const {
     return std::string(user) + "@" + host;
 }
 
-} // namespace agent::audit
+}  // namespace agent::audit

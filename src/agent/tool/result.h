@@ -24,13 +24,13 @@ namespace agent::tool {
 struct ToolResult {
     /// @brief 结果内容类型
     enum class Type {
-        Text,       ///< 文本输出
-        Json,       ///< 结构化数据
+        Text,  ///< 文本输出
+        Json,  ///< 结构化数据
     };
 
-    Type type{Type::Text};                  ///< 内容类型
-    std::string text;                       ///< 文本内容
-    nlohmann::json data;                    ///< 结构化数据（可选）
+    Type type{Type::Text};  ///< 内容类型
+    std::string text;       ///< 文本内容
+    nlohmann::json data;    ///< 结构化数据（可选）
 
     /// @brief 创建文本结果
     /// @param text 文本内容
@@ -59,4 +59,4 @@ struct ToolResult {
     }
 };
 
-} // namespace agent::tool
+}  // namespace agent::tool

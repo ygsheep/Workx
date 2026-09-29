@@ -27,15 +27,15 @@
 #include "liblogger/logger.h"
 
 #if WORKX_HAS_HTML2MD
-    #if WORKX_HTML2MD_VENDORED
-        // 已 vendor 的零依赖单头第三方库 kstenschke/html2md (MIT License)
-        // 仓库: https://github.com/kstenschke/html2md
-        // 用法: html2md::Converter::Convert(std::string*) —— in-place 不修改，返回新 string
-        #include <html2md/html2md.h>
-    #else
-        // FetchContent 路径下的 leventkaragol/libcpp-html-to-md (libxml2 后端, 质量更高)
-        #include <libcpp-html-to-md/markdown_converter.h>
-    #endif
+#if WORKX_HTML2MD_VENDORED
+// 已 vendor 的零依赖单头第三方库 kstenschke/html2md (MIT License)
+// 仓库: https://github.com/kstenschke/html2md
+// 用法: html2md::Converter::Convert(std::string*) —— in-place 不修改，返回新 string
+#include <html2md/html2md.h>
+#else
+// FetchContent 路径下的 leventkaragol/libcpp-html-to-md (libxml2 后端, 质量更高)
+#include <libcpp-html-to-md/markdown_converter.h>
+#endif
 #endif
 
 namespace agent::tool {
@@ -48,30 +48,27 @@ namespace {
 // ============================================================
 
 std::string erase_regex(const std::string& s, const std::regex& re) {
-    return std::regex_replace(s, re, "",
-                              std::regex_constants::format_default |
-                              std::regex_constants::match_default);
+    return std::regex_replace(
+        s, re, "", std::regex_constants::format_default | std::regex_constants::match_default);
 }
 
 std::string strip_noise_blocks(std::string html) {
     // 单行注释块
     html = erase_regex(html, std::regex(R"(<!--[\s\S]*?-->)", std::regex::optimize));
     // style/script/noscript/template/svg/iframe/head 整块删除
-    static const char* kStripTags[] = {
-        "script", "style", "noscript", "template", "svg", "iframe", "head"
-    };
+    static const char* kStripTags[] = {"script", "style",  "noscript", "template",
+                                       "svg",    "iframe", "head"};
     for (const char* t : kStripTags) {
         std::string pat = std::string("<") + t + R"(\b[^>]*>[\s\S]*?</)" + t + R"(\s*>)";
-        std::regex re(pat,
-            std::regex::icase | std::regex::optimize);
+        std::regex re(pat, std::regex::icase | std::regex::optimize);
         html = erase_regex(html, re);
         // 处理自闭合或无闭标签的残余：<script ...> 到文件结束
         std::regex open(std::string("<") + t + R"(\b[^>]*>)",
-            std::regex::icase | std::regex::optimize);
+                        std::regex::icase | std::regex::optimize);
         std::smatch m;
         if (std::regex_search(html, m, open)) {
             html.erase(m.position(0), m.suffix().first - m.prefix().second -
-                       static_cast<std::ptrdiff_t>(m.position(0)));
+                                          static_cast<std::ptrdiff_t>(m.position(0)));
             break;
         }
     }
@@ -84,8 +81,10 @@ std::string strip_noise_blocks(std::string html) {
 std::string strip_tags_plain(const std::string& s) {
     // 先把常见块级标签替换成双换行
     std::string out = std::regex_replace(
-        s, std::regex(R"(</\s*(h[1-6]|p|div|section|article|aside|header|footer|nav|main|blockquote|figure|figcaption|pre|table|tr|ul|ol|li)\s*>)",
-                      std::regex::icase | std::regex::optimize),
+        s,
+        std::regex(
+            R"(</\s*(h[1-6]|p|div|section|article|aside|header|footer|nav|main|blockquote|figure|figcaption|pre|table|tr|ul|ol|li)\s*>)",
+            std::regex::icase | std::regex::optimize),
         "\n\n");
     out = std::regex_replace(
         out, std::regex(R"(<\s*br\s*/?\s*>)", std::regex::icase | std::regex::optimize), "\n");
@@ -94,9 +93,8 @@ std::string strip_tags_plain(const std::string& s) {
     // entity 解码（常见子集）
     auto decode = [](std::string in) -> std::string {
         static const std::pair<const char*, const char*> kEnts[] = {
-            {"&amp;", "&"}, {"&lt;", "<"}, {"&gt;", ">"}, {"&quot;", "\""},
-            {"&apos;", "'"}, {"&nbsp;", " "}
-        };
+            {"&amp;", "&"},   {"&lt;", "<"},   {"&gt;", ">"},
+            {"&quot;", "\""}, {"&apos;", "'"}, {"&nbsp;", " "}};
         for (auto [a, b] : kEnts) {
             size_t p = 0;
             while ((p = in.find(a, p)) != std::string::npos) {
@@ -119,8 +117,13 @@ std::string strip_tags_plain(const std::string& s) {
         for (char c : line) {
             if (c == '\t') c = ' ';
             if (c == '\r') continue;
-            if (c == ' ') { if (!sp) clean.push_back(' '); sp = true; }
-            else { clean.push_back(c); sp = false; }
+            if (c == ' ') {
+                if (!sp) clean.push_back(' ');
+                sp = true;
+            } else {
+                clean.push_back(c);
+                sp = false;
+            }
         }
         // ltrim
         size_t l = 0;
@@ -128,7 +131,10 @@ std::string strip_tags_plain(const std::string& s) {
         if (l) clean.erase(0, l);
 
         if (clean.empty()) {
-            if (!prev_blank) { res += '\n'; prev_blank = true; }
+            if (!prev_blank) {
+                res += '\n';
+                prev_blank = true;
+            }
             first = false;
             continue;
         }
@@ -190,16 +196,42 @@ bool validate_fetch_url(const ParsedUrl& purl, std::string* reason) {
 // ============================================================
 bool is_whitelisted_domain(const std::string& host) {
     static const char* kWhitelist[] = {
-        "github.com", "raw.githubusercontent.com", "gist.github.com",
-        "stackoverflow.com", "stackexchange.com", "superuser.com", "serverfault.com",
-        "wikipedia.org", "wikimedia.org", "developer.mozilla.org",
-        "learn.microsoft.com", "docs.microsoft.com", "docs.python.org",
-        "nodejs.org", "react.dev", "vuejs.org", "kubernetes.io",
-        "docker.com", "nginx.org", "apache.org", "cloudflare.com",
-        "google.com", "microsoft.com", "apple.com", "amazon.com",
-        "cnblogs.com", "csdn.net", "zhihu.com", "bilibili.com",
-        "zsxq.com", "juejin.cn", "segmentfault.com", "jianshu.com",
-        "example.com", "example.org", "example.net",
+        "github.com",
+        "raw.githubusercontent.com",
+        "gist.github.com",
+        "stackoverflow.com",
+        "stackexchange.com",
+        "superuser.com",
+        "serverfault.com",
+        "wikipedia.org",
+        "wikimedia.org",
+        "developer.mozilla.org",
+        "learn.microsoft.com",
+        "docs.microsoft.com",
+        "docs.python.org",
+        "nodejs.org",
+        "react.dev",
+        "vuejs.org",
+        "kubernetes.io",
+        "docker.com",
+        "nginx.org",
+        "apache.org",
+        "cloudflare.com",
+        "google.com",
+        "microsoft.com",
+        "apple.com",
+        "amazon.com",
+        "cnblogs.com",
+        "csdn.net",
+        "zhihu.com",
+        "bilibili.com",
+        "zsxq.com",
+        "juejin.cn",
+        "segmentfault.com",
+        "jianshu.com",
+        "example.com",
+        "example.org",
+        "example.net",
     };
     for (const char* d : kWhitelist) {
         if (host == d) return true;
@@ -208,7 +240,7 @@ bool is_whitelisted_domain(const std::string& host) {
     return false;
 }
 
-} // namespace
+}  // namespace
 
 std::string WebFetchTool::html_to_markdown(std::string html, std::size_t max_chars) {
     if (html.empty()) return {};
@@ -218,11 +250,11 @@ std::string WebFetchTool::html_to_markdown(std::string html, std::size_t max_cha
     std::string md;
 #if WORKX_HAS_HTML2MD
     try {
-    #if WORKX_HTML2MD_VENDORED
+#if WORKX_HTML2MD_VENDORED
         md = html2md::Converter::Convert(&html);
-    #else
+#else
         md = MarkdownConverter::convert(html);
-    #endif
+#endif
     } catch (const std::exception& e) {
         LOG_WARN("[WebFetch] 第三方 HTML→MD 抛异常，降级到 strip_tags: {}", e.what());
         md = strip_tags_plain(html);
@@ -239,10 +271,8 @@ std::string WebFetchTool::html_to_markdown(std::string html, std::size_t max_cha
 
 // ================= 权限检查 =================
 
-PermissionResult WebFetchTool::check_permissions(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+PermissionResult WebFetchTool::check_permissions(const nlohmann::json& input,
+                                                 const ToolContext& ctx) const {
     if (is_bypass_mode(ctx.permission_mode)) {
         return PermissionResult::ok();
     }
@@ -254,22 +284,20 @@ PermissionResult WebFetchTool::check_permissions(
     std::string reason;
     // 内网/回环/链路本地/非法协议/非法端口 → 硬拦截（与 call() 双重防线）
     if (!validate_fetch_url(purl, &reason)) {
-        return PermissionResult::err(
-            Error::Code::PermissionDenied,
-            "WebFetch 目标不安全: " + reason);
+        return PermissionResult::err(Error::Code::PermissionDenied,
+                                     "WebFetch 目标不安全: " + reason);
     }
     // 白名单域名自动放行；其余域名 AskUser 确认
     if (is_whitelisted_domain(purl.host)) {
         return PermissionResult::ok();
     }
-    if (ask_user_confirm(ctx, std::format(
-            "WebFetch 需要抓取外部网页，请确认：\n\n```\n{}\n```\n\n允许访问该 URL？",
-            url))) {
+    if (ask_user_confirm(
+            ctx,
+            std::format("WebFetch 需要抓取外部网页，请确认：\n\n```\n{}\n```\n\n允许访问该 URL？",
+                        url))) {
         return PermissionResult::ok();
     }
-    return PermissionResult::err(
-        Error::Code::PermissionDenied,
-        "用户拒绝访问该 URL");
+    return PermissionResult::err(Error::Code::PermissionDenied, "用户拒绝访问该 URL");
 }
 
 // ================= 工具调用 =================
@@ -291,42 +319,36 @@ const std::string& WebFetchTool::prompt() const {
         "sending 1 request with a few follow-up fetches over broad scraping; "
         "the response is converted to Markdown via a 3rd-party library and "
         "truncated at 20k chars. Do not fetch authentication-only, file://, "
-        "or local-network addresses."
-    };
+        "or local-network addresses."};
     return p;
 }
 
 nlohmann::json WebFetchTool::input_schema() const {
-    return {
-        {"type", "object"},
-        {"properties", {
-            {"url",    {{"type", "string"}, {"description", "要抓取的 HTTP/HTTPS URL（必填）"}}},
-            {"prompt", {{"type", "string"}, {"description",
-                "可选：指定需要提取的信息（如 'README 的 Install 章节'）。"
-                "当前 P0 版本作为提示写入结果头部；精准抽取留给未来 MCP 抓取层。"}}}
-        }},
-        {"required", {"url"}},
-        {"additionalProperties", false}
-    };
+    return {{"type", "object"},
+            {"properties",
+             {{"url", {{"type", "string"}, {"description", "要抓取的 HTTP/HTTPS URL（必填）"}}},
+              {"prompt",
+               {{"type", "string"},
+                {"description",
+                 "可选：指定需要提取的信息（如 'README 的 Install 章节'）。"
+                 "当前 P0 版本作为提示写入结果头部；精准抽取留给未来 MCP 抓取层。"}}}}},
+            {"required", {"url"}},
+            {"additionalProperties", false}};
 }
 
-ResultV2<ToolResult> WebFetchTool::call(
-    const nlohmann::json& input,
-    const ToolContext& /*ctx*/
+ResultV2<ToolResult> WebFetchTool::call(const nlohmann::json& input, const ToolContext& /*ctx*/
 ) const {
     if (!input.contains("url") || !input.at("url").is_string()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput, "WebFetch 需要字符串参数 url", input.dump());
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput, "WebFetch 需要字符串参数 url",
+                                         input.dump());
     }
     const std::string url = input.at("url").get<std::string>();
     // SSRF 预检（#25）：协议 + 端口 + 主机解析
     auto purl = HttpClient::parse_url(url);
     std::string ssrf_reason;
     if (!validate_fetch_url(purl, &ssrf_reason)) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput,
-            "WebFetch 目标不安全: " + ssrf_reason,
-            "url=" + url);
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                         "WebFetch 目标不安全: " + ssrf_reason, "url=" + url);
     }
     const std::string prompt = input.value("prompt", std::string{});
 
@@ -339,32 +361,29 @@ ResultV2<ToolResult> WebFetchTool::call(
          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
          "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"},
         {"Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
-        {"Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8"}
-    };
+        {"Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8"}};
     auto http = client.get(url, headers, 15000);
     if (!http.is_ok()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::NetworkDisconnected,
-            "WebFetch 抓取失败: " + http.error().message,
-            "url=" + url + "; context=" + http.error().context);
+        return ResultV2<ToolResult>::err(Error::Code::NetworkDisconnected,
+                                         "WebFetch 抓取失败: " + http.error().message,
+                                         "url=" + url + "; context=" + http.error().context);
     }
     const HttpResponse& resp = http.value();
     if (!resp.is_success()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::HttpError,
-            "WebFetch 返回 HTTP " + std::to_string(resp.status_code),
-            "url=" + url);
+        return ResultV2<ToolResult>::err(Error::Code::HttpError,
+                                         "WebFetch 返回 HTTP " + std::to_string(resp.status_code),
+                                         "url=" + url);
     }
 
     std::string md = html_to_markdown(resp.body, kDefaultMaxChars);
     std::ostringstream out;
     out << "# WebFetch 结果: " << url << "\n";
 #if WORKX_HAS_HTML2MD
-    #if WORKX_HTML2MD_VENDORED
-        out << "HTML→MD: 第三方库 kstenschke/html2md (vendored, zero-deps)\n";
-    #else
-        out << "HTML→MD: 第三方库 libcpp-html-to-md (libxml2 后端, WORKX_HAS_HTML2MD=1)\n";
-    #endif
+#if WORKX_HTML2MD_VENDORED
+    out << "HTML→MD: 第三方库 kstenschke/html2md (vendored, zero-deps)\n";
+#else
+    out << "HTML→MD: 第三方库 libcpp-html-to-md (libxml2 后端, WORKX_HAS_HTML2MD=1)\n";
+#endif
 #else
     out << "HTML→MD: 极简 strip_tags 降级模式（构建时未检测到第三方 html2md 库）\n";
 #endif
@@ -375,4 +394,4 @@ ResultV2<ToolResult> WebFetchTool::call(
     return ResultV2<ToolResult>::ok(ToolResult::ok(out.str()));
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

@@ -25,25 +25,22 @@ std::shared_ptr<CommandBase> CommandRegistry::find_by_name(const std::string& na
 std::vector<std::shared_ptr<CommandBase>> CommandRegistry::get_user_invocable_commands() const {
     std::vector<std::shared_ptr<CommandBase>> result;
     std::copy_if(commands_.begin(), commands_.end(), std::back_inserter(result),
-        [](const auto& cmd) {
-            return cmd->is_enabled() && cmd->is_user_invocable() && !cmd->is_hidden();
-        });
+                 [](const auto& cmd) {
+                     return cmd->is_enabled() && cmd->is_user_invocable() && !cmd->is_hidden();
+                 });
     return result;
 }
 
-std::vector<std::shared_ptr<CommandBase>> CommandRegistry::get_by_type(const std::string& type) const {
+std::vector<std::shared_ptr<CommandBase>> CommandRegistry::get_by_type(
+    const std::string& type) const {
     std::vector<std::shared_ptr<CommandBase>> result;
     std::copy_if(commands_.begin(), commands_.end(), std::back_inserter(result),
-        [&](const auto& cmd) { return cmd->type() == type; });
+                 [&](const auto& cmd) { return cmd->type() == type; });
     return result;
 }
 
-bool CommandRegistry::exists(const std::string& name) const {
-    return name_index_.contains(name);
-}
+bool CommandRegistry::exists(const std::string& name) const { return name_index_.contains(name); }
 
-size_t CommandRegistry::size() const {
-    return commands_.size();
-}
+size_t CommandRegistry::size() const { return commands_.size(); }
 
-} // namespace agent::command
+}  // namespace agent::command

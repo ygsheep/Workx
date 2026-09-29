@@ -65,7 +65,7 @@ std::string to_lower_copy(std::string s) {
     return s;
 }
 
-} // namespace
+}  // namespace
 
 // ============================================================
 // 元信息
@@ -104,19 +104,16 @@ nlohmann::json BriefTool::input_schema() const {
 // call
 // ============================================================
 
-ResultV2<ToolResult> BriefTool::call(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+ResultV2<ToolResult> BriefTool::call(const nlohmann::json& input, const ToolContext& ctx) const {
     // 1. 校验输入
     if (!input.contains("question") || !input["question"].is_string()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput, "Brief: missing string field 'question'");
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                         "Brief: missing string field 'question'");
     }
     const std::string question = input["question"].get<std::string>();
     if (question.empty()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput, "Brief: 'question' must not be empty");
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                         "Brief: 'question' must not be empty");
     }
     const std::string status = input.value("status", std::string("proactive"));
     const int32_t timeout_ms = input.value("timeout_ms", DEFAULT_TIMEOUT_MS);
@@ -124,7 +121,8 @@ ResultV2<ToolResult> BriefTool::call(
     // 2. 无确认通道则 fail-closed
     if (!ctx.event_bus_ptr) {
         return ResultV2<ToolResult>::err(
-            Error::Code::ToolExecutionFailed, "Brief: no user interaction channel (event bus) available");
+            Error::Code::ToolExecutionFailed,
+            "Brief: no user interaction channel (event bus) available");
     }
 
     // 3. 创建 promise/future 通道 + 取消标志
@@ -141,26 +139,23 @@ ResultV2<ToolResult> BriefTool::call(
     const bool proactive = (to_lower_copy(status) == "proactive");
     AskUserRequestEvent evt{
         .session_id = ctx.session_id,
-        .questions = nlohmann::json::object({
-            {"questions", nlohmann::json::array({
-                {
-                    {"question", question},
+        .questions = nlohmann::json::object(
+            {{"questions",
+              nlohmann::json::array(
+                  {{{"question", question},
                     {"header", proactive ? "确认一下(继续?)" : "Brief 询问"},
                     {"allow_custom_input", true},
-                    {"options", nlohmann::json::array({
-                        {{"label", "确认"}, {"description", proactive ? "确认并继续" : "采纳"}},
-                        {{"label", "取消"}, {"description", "中止本次动作"}},
-                    })}
-                }
-            })}
-        }),
+                    {"options",
+                     nlohmann::json::array({
+                         {{"label", "确认"}, {"description", proactive ? "确认并继续" : "采纳"}},
+                         {{"label", "取消"}, {"description", "中止本次动作"}},
+                     })}}})}}),
         .timeout_ms = timeout_ms,
         .result_promise = promise,
-        .cancel_flag = cancel_flag
-    };
+        .cancel_flag = cancel_flag};
     ctx.event_bus_ptr->publish_async(evt);
-    LOG_INFO("[BriefTool] published AskUserRequestEvent, status={}, timeout_ms={}",
-             status, timeout_ms);
+    LOG_INFO("[BriefTool] published AskUserRequestEvent, status={}, timeout_ms={}", status,
+             timeout_ms);
 
     // 5. 阻塞等待结果（支持超时）
     AskUserResult result;
@@ -174,8 +169,7 @@ ResultV2<ToolResult> BriefTool::call(
             if (cancel_flag) {
                 cancel_flag->store(true, std::memory_order_release);
             }
-            ctx.event_bus_ptr->publish_async(AskUserTimeoutEvent{
-                .session_id = ctx.session_id });
+            ctx.event_bus_ptr->publish_async(AskUserTimeoutEvent{.session_id = ctx.session_id});
         }
     } else {
         future.wait();
@@ -202,9 +196,8 @@ ResultV2<ToolResult> BriefTool::call(
         // proactive 下推断确认结果：确认/继续/yes 视为批准；normal 不引入门控语义
         if (proactive) {
             const std::string lower = to_lower_copy(answer);
-            out["approved"] =
-                (lower == "确认" || lower == "继续" || lower == "yes" ||
-                 lower == "continue" || lower == "approve");
+            out["approved"] = (lower == "确认" || lower == "继续" || lower == "yes" ||
+                               lower == "continue" || lower == "approve");
         }
     } else if (result.submitted) {
         out["status"] = "submitted";
@@ -218,4 +211,4 @@ ResultV2<ToolResult> BriefTool::call(
     return ResultV2<ToolResult>::ok(ToolResult::ok(out));
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

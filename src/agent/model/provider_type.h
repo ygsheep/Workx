@@ -27,8 +27,10 @@ enum class ProviderType {
 /// @brief 转换为字符串（小写）
 constexpr std::string_view to_string(ProviderType type) {
     switch (type) {
-        case ProviderType::OpenAI:    return "openai";
-        case ProviderType::Anthropic: return "anthropic";
+        case ProviderType::OpenAI:
+            return "openai";
+        case ProviderType::Anthropic:
+            return "anthropic";
     }
     return "unknown";
 }
@@ -45,9 +47,7 @@ inline Result<ProviderType, std::string> provider_type_from_string(std::string_v
     if (lower == "anthropic") {
         return Result<ProviderType, std::string>::ok(ProviderType::Anthropic);
     }
-    return Result<ProviderType, std::string>::err(
-        std::format("Unknown provider type: '{}'", str)
-    );
+    return Result<ProviderType, std::string>::err(std::format("Unknown provider type: '{}'", str));
 }
 
-} // namespace agent
+}  // namespace agent

@@ -55,10 +55,9 @@ std::string relativize(std::string_view path, std::string_view cwd) {
     return posix_path;
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
-bool skill_matches_touch(const std::string& path,
-                         const command::CommandBase& skill,
+bool skill_matches_touch(const std::string& path, const command::CommandBase& skill,
                          const std::string& cwd) {
     const auto& patterns = skill.paths();
     if (patterns.empty()) return false;
@@ -67,7 +66,8 @@ bool skill_matches_touch(const std::string& path,
     for (const auto& raw_pattern : patterns) {
         auto pattern = agent::tool::to_posix_path(agent::tool::expand_home(raw_pattern));
         // 绝对 pattern：POSIX '/' 开头，或 Windows 盘符（X:/）
-        const bool is_absolute = !pattern.empty() &&
+        const bool is_absolute =
+            !pattern.empty() &&
             (pattern[0] == '/' ||
              (pattern.size() >= 2 && std::isalpha(static_cast<unsigned char>(pattern[0])) &&
               pattern[1] == ':'));
@@ -82,8 +82,7 @@ bool skill_matches_touch(const std::string& path,
 
 std::vector<std::shared_ptr<command::PromptCommand>> activate_conditional_skills(
     const std::vector<std::string>& touched,
-    const std::vector<std::shared_ptr<command::CommandBase>>& skills,
-    const std::string& cwd) {
+    const std::vector<std::shared_ptr<command::CommandBase>>& skills, const std::string& cwd) {
     std::vector<std::shared_ptr<command::PromptCommand>> result;
     for (const auto& skill : skills) {
         auto* prompt_cmd = dynamic_cast<command::PromptCommand*>(skill.get());
@@ -100,4 +99,4 @@ std::vector<std::shared_ptr<command::PromptCommand>> activate_conditional_skills
     return result;
 }
 
-} // namespace agent::skill
+}  // namespace agent::skill

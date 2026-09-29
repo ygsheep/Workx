@@ -49,15 +49,16 @@ void fill_ctx(ToolContext& ctx, const fs::path& cwd) {
 struct TempDir {
     fs::path path;
     TempDir()
-        : path(fs::temp_directory_path()
-               / ("workx_perm_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())
-                  + "_" + std::to_string(std::random_device{}()))) {
+        : path(fs::temp_directory_path() /
+               ("workx_perm_" +
+                std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" +
+                std::to_string(std::random_device{}()))) {
         fs::create_directories(path);
     }
     ~TempDir() { fs::remove_all(path); }
 };
 
-} // namespace
+}  // namespace
 
 // ============================================================
 // 模式判定纯函数
@@ -98,7 +99,8 @@ TEST_CASE("is_dangerous_command allows safe commands", "[tool][permission]") {
     REQUIRE_FALSE(is_dangerous_command("rm file.txt"));  // 无 -rf/-r / 等破坏性组合
 }
 
-TEST_CASE("is_dangerous_command detects disk format only with drive/switch", "[tool][permission][review]") {
+TEST_CASE("is_dangerous_command detects disk format only with drive/switch",
+          "[tool][permission][review]") {
     // 评审 #6：format 需为独立命令（盘符/参数），避免误伤 printf("format %d")
     REQUIRE(is_dangerous_command("format C:"));
     REQUIRE(is_dangerous_command("format /Q"));
@@ -110,7 +112,8 @@ TEST_CASE("is_dangerous_command detects disk format only with drive/switch", "[t
 // 评审 #2：绝对禁止 vs 可确认敏感路径
 // ============================================================
 
-TEST_CASE("is_absolutely_forbidden_path hard-rejects keys/credentials", "[tool][permission][review]") {
+TEST_CASE("is_absolutely_forbidden_path hard-rejects keys/credentials",
+          "[tool][permission][review]") {
     REQUIRE(is_absolutely_forbidden_path("/home/user/.ssh/id_rsa"));
     REQUIRE(is_absolutely_forbidden_path("/home/user/.ssh/id_ed25519"));
     REQUIRE(is_absolutely_forbidden_path("/home/user/credentials"));
@@ -132,8 +135,14 @@ TEST_CASE("is_within_allowed_root handles mixed path separators", "[tool][permis
     fs::create_directories(root);
     fs::path inside = root / "in.txt";
     fs::path outside = tmp.path / "out.txt";  // root 的兄弟目录（越界）
-    { std::ofstream ofs(inside); ofs << "x"; }
-    { std::ofstream ofs(outside); ofs << "x"; }
+    {
+        std::ofstream ofs(inside);
+        ofs << "x";
+    }
+    {
+        std::ofstream ofs(outside);
+        ofs << "x";
+    }
 
     // cwd 用平台原生分隔符（Windows 反斜杠），canonical 用正斜杠：
     // 前缀比较前必须归一化分隔符，否则 cwd 内路径被误判越界。
@@ -150,7 +159,10 @@ TEST_CASE("repo_root_allowlist permits git repo root and subprojects", "[tool][p
     fs::create_directories(deep);
     fs::path file = repo / "src" / "main.cpp";  // 仓库内但不在 cwd 下
     fs::create_directories(file.parent_path());
-    { std::ofstream ofs(file); ofs << "x"; }
+    {
+        std::ofstream ofs(file);
+        ofs << "x";
+    }
 
     // cwd 位于仓库深层子目录时，仓库根加入 allowlist 后仓库内路径可访问
     const std::string cwd = deep.string();
@@ -178,15 +190,14 @@ TEST_CASE("ask_user_confirm publishes object-format questions contract", "[tool]
 
     nlohmann::json captured;
     bool captured_ok = false;
-    bus.subscribe<agent::AskUserRequestEvent>(
-        [&](const agent::AskUserRequestEvent& e) {
-            captured = e.questions;
-            captured_ok = true;
-            agent::AskUserResult r;
-            r.submitted = true;
-            r.answers.emplace_back("Allow?", "Yes");
-            e.result_promise->set_value(std::move(r));
-        });
+    bus.subscribe<agent::AskUserRequestEvent>([&](const agent::AskUserRequestEvent& e) {
+        captured = e.questions;
+        captured_ok = true;
+        agent::AskUserResult r;
+        r.submitted = true;
+        r.answers.emplace_back("Allow?", "Yes");
+        e.result_promise->set_value(std::move(r));
+    });
 
     ToolContext ctx;
     ctx.session_id = "test";
@@ -232,8 +243,7 @@ TEST_CASE("FileWriteTool plan mode denies write", "[tool][permission][write]") {
     ctx.permission_mode = PermissionMode::Plan;
 
     FileWriteTool tool;
-    auto perm = tool.check_permissions(
-        R"({"file_path": "out.txt", "content": "x"})"_json, ctx);
+    auto perm = tool.check_permissions(R"({"file_path": "out.txt", "content": "x"})"_json, ctx);
     REQUIRE(perm.is_err());
     REQUIRE(perm.error().code == Error::Code::PermissionDenied);
 }
@@ -245,8 +255,7 @@ TEST_CASE("FileWriteTool bypass mode allows write", "[tool][permission][write]")
     ctx.permission_mode = PermissionMode::BypassPermissions;
 
     FileWriteTool tool;
-    auto perm = tool.check_permissions(
-        R"({"file_path": "out.txt", "content": "x"})"_json, ctx);
+    auto perm = tool.check_permissions(R"({"file_path": "out.txt", "content": "x"})"_json, ctx);
     REQUIRE(perm.is_ok());
 }
 
@@ -256,8 +265,7 @@ TEST_CASE("FileWriteTool rejects path escaping cwd", "[tool][permission][write]"
     fill_ctx(ctx, tmp.path);
 
     FileWriteTool tool;
-    auto perm = tool.check_permissions(
-        R"({"file_path": ".."})"_json, ctx);
+    auto perm = tool.check_permissions(R"({"file_path": ".."})"_json, ctx);
     REQUIRE(perm.is_err());
     REQUIRE(perm.error().code == Error::Code::PermissionDenied);
 }
@@ -324,7 +332,8 @@ TEST_CASE("FileReadTool redacts secrets from output", "[tool][permission][read]"
     REQUIRE(out.find("[REDACTED:Anthropic API Key]") != std::string::npos);
 }
 
-TEST_CASE("FileReadTool rejects image files with no-image-input error", "[tool][permission][read]") {
+TEST_CASE("FileReadTool rejects image files with no-image-input error",
+          "[tool][permission][read]") {
     TempDir tmp;
     ToolContext ctx;
     fill_ctx(ctx, tmp.path);
@@ -395,8 +404,7 @@ TEST_CASE("GrepTool rejects path escaping cwd", "[tool][permission][grep]") {
     fill_ctx(ctx, tmp.path);
 
     GrepTool tool;
-    auto perm = tool.check_permissions(
-        R"({"pattern": "foo", "path": "../secret"})"_json, ctx);
+    auto perm = tool.check_permissions(R"({"pattern": "foo", "path": "../secret"})"_json, ctx);
     REQUIRE(perm.is_err());
     REQUIRE(perm.error().code == Error::Code::PermissionDenied);
 }
@@ -407,8 +415,7 @@ TEST_CASE("GrepTool rejects sensitive path", "[tool][permission][grep]") {
     fill_ctx(ctx, tmp.path);
 
     GrepTool tool;
-    auto perm = tool.check_permissions(
-        R"({"pattern": "foo", "path": ".env"})"_json, ctx);
+    auto perm = tool.check_permissions(R"({"pattern": "foo", "path": ".env"})"_json, ctx);
     REQUIRE(perm.is_err());
     REQUIRE(perm.error().code == Error::Code::PermissionDenied);
 }
@@ -417,14 +424,16 @@ TEST_CASE("GrepTool allows path within cwd", "[tool][permission][grep]") {
     TempDir tmp;
     fs::path subdir = tmp.path / "src";
     fs::create_directories(subdir);
-    { std::ofstream ofs(subdir / "a.cpp"); ofs << "needle\n"; }
+    {
+        std::ofstream ofs(subdir / "a.cpp");
+        ofs << "needle\n";
+    }
 
     ToolContext ctx;
     fill_ctx(ctx, tmp.path);
 
     GrepTool tool;
-    auto perm = tool.check_permissions(
-        R"({"pattern": "foo", "path": "src"})"_json, ctx);
+    auto perm = tool.check_permissions(R"({"pattern": "foo", "path": "src"})"_json, ctx);
     REQUIRE(perm.is_ok());
 }
 
@@ -435,8 +444,7 @@ TEST_CASE("GrepTool allows default cwd path", "[tool][permission][grep]") {
 
     GrepTool tool;
     // path 未指定 → 默认 ctx.cwd，无需校验
-    auto perm = tool.check_permissions(
-        R"({"pattern": "foo"})"_json, ctx);
+    auto perm = tool.check_permissions(R"({"pattern": "foo"})"_json, ctx);
     REQUIRE(perm.is_ok());
 }
 
@@ -447,8 +455,7 @@ TEST_CASE("GrepTool bypass mode allows any path", "[tool][permission][grep]") {
     ctx.permission_mode = PermissionMode::BypassPermissions;
 
     GrepTool tool;
-    auto perm = tool.check_permissions(
-        R"({"pattern": "foo", "path": "../outside"})"_json, ctx);
+    auto perm = tool.check_permissions(R"({"pattern": "foo", "path": "../outside"})"_json, ctx);
     REQUIRE(perm.is_ok());
 }
 
@@ -462,8 +469,7 @@ TEST_CASE("GlobTool rejects cwd escaping boundary", "[tool][permission][glob]") 
     fill_ctx(ctx, tmp.path);
 
     GlobTool tool;
-    auto perm = tool.check_permissions(
-        R"({"pattern": "**/*", "cwd": "../outside"})"_json, ctx);
+    auto perm = tool.check_permissions(R"({"pattern": "**/*", "cwd": "../outside"})"_json, ctx);
     REQUIRE(perm.is_err());
     REQUIRE(perm.error().code == Error::Code::PermissionDenied);
 }
@@ -474,8 +480,7 @@ TEST_CASE("GlobTool rejects sensitive cwd", "[tool][permission][glob]") {
     fill_ctx(ctx, tmp.path);
 
     GlobTool tool;
-    auto perm = tool.check_permissions(
-        R"({"pattern": "**/*", "cwd": ".env"})"_json, ctx);
+    auto perm = tool.check_permissions(R"({"pattern": "**/*", "cwd": ".env"})"_json, ctx);
     REQUIRE(perm.is_err());
     REQUIRE(perm.error().code == Error::Code::PermissionDenied);
 }
@@ -489,8 +494,7 @@ TEST_CASE("GlobTool allows cwd within boundary", "[tool][permission][glob]") {
     fill_ctx(ctx, tmp.path);
 
     GlobTool tool;
-    auto perm = tool.check_permissions(
-        R"({"pattern": "**/*", "cwd": "src"})"_json, ctx);
+    auto perm = tool.check_permissions(R"({"pattern": "**/*", "cwd": "src"})"_json, ctx);
     REQUIRE(perm.is_ok());
 }
 
@@ -501,8 +505,7 @@ TEST_CASE("GlobTool allows default cwd", "[tool][permission][glob]") {
 
     GlobTool tool;
     // cwd 未指定 → 默认 ctx.cwd，无需校验
-    auto perm = tool.check_permissions(
-        R"({"pattern": "**/*"})"_json, ctx);
+    auto perm = tool.check_permissions(R"({"pattern": "**/*"})"_json, ctx);
     REQUIRE(perm.is_ok());
 }
 
@@ -513,7 +516,6 @@ TEST_CASE("GlobTool bypass mode allows any cwd", "[tool][permission][glob]") {
     ctx.permission_mode = PermissionMode::BypassPermissions;
 
     GlobTool tool;
-    auto perm = tool.check_permissions(
-        R"({"pattern": "**/*", "cwd": "../outside"})"_json, ctx);
+    auto perm = tool.check_permissions(R"({"pattern": "**/*", "cwd": "../outside"})"_json, ctx);
     REQUIRE(perm.is_ok());
 }

@@ -36,8 +36,7 @@ std::string sub_agent_label(const SubAgentLite& a);
 /// @param change_viewer_elem 变更记录组件渲染元素（App 侧渲染；空 = 回退纯渲染）
 /// @param project_tree_elem 项目文件树组件渲染元素（App 侧渲染；空 = 回退纯渲染）
 /// @param file_viewer_elem 文件查看器组件渲染元素（App 侧渲染；空 = 回退纯渲染）
-ftxui::Element build_sidebar_tabs(const SidebarTabsModel& tabs,
-                                  const SidebarModel& sidebar,
+ftxui::Element build_sidebar_tabs(const SidebarTabsModel& tabs, const SidebarModel& sidebar,
                                   std::deque<TabHit>* hit_boxes = nullptr,
                                   std::deque<SectionHit>* section_hits = nullptr,
                                   const ftxui::Element& sub_menu_elem = ftxui::emptyElement(),

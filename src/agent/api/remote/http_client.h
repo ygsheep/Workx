@@ -12,9 +12,9 @@
 
 #include <nlohmann/json.hpp>
 
-#include "core/utils/result.h"          // 旧 Result（过渡期保留）
-#include "core/utils/result_v2.h"       // V2-2：新 ResultV2
-#include "core/utils/error.h"           // V2-2：Error 类型
+#include "core/utils/result.h"     // 旧 Result（过渡期保留）
+#include "core/utils/result_v2.h"  // V2-2：新 ResultV2
+#include "core/utils/error.h"      // V2-2：Error 类型
 
 namespace agent {
 
@@ -56,9 +56,7 @@ struct HttpResponse {
     }
 
     /// @brief 是否网络错误（curl 失败，无 HTTP 响应）
-    bool is_network_error() const noexcept {
-        return !error.empty() && status_code == 0;
-    }
+    bool is_network_error() const noexcept { return !error.empty() && status_code == 0; }
 
     /// @brief 是否客户端错误（4xx）
     bool is_client_error() const noexcept {
@@ -71,9 +69,7 @@ struct HttpResponse {
     }
 
     /// @brief 是否限流（429 Too Many Requests）
-    bool is_rate_limited() const noexcept {
-        return error.empty() && status_code == 429;
-    }
+    bool is_rate_limited() const noexcept { return error.empty() && status_code == 429; }
 
     /// @brief 是否可重试错误（与 HttpRetryPolicy.is_retryable 配对）
     /// @details 429 + 5xx + 网络错误 可重试；4xx（除 429）不可重试
@@ -88,32 +84,27 @@ class SSEStreamReader;
 /// @details RemoteBackend 通过本接口依赖 HttpClient，测试可注入 Fake 实现
 ///          驱动 on_complete / cancel_stream 回调，验证多 reader 并发仲裁路径。
 class IHttpClient {
-public:
+   public:
     virtual ~IHttpClient() = default;
 
     /// @brief 同步 GET 请求
     /// @return 成功返回 HttpResponse（含 2xx/4xx/5xx 状态码）；
     ///         失败返回 Error（仅限网络错误，HTTP 4xx/5xx 仍通过 HttpResponse 返回）
     virtual ResultV2<HttpResponse> get(
-        const std::string& url,
-        const std::vector<std::pair<std::string, std::string>>& headers,
+        const std::string& url, const std::vector<std::pair<std::string, std::string>>& headers,
         int timeout_ms = 15000) = 0;
 
     /// @brief 同步 POST（原始 body）
     /// @details Content-Type 等需要通过 headers 自行设置
     virtual ResultV2<HttpResponse> post(
-        const std::string& url,
-        const std::vector<std::pair<std::string, std::string>>& headers,
-        const std::string& body,
-        int timeout_ms = 15000) = 0;
+        const std::string& url, const std::vector<std::pair<std::string, std::string>>& headers,
+        const std::string& body, int timeout_ms = 15000) = 0;
 
     /// @brief 同步 POST JSON（自动追加 Content-Type: application/json）
     /// @param json_body 待发送的 JSON 对象
     ResultV2<HttpResponse> post_json(
-        const std::string& url,
-        const std::vector<std::pair<std::string, std::string>>& headers,
-        const nlohmann::json& json_body,
-        int timeout_ms = 15000) {
+        const std::string& url, const std::vector<std::pair<std::string, std::string>>& headers,
+        const nlohmann::json& json_body, int timeout_ms = 15000) {
         auto copy = headers;
         const auto ieq = [](const std::string& a, const char* b) {
             if (a.size() != std::strlen(b)) return false;
@@ -126,19 +117,20 @@ public:
         };
         bool has_ct = false;
         for (const auto& [k, v] : copy) {
-            if (ieq(k, "Content-Type")) { has_ct = true; break; }
+            if (ieq(k, "Content-Type")) {
+                has_ct = true;
+                break;
+            }
         }
         if (!has_ct) copy.emplace_back("Content-Type", "application/json");
         return post(url, std::move(copy), json_body.dump(), timeout_ms);
     }
 
-    virtual void async_post_stream(
-        const std::string& url,
-        const std::vector<std::pair<std::string, std::string>>& headers,
-        const std::string& body,
-        std::shared_ptr<SSEStreamReader> reader,
-        std::function<void()> on_complete,
-        int timeout_ms = 30000) const = 0;
+    virtual void async_post_stream(const std::string& url,
+                                   const std::vector<std::pair<std::string, std::string>>& headers,
+                                   const std::string& body, std::shared_ptr<SSEStreamReader> reader,
+                                   std::function<void()> on_complete,
+                                   int timeout_ms = 30000) const = 0;
 
     virtual void cancel_stream(SSEStreamReader* reader) = 0;
 
@@ -146,33 +138,28 @@ public:
 };
 
 class HttpClient : public IHttpClient {
-public:
+   public:
     HttpClient();
     ~HttpClient();
 
     HttpClient(const HttpClient&) = delete;
     HttpClient& operator=(const HttpClient&) = delete;
 
-    ResultV2<HttpResponse> get(
-        const std::string& url,
-        const std::vector<std::pair<std::string, std::string>>& headers,
-        int timeout_ms = 15000) override;
+    ResultV2<HttpResponse> get(const std::string& url,
+                               const std::vector<std::pair<std::string, std::string>>& headers,
+                               int timeout_ms = 15000) override;
 
-    ResultV2<HttpResponse> post(
-        const std::string& url,
-        const std::vector<std::pair<std::string, std::string>>& headers,
-        const std::string& body,
-        int timeout_ms = 15000) override;
+    ResultV2<HttpResponse> post(const std::string& url,
+                                const std::vector<std::pair<std::string, std::string>>& headers,
+                                const std::string& body, int timeout_ms = 15000) override;
 
-    void async_post_stream(
-        const std::string& url,
-        const std::vector<std::pair<std::string, std::string>>& headers,
-        const std::string& body,
-        std::shared_ptr<SSEStreamReader> reader,
-        std::function<void()> on_complete,
-        int timeout_ms = 30000) const override;
+    void async_post_stream(const std::string& url,
+                           const std::vector<std::pair<std::string, std::string>>& headers,
+                           const std::string& body, std::shared_ptr<SSEStreamReader> reader,
+                           std::function<void()> on_complete,
+                           int timeout_ms = 30000) const override;
 
-    void cancel_stream(SSEStreamReader *reader) override;
+    void cancel_stream(SSEStreamReader* reader) override;
 
     void shutdown() override;
 
@@ -185,10 +172,10 @@ public:
     void set_block_private_ips(bool block) noexcept { m_block_private_ips = block; }
     bool block_private_ips() const noexcept { return m_block_private_ips; }
 
-private:
+   private:
     struct Impl;
     std::unique_ptr<Impl> m_impl;
     bool m_block_private_ips = false;
 };
 
-} // namespace agent
+}  // namespace agent

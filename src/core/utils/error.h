@@ -20,49 +20,49 @@ struct Error {
     /// @brief 错误码枚举
     /// @details 按"错误来源"分类，不按 HTTP 状态码分类（避免业务层依赖 HTTP 细节）
     enum class Code : int {
-        Ok = 0,                  ///< 成功（不应出现在 Error 中，仅用于内部断言）
+        Ok = 0,  ///< 成功（不应出现在 Error 中，仅用于内部断言）
 
         // === 网络类（1xx）===
-        NetworkTimeout = 100,    ///< 网络超时（连接/读取/总时长）
-        NetworkDisconnected = 101, ///< 连接断开（DNS 失败、TCP reset）
-        NetworkUnreachable = 102,  ///< 网络不可达
+        NetworkTimeout = 100,       ///< 网络超时（连接/读取/总时长）
+        NetworkDisconnected = 101,  ///< 连接断开（DNS 失败、TCP reset）
+        NetworkUnreachable = 102,   ///< 网络不可达
 
         // === HTTP 类（2xx）===
-        HttpError = 200,         ///< HTTP 4xx/5xx（具体状态码见 context）
-        HttpRateLimited = 201,   ///< HTTP 429 限流
-        HttpServerDown = 202,    ///< HTTP 5xx 服务端错误
+        HttpError = 200,        ///< HTTP 4xx/5xx（具体状态码见 context）
+        HttpRateLimited = 201,  ///< HTTP 429 限流
+        HttpServerDown = 202,   ///< HTTP 5xx 服务端错误
 
         // === 输入类（3xx）===
-        InvalidInput = 300,      ///< 输入参数无效（JSON 解析失败、类型不匹配）
-        MissingArgument = 301,   ///< 缺少必填参数
-        InvalidFormat = 302,     ///< 格式错误（如 URL 解析失败）
+        InvalidInput = 300,     ///< 输入参数无效（JSON 解析失败、类型不匹配）
+        MissingArgument = 301,  ///< 缺少必填参数
+        InvalidFormat = 302,    ///< 格式错误（如 URL 解析失败）
 
         // === 权限类（4xx）===
-        PermissionDenied = 400,  ///< 权限拒绝（工具不允许执行）
-        ResourceNotFound = 401,  ///< 资源不存在（文件/配置键/模型）
-        AuthenticationFailed = 402, ///< 认证失败（API key 无效）
+        PermissionDenied = 400,      ///< 权限拒绝（工具不允许执行）
+        ResourceNotFound = 401,      ///< 资源不存在（文件/配置键/模型）
+        AuthenticationFailed = 402,  ///< 认证失败（API key 无效）
 
         // === 业务类（5xx）===
-        Cancelled = 500,         ///< 操作被取消（用户中断/超时取消）
-        InternalError = 501,     ///< 内部错误（不变量违反、不应到达的状态）
-        NotImplemented = 502,    ///< 功能未实现（TODO 工具）
-        ToolExecutionFailed = 503, ///< 工具执行失败（工具内部异常）
+        Cancelled = 500,            ///< 操作被取消（用户中断/超时取消）
+        InternalError = 501,        ///< 内部错误（不变量违反、不应到达的状态）
+        NotImplemented = 502,       ///< 功能未实现（TODO 工具）
+        ToolExecutionFailed = 503,  ///< 工具执行失败（工具内部异常）
 
         // === 配置类（6xx）===
-        ConfigInvalid = 600,     ///< 配置值无效（Schema 校验失败）
-        ConfigMissing = 601,     ///< 配置键缺失
-        ConfigParseFailed = 602, ///< 配置文件解析失败
+        ConfigInvalid = 600,      ///< 配置值无效（Schema 校验失败）
+        ConfigMissing = 601,      ///< 配置键缺失
+        ConfigParseFailed = 602,  ///< 配置文件解析失败
 
         // === 流式类（7xx）===
-        StreamError = 700,       ///< 流式传输错误（SSE 解析失败、连接中断）
-        StreamCancelled = 701,   ///< 流式传输被取消
+        StreamError = 700,      ///< 流式传输错误（SSE 解析失败、连接中断）
+        StreamCancelled = 701,  ///< 流式传输被取消
 
         // === 未知 ===
         Unknown = 999,
     } code = Code::Unknown;
 
-    std::string message;          ///< 人类可读错误描述
-    std::string context;          ///< 额外上下文（URL / 请求 ID / 工具名 / 配置键）
+    std::string message;  ///< 人类可读错误描述
+    std::string context;  ///< 额外上下文（URL / 请求 ID / 工具名 / 配置键）
 
     /// @brief 默认构造（Code::Unknown）
     Error() = default;
@@ -103,9 +103,8 @@ struct Error {
 
     /// @brief 是否为客户端错误（通常不可重试）
     [[nodiscard]] bool is_client_error() const noexcept {
-        return code == Code::PermissionDenied
-            || code == Code::AuthenticationFailed
-            || code == Code::ResourceNotFound;
+        return code == Code::PermissionDenied || code == Code::AuthenticationFailed ||
+               code == Code::ResourceNotFound;
     }
 
     /// @brief 是否为配置错误
@@ -122,7 +121,8 @@ struct Error {
     [[nodiscard]] std::string_view code_string() const noexcept;
 
     /// @brief 格式化为完整错误消息（包含 code + message + context）
-    /// @details 例如 "[NetworkTimeout] Request timed out after 30000ms (url=https://api.example.com)"
+    /// @details 例如 "[NetworkTimeout] Request timed out after 30000ms
+    /// (url=https://api.example.com)"
     [[nodiscard]] std::string to_string() const;
 
     /// @brief 工厂：从 HTTP 响应构造错误
@@ -130,12 +130,12 @@ struct Error {
     /// @param status_code HTTP 状态码（0 表示网络错误，未到达服务器）
     /// @param body 响应体（4xx/5xx 时可能含错误详情）
     /// @param curl_error curl 错误消息（非空表示传输层错误）
-    static Error from_http_response(unsigned int status_code,
-                                    const std::string& body,
+    static Error from_http_response(unsigned int status_code, const std::string& body,
                                     const std::string& curl_error);
 
     /// @brief 工厂：从 CURLcode 构造网络错误
-    /// @param curl_code CURLcode 数值（CURLE_OPERATION_TIMEDOUT=28, CURLE_COULDNT_RESOLVE_HOST=6, 等）
+    /// @param curl_code CURLcode 数值（CURLE_OPERATION_TIMEDOUT=28, CURLE_COULDNT_RESOLVE_HOST=6,
+    /// 等）
     /// @param url 关联的 URL（填入 context）
     static Error from_curl_code(int curl_code, const std::string& url);
 
@@ -150,4 +150,4 @@ struct Error {
 bool operator==(const Error& lhs, const Error& rhs) noexcept;
 bool operator!=(const Error& lhs, const Error& rhs) noexcept;
 
-} // namespace agent
+}  // namespace agent

@@ -31,8 +31,8 @@ core::todo::TodoItem make_todo(const std::string& content) {
 
 /// @brief 把元素渲染到固定尺寸 Screen 并返回文本
 std::string render_elem(const ftxui::Element& e, int cols = 30, int rows = 24) {
-    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(cols),
-                                        ftxui::Dimension::Fixed(rows));
+    auto screen =
+        ftxui::Screen::Create(ftxui::Dimension::Fixed(cols), ftxui::Dimension::Fixed(rows));
     ftxui::Render(screen, e);
     std::string out;
     for (int y = 0; y < rows; ++y) {
@@ -122,7 +122,7 @@ TEST_CASE("sidebar tabs removes cost", "[sidebar_tabs][render]") {
     SidebarModel sidebar;
     sidebar.cost_usd = 1.23;
     const auto text = render_elem(build_sidebar_tabs(tabs, sidebar));
-    REQUIRE(text.find("成本") == std::string::npos);     // 成本已移除
+    REQUIRE(text.find("成本") == std::string::npos);  // 成本已移除
 }
 
 TEST_CASE("sidebar tabs shows DS cache hit rate", "[sidebar_tabs][render]") {
@@ -134,7 +134,7 @@ TEST_CASE("sidebar tabs shows DS cache hit rate", "[sidebar_tabs][render]") {
     INFO("RENDERED:\n" << text);
     REQUIRE(text.find("DS 缓存") != std::string::npos);
     REQUIRE(text.find("命中") != std::string::npos);
-    REQUIRE(text.find("80%") != std::string::npos);   // 8000/10000
+    REQUIRE(text.find("80%") != std::string::npos);  // 8000/10000
     REQUIRE(text.find("8k/10k") != std::string::npos);
 }
 
@@ -188,8 +188,8 @@ TEST_CASE("sidebar tabs sub agent label formats done and failed", "[sidebar_tabs
 TEST_CASE("sidebar tabs embeds sub agent menu element in tasks tab", "[sidebar_tabs][render]") {
     SidebarTabsModel tabs = make_tabs();
     tabs.sub_agents.push_back(SubAgentLite{.task_id = "task_1", .status = "running"});
-    const auto text = render_elem(build_sidebar_tabs(tabs, SidebarModel{}, nullptr, nullptr,
-                                                     ftxui::text("MENU_ENTRY")));
+    const auto text = render_elem(
+        build_sidebar_tabs(tabs, SidebarModel{}, nullptr, nullptr, ftxui::text("MENU_ENTRY")));
     REQUIRE(text.find("子 Agent") != std::string::npos);
     REQUIRE(text.find("MENU_ENTRY") != std::string::npos);
 }
@@ -218,7 +218,7 @@ TEST_CASE("sidebar tabs collapsible sections hide items when collapsed", "[sideb
     sidebar.mcp_servers = {{"server-a", "2026-07-28", 2, 1, ""}};
     sidebar.todos = {make_todo("todo-1")};
     const auto text = render_elem(build_sidebar_tabs(tabs, sidebar));
-    REQUIRE(text.find("MCP") != std::string::npos);   // 标题仍在
+    REQUIRE(text.find("MCP") != std::string::npos);  // 标题仍在
     REQUIRE(text.find("TODO") != std::string::npos);
     REQUIRE(text.find("server-a") == std::string::npos);  // 条目隐藏
     REQUIRE(text.find("todo-1") == std::string::npos);
@@ -253,7 +253,8 @@ TEST_CASE("sidebar tabs records section hit boxes", "[sidebar_tabs][hit]") {
 // 可开合 tab：打开后显示且带 ✕，关闭后消失
 // ============================================================================
 
-TEST_CASE("sidebar tabs changes tab appears with close button when open", "[sidebar_tabs][render]") {
+TEST_CASE("sidebar tabs changes tab appears with close button when open",
+          "[sidebar_tabs][render]") {
     SidebarTabsModel tabs = make_tabs();
     tabs.changes_open = true;
     const auto text = render_elem(build_sidebar_tabs(tabs, SidebarModel{}), 40, 24);

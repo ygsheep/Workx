@@ -22,13 +22,14 @@ bool is_absolute_if_present(const std::optional<std::string>& p) {
     if (!p) return true;  // nullopt 视为"契约满足"
     return std::filesystem::path(*p).is_absolute();
 }
-} // namespace
+}  // namespace
 
 // ============================================================
 // resolve_ripgrep 基本契约
 // ============================================================
 
-TEST_CASE("ToolRegistry resolve_ripgrep returns absolute path or nullopt", "[tool_registry][ripgrep]") {
+TEST_CASE("ToolRegistry resolve_ripgrep returns absolute path or nullopt",
+          "[tool_registry][ripgrep]") {
     auto& reg = ToolRegistry::instance();
     reg.clear_cache();  // 清缓存确保重新探测
 
@@ -83,14 +84,12 @@ TEST_CASE("ToolRegistry clear_cache allows re-resolve", "[tool_registry][cache]"
 // resolve_tool 通用接口
 // ============================================================
 
-TEST_CASE("ToolRegistry resolve_tool for nonexistent tool returns nullopt", "[tool_registry][resolve]") {
+TEST_CASE("ToolRegistry resolve_tool for nonexistent tool returns nullopt",
+          "[tool_registry][resolve]") {
     auto& reg = ToolRegistry::instance();
     // 查找一个一定不存在的工具
-    auto path = reg.resolve_tool(
-        "nonexistent_tool_xyz_999",
-        "tools/nonexistent_xyz_999.exe",
-        "nonexistent_xyz_999_cmd"
-    );
+    auto path = reg.resolve_tool("nonexistent_tool_xyz_999", "tools/nonexistent_xyz_999.exe",
+                                 "nonexistent_xyz_999_cmd");
     REQUIRE_FALSE(path.has_value());
 }
 

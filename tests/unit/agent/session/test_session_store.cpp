@@ -21,7 +21,7 @@ namespace {
 
 /// @brief 临时文件 RAII 清理
 class TempFile {
-public:
+   public:
     explicit TempFile(const std::string& name)
         : path_(std::filesystem::temp_directory_path() / name) {
         std::filesystem::remove(path_);
@@ -29,12 +29,13 @@ public:
     ~TempFile() { std::filesystem::remove(path_); }
     const std::filesystem::path& path() const { return path_; }
     std::string string() const { return path_.string(); }
-private:
+
+   private:
     std::filesystem::path path_;
 };
 
 class TempDir {
-public:
+   public:
     explicit TempDir(const std::string& name)
         : path_(std::filesystem::temp_directory_path() / name) {
         std::filesystem::remove_all(path_);
@@ -43,7 +44,8 @@ public:
     ~TempDir() { std::filesystem::remove_all(path_); }
     const std::filesystem::path& path() const { return path_; }
     std::string string() const { return path_.string(); }
-private:
+
+   private:
     std::filesystem::path path_;
 };
 
@@ -56,7 +58,7 @@ std::string djb2_for_test(const std::string& s) {
     return oss.str();
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 // ============================================================
 // 追加与读取
@@ -151,12 +153,14 @@ TEST_CASE("session_store: assistant with tool_uses round-trip", "[session][store
 
     std::vector<agent::ToolUse> uses;
     uses.push_back({"toolu_001", "Read", nlohmann::json({{"path", "/tmp/test"}})});
-    uses.push_back({"toolu_002", "Write", nlohmann::json({{"path", "/tmp/out"}, {"content", "hi"}})});
+    uses.push_back(
+        {"toolu_002", "Write", nlohmann::json({{"path", "/tmp/out"}, {"content", "hi"}})});
 
     {
         SessionStore store(tmp.string());
         REQUIRE(store.open());
-        REQUIRE(store.append_assistant_message("a1", "u1", "calling tools", "thinking...", uses, "t1"));
+        REQUIRE(
+            store.append_assistant_message("a1", "u1", "calling tools", "thinking...", uses, "t1"));
         store.close();
     }
 
@@ -202,12 +206,16 @@ TEST_CASE("session_store: list sessions in project dir", "[session][store]") {
     auto f1 = tmp.path() / "aaa-111.jsonl";
     auto f2 = tmp.path() / "bbb-222.jsonl";
     {
-        std::ofstream(f1.string()) << R"({"type":"session_start","sessionId":"aaa-111","createdAt":"2026-07-30T10:00:00Z"})" << "\n";
+        std::ofstream(f1.string())
+            << R"({"type":"session_start","sessionId":"aaa-111","createdAt":"2026-07-30T10:00:00Z"})"
+            << "\n";
     }
     // 确保两个文件的修改时间可区分（Windows 文件系统精度可能较低）
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     {
-        std::ofstream(f2.string()) << R"({"type":"session_start","sessionId":"bbb-222","createdAt":"2026-07-31T10:00:00Z"})" << "\n";
+        std::ofstream(f2.string())
+            << R"({"type":"session_start","sessionId":"bbb-222","createdAt":"2026-07-31T10:00:00Z"})"
+            << "\n";
     }
 
     auto sessions = SessionStore::list_sessions(tmp.string());
@@ -237,10 +245,14 @@ TEST_CASE("session_store: load messages from jsonl", "[session][store]") {
 
     {
         std::ofstream f(tmp.string());
-        f << R"({"type":"session_start","sessionId":"s1","cwd":"/tmp","model":"m","gitBranch":"main"})" << "\n";
-        f << R"({"type":"user","uuid":"u1","parentUuid":"","timestamp":"t1","content":"hello"})" << "\n";
-        f << R"({"type":"assistant","uuid":"a1","parentUuid":"u1","timestamp":"t2","content":"hi","reasoningContent":"thinking","toolUses":[]})" << "\n";
-        f << R"({"type":"tool","uuid":"t1","parentUuid":"a1","timestamp":"t3","toolCallId":"tc1","toolName":"Read","content":"file content","isError":false})" << "\n";
+        f << R"({"type":"session_start","sessionId":"s1","cwd":"/tmp","model":"m","gitBranch":"main"})"
+          << "\n";
+        f << R"({"type":"user","uuid":"u1","parentUuid":"","timestamp":"t1","content":"hello"})"
+          << "\n";
+        f << R"({"type":"assistant","uuid":"a1","parentUuid":"u1","timestamp":"t2","content":"hi","reasoningContent":"thinking","toolUses":[]})"
+          << "\n";
+        f << R"({"type":"tool","uuid":"t1","parentUuid":"a1","timestamp":"t3","toolCallId":"tc1","toolName":"Read","content":"file content","isError":false})"
+          << "\n";
         f << R"({"type":"session_end","sessionId":"s1"})" << "\n";
     }
 
@@ -263,7 +275,8 @@ TEST_CASE("session_store: load messages with tool_uses preserved", "[session][st
 
     {
         std::ofstream f(tmp.string());
-        f << R"({"type":"assistant","uuid":"a1","parentUuid":"","timestamp":"t1","content":"call","reasoningContent":"","toolUses":[{"id":"toolu_1","name":"Read","input":{"path":"/tmp"}}]})" << "\n";
+        f << R"({"type":"assistant","uuid":"a1","parentUuid":"","timestamp":"t1","content":"call","reasoningContent":"","toolUses":[{"id":"toolu_1","name":"Read","input":{"path":"/tmp"}}]})"
+          << "\n";
     }
 
     auto messages = SessionStore::load_messages(tmp.string());
@@ -283,10 +296,14 @@ TEST_CASE("session_store: load meta from jsonl", "[session][store]") {
 
     {
         std::ofstream f(tmp.string());
-        f << R"({"type":"session_start","sessionId":"meta-1","cwd":"/project","model":"gpt-4","gitBranch":"develop"})" << "\n";
-        f << R"({"type":"user","uuid":"u1","parentUuid":"","timestamp":"t1","content":"hi"})" << "\n";
-        f << R"({"type":"assistant","uuid":"a1","parentUuid":"u1","timestamp":"t2","content":"","reasoningContent":"","toolUses":[]})" << "\n";
-        f << R"({"type":"tool","uuid":"t1","parentUuid":"a1","timestamp":"t3","toolCallId":"c1","toolName":"Read","content":"","isError":false})" << "\n";
+        f << R"({"type":"session_start","sessionId":"meta-1","cwd":"/project","model":"gpt-4","gitBranch":"develop"})"
+          << "\n";
+        f << R"({"type":"user","uuid":"u1","parentUuid":"","timestamp":"t1","content":"hi"})"
+          << "\n";
+        f << R"({"type":"assistant","uuid":"a1","parentUuid":"u1","timestamp":"t2","content":"","reasoningContent":"","toolUses":[]})"
+          << "\n";
+        f << R"({"type":"tool","uuid":"t1","parentUuid":"a1","timestamp":"t3","toolCallId":"c1","toolName":"Read","content":"","isError":false})"
+          << "\n";
     }
 
     auto meta = SessionStore::load_meta(tmp.string());
@@ -303,7 +320,8 @@ TEST_CASE("session_store: load meta fallback to filename", "[session][store]") {
     TempFile tmp("fallback-id.jsonl");
     {
         std::ofstream f(tmp.string());
-        f << R"({"type":"user","uuid":"u1","parentUuid":"","timestamp":"t1","content":"hi"})" << "\n";
+        f << R"({"type":"user","uuid":"u1","parentUuid":"","timestamp":"t1","content":"hi"})"
+          << "\n";
     }
 
     auto meta = SessionStore::load_meta(tmp.string());
@@ -320,11 +338,14 @@ TEST_CASE("session_store: skip corrupted lines", "[session][store]") {
     TempFile tmp("workx_test_corrupt.jsonl");
     {
         std::ofstream f(tmp.string());
-        f << R"({"type":"user","uuid":"u1","parentUuid":"","timestamp":"t1","content":"good1"})" << "\n";
+        f << R"({"type":"user","uuid":"u1","parentUuid":"","timestamp":"t1","content":"good1"})"
+          << "\n";
         f << "this is not json\n";
-        f << R"({"type":"user","uuid":"u2","parentUuid":"","timestamp":"t2","content":"good2"})" << "\n";
+        f << R"({"type":"user","uuid":"u2","parentUuid":"","timestamp":"t2","content":"good2"})"
+          << "\n";
         f << "{broken json\n";
-        f << R"({"type":"user","uuid":"u3","parentUuid":"","timestamp":"t3","content":"good3"})" << "\n";
+        f << R"({"type":"user","uuid":"u3","parentUuid":"","timestamp":"t3","content":"good3"})"
+          << "\n";
     }
 
     auto events = SessionStore::read_all(tmp.string());
@@ -373,9 +394,11 @@ TEST_CASE("session_store: load_meta reads title from last title event", "[sessio
 
     {
         std::ofstream f(tmp.string());
-        f << R"({"type":"session_start","sessionId":"s1","cwd":"/p","model":"m","gitBranch":"b","createdAt":"2026-07-31T10:00:00Z"})" << "\n";
+        f << R"({"type":"session_start","sessionId":"s1","cwd":"/p","model":"m","gitBranch":"b","createdAt":"2026-07-31T10:00:00Z"})"
+          << "\n";
         f << R"({"type":"title","sessionId":"s1","timestamp":"t1","title":"旧标题"})" << "\n";
-        f << R"({"type":"user","uuid":"u1","parentUuid":"","timestamp":"t2","content":"hello"})" << "\n";
+        f << R"({"type":"user","uuid":"u1","parentUuid":"","timestamp":"t2","content":"hello"})"
+          << "\n";
         f << R"({"type":"title","sessionId":"s1","timestamp":"t3","title":"新标题"})" << "\n";
     }
 
@@ -384,14 +407,17 @@ TEST_CASE("session_store: load_meta reads title from last title event", "[sessio
     REQUIRE(meta->title == "新标题");  // 取最后一条 title 事件
 }
 
-TEST_CASE("session_store: load_meta title fallback to first user message 20 chars", "[session][store][title]") {
+TEST_CASE("session_store: load_meta title fallback to first user message 20 chars",
+          "[session][store][title]") {
     TempFile tmp("workx_test_title_fallback.jsonl");
 
     {
         std::ofstream f(tmp.string());
-        f << R"({"type":"session_start","sessionId":"s1","cwd":"/p","model":"m","gitBranch":"b","createdAt":"2026-07-31T10:00:00Z"})" << "\n";
+        f << R"({"type":"session_start","sessionId":"s1","cwd":"/p","model":"m","gitBranch":"b","createdAt":"2026-07-31T10:00:00Z"})"
+          << "\n";
         // 无 title 事件，应 fallback 到首条 user 消息前 20 字
-        f << R"({"type":"user","uuid":"u1","parentUuid":"","timestamp":"t1","content":"这是一个比较长的用户消息用于测试标题截断功能是否正常工作"})" << "\n";
+        f << R"({"type":"user","uuid":"u1","parentUuid":"","timestamp":"t1","content":"这是一个比较长的用户消息用于测试标题截断功能是否正常工作"})"
+          << "\n";
     }
 
     auto meta = SessionStore::load_meta(tmp.string());
@@ -402,12 +428,14 @@ TEST_CASE("session_store: load_meta title fallback to first user message 20 char
     REQUIRE(meta->title.back() == '.');  // 以 "..." 结尾
 }
 
-TEST_CASE("session_store: load_meta title fallback short message no ellipsis", "[session][store][title]") {
+TEST_CASE("session_store: load_meta title fallback short message no ellipsis",
+          "[session][store][title]") {
     TempFile tmp("workx_test_title_short.jsonl");
 
     {
         std::ofstream f(tmp.string());
-        f << R"({"type":"user","uuid":"u1","parentUuid":"","timestamp":"t1","content":"短消息"})" << "\n";
+        f << R"({"type":"user","uuid":"u1","parentUuid":"","timestamp":"t1","content":"短消息"})"
+          << "\n";
     }
 
     auto meta = SessionStore::load_meta(tmp.string());
@@ -420,7 +448,8 @@ TEST_CASE("session_store: load_meta title fallback no user message", "[session][
 
     {
         std::ofstream f(tmp.string());
-        f << R"({"type":"session_start","sessionId":"s1","cwd":"/p","model":"m","gitBranch":"b","createdAt":"2026-07-31T10:00:00Z"})" << "\n";
+        f << R"({"type":"session_start","sessionId":"s1","cwd":"/p","model":"m","gitBranch":"b","createdAt":"2026-07-31T10:00:00Z"})"
+          << "\n";
         // 无 title 事件，无 user 消息
     }
 
@@ -439,7 +468,8 @@ TEST_CASE("session_store: title fallback UTF-8 safe truncation", "[session][stor
         std::string content(25, '\xE4');  // 无效 UTF-8，仅测试不崩溃
         // 改用真实中文字符
         content = "一二三四五六七八九十一二三四五六七八九十一二三四五";
-        f << R"({"type":"user","uuid":"u1","parentUuid":"","timestamp":"t1","content":")" << content << R"("})" << "\n";
+        f << R"({"type":"user","uuid":"u1","parentUuid":"","timestamp":"t1","content":")" << content
+          << R"("})" << "\n";
     }
 
     auto meta = SessionStore::load_meta(tmp.string());
@@ -470,8 +500,7 @@ TEST_CASE("session_store: multiple title events override", "[session][store][tit
 // #24：Todo 清单全链路往返（TodoStore → JSONL → load_todos → restore_todos）
 // ============================================================
 
-TEST_CASE("session_store: todo persist restore roundtrip via TodoStore",
-          "[session][store][todo]") {
+TEST_CASE("session_store: todo persist restore roundtrip via TodoStore", "[session][store][todo]") {
     auto& store = agent::tool::TodoStore::instance();
     store.clear_for_test();
 
@@ -530,8 +559,7 @@ TEST_CASE("session_store: todo persist restore roundtrip via TodoStore",
     store.clear_for_test();
 }
 
-TEST_CASE("session_store: todo empty snapshot clears on resume",
-          "[session][store][todo]") {
+TEST_CASE("session_store: todo empty snapshot clears on resume", "[session][store][todo]") {
     auto& store = agent::tool::TodoStore::instance();
     store.clear_for_test();
 
@@ -563,4 +591,3 @@ TEST_CASE("session_store: todo empty snapshot clears on resume",
 
     store.clear_for_test();
 }
-

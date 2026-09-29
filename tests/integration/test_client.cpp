@@ -45,8 +45,7 @@ struct LmStudioFixture {
         REQUIRE_FALSE(s_base_url.empty());
 
         const char* env_model = std::getenv("LM_STUDIO_MODEL");
-        s_model = (env_model && env_model[0] != '\0')
-            ? env_model : "google/gemma-4-e4b";
+        s_model = (env_model && env_model[0] != '\0') ? env_model : "google/gemma-4-e4b";
 
         // 连通性测试：确保 LM Studio 已启动
         HttpClient check_client;
@@ -130,11 +129,12 @@ TEST_CASE_METHOD(LmStudioFixture, "Client stream_chat content", "[client][integr
 
     std::string content, reasoning;
     bool done = false;
-    auto res = client.stream_chat("Say hi.", {
-        [&](const std::string& c, const std::string& r) { content += c; reasoning += r; },
-        [&](const StreamChunk&) { done = true; },
-        [](const std::string&, bool) {}
-    });
+    auto res = client.stream_chat(
+        "Say hi.", {[&](const std::string& c, const std::string& r) {
+                        content += c;
+                        reasoning += r;
+                    },
+                    [&](const StreamChunk&) { done = true; }, [](const std::string&, bool) {}});
     REQUIRE(res.is_ok());
     REQUIRE(done);
     REQUIRE_FALSE(content.empty());
@@ -146,11 +146,12 @@ TEST_CASE_METHOD(LmStudioFixture, "Client stream_chat reasoning", "[client][inte
     auto client = std::move(r.value());
 
     std::string content, reasoning;
-    client.stream_chat("Think step by step: what is 15 + 27?", {
-        [&](const std::string& c, const std::string& r) { content += c; reasoning += r; },
-        [](const StreamChunk&) {},
-        [](const std::string&, bool) {}
-    });
+    client.stream_chat("Think step by step: what is 15 + 27?",
+                       {[&](const std::string& c, const std::string& r) {
+                            content += c;
+                            reasoning += r;
+                        },
+                        [](const StreamChunk&) {}, [](const std::string&, bool) {}});
 
     // gemma-4-e4b 支持推理，预期有 reasoning；环境差异时 WARN 跳过
     if (reasoning.empty()) {
@@ -194,23 +195,22 @@ TEST_CASE_METHOD(LmStudioFixture, "Client stream_chat_async", "[client][integrat
     bool done = false;
 
     // 立即返回，推理在后台线程
-    auto res = client.stream_chat_async("Say hi.", {
-        [&](const std::string& c, const std::string& r) {
-            std::lock_guard<std::mutex> lk(mtx);
-            content += c;
-            reasoning += r;
-        },
-        [&](const StreamChunk&) {
-            std::lock_guard<std::mutex> lk(mtx);
-            done = true;
-            cv.notify_one();
-        },
-        [&](const std::string&, bool) {
-            std::lock_guard<std::mutex> lk(mtx);
-            done = true;
-            cv.notify_one();
-        }
-    });
+    auto res =
+        client.stream_chat_async("Say hi.", {[&](const std::string& c, const std::string& r) {
+                                                 std::lock_guard<std::mutex> lk(mtx);
+                                                 content += c;
+                                                 reasoning += r;
+                                             },
+                                             [&](const StreamChunk&) {
+                                                 std::lock_guard<std::mutex> lk(mtx);
+                                                 done = true;
+                                                 cv.notify_one();
+                                             },
+                                             [&](const std::string&, bool) {
+                                                 std::lock_guard<std::mutex> lk(mtx);
+                                                 done = true;
+                                                 cv.notify_one();
+                                             }});
     REQUIRE(res.is_ok());
 
     // 等待后台完成（最多 30s）
@@ -231,19 +231,18 @@ TEST_CASE_METHOD(LmStudioFixture, "Client interrupt async", "[client][integratio
     std::condition_variable cv;
     bool done = false;
 
-    client.stream_chat_async("Write a long essay about history.", {
-        [](const std::string&, const std::string&) {},
-        [&](const StreamChunk&) {
-            std::lock_guard<std::mutex> lk(mtx);
-            done = true;
-            cv.notify_one();
-        },
-        [&](const std::string&, bool) {
-            std::lock_guard<std::mutex> lk(mtx);
-            done = true;
-            cv.notify_one();
-        }
-    });
+    client.stream_chat_async("Write a long essay about history.",
+                             {[](const std::string&, const std::string&) {},
+                              [&](const StreamChunk&) {
+                                  std::lock_guard<std::mutex> lk(mtx);
+                                  done = true;
+                                  cv.notify_one();
+                              },
+                              [&](const std::string&, bool) {
+                                  std::lock_guard<std::mutex> lk(mtx);
+                                  done = true;
+                                  cv.notify_one();
+                              }});
 
     REQUIRE(client.is_generating());
 

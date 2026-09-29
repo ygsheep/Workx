@@ -28,8 +28,7 @@ Error error_from_rpc(const nlohmann::json& err, const std::string& method) {
     } else if (code == jsonrpc_error::InvalidParams) {
         ec = Error::Code::InvalidInput;
     }
-    return Error{ec, "MCP 错误: " + message,
-                 "method=" + method + "; code=" + std::to_string(code)};
+    return Error{ec, "MCP 错误: " + message, "method=" + method + "; code=" + std::to_string(code)};
 }
 
 /// 判断错误是否为协议版本不匹配（UnsupportedProtocolVersionError）
@@ -38,25 +37,21 @@ bool is_unsupported_protocol_version(const nlohmann::json& err) {
     const int code = err.value("code", 0);
     if (code == mcp_error::UnsupportedProtocolVersion) return true;
     const std::string message = err.value("message", "");
-    return message.find("protocol version") != std::string::npos
-        || message.find("protocolVersion") != std::string::npos;
+    return message.find("protocol version") != std::string::npos ||
+           message.find("protocolVersion") != std::string::npos;
 }
 
 /// @brief 是否受支持的 MCP 协议版本（P2-8：拒绝未知/降级版本）
 bool is_supported_protocol_version(const std::string& v) {
-    return v == kProtocolVersion2026_07_28
-        || v == kProtocolVersion2025_11_25
-        || v == kProtocolVersion2025_03_26
-        || v == kProtocolVersion2024_11_05;
+    return v == kProtocolVersion2026_07_28 || v == kProtocolVersion2025_11_25 ||
+           v == kProtocolVersion2025_03_26 || v == kProtocolVersion2024_11_05;
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 McpClient::McpClient() = default;
 
-McpClient::~McpClient() {
-    disconnect();
-}
+McpClient::~McpClient() { disconnect(); }
 
 ResultV2<void> McpClient::connect(const McpServerConfig& cfg, int timeout_ms) {
     m_name = cfg.name;
@@ -77,7 +72,8 @@ ResultV2<void> McpClient::connect(const McpServerConfig& cfg, int timeout_ms) {
             m_transport->stop();
             m_transport.reset();
             return ResultV2<void>::err(Error::Code::NetworkDisconnected,
-                "MCP server 返回不支持的协议版本: " + ver, "McpClient::connect");
+                                       "MCP server 返回不支持的协议版本: " + ver,
+                                       "McpClient::connect");
         }
         m_protocol_version = ver;
         m_stateless = true;
@@ -95,7 +91,8 @@ ResultV2<void> McpClient::connect(const McpServerConfig& cfg, int timeout_ms) {
                 m_transport->stop();
                 m_transport.reset();
                 return ResultV2<void>::err(Error::Code::NetworkDisconnected,
-                    "MCP server 返回不支持的协议版本: " + ver, "McpClient::connect");
+                                           "MCP server 返回不支持的协议版本: " + ver,
+                                           "McpClient::connect");
             }
             m_protocol_version = ver;
             m_stateless = false;
@@ -104,16 +101,16 @@ ResultV2<void> McpClient::connect(const McpServerConfig& cfg, int timeout_ms) {
             return ResultV2<void>::ok();
         }
         // 仅协议版本不匹配时尝试更旧版本
-        if (!init.error().context.empty()
-            && init.error().context.find("unsupported_protocol") == std::string::npos) {
+        if (!init.error().context.empty() &&
+            init.error().context.find("unsupported_protocol") == std::string::npos) {
             break;
         }
     }
 
     m_transport->stop();
     m_transport.reset();
-    return ResultV2<void>::err(Error::Code::NetworkDisconnected,
-        "MCP 协议协商失败: " + m_name, "McpClient::connect");
+    return ResultV2<void>::err(Error::Code::NetworkDisconnected, "MCP 协议协商失败: " + m_name,
+                               "McpClient::connect");
 }
 
 void McpClient::disconnect() {
@@ -133,7 +130,8 @@ const std::string& McpClient::protocol_version() const { return m_protocol_versi
 ResultV2<std::vector<McpToolInfo>> McpClient::list_tools() {
     if (!m_connected) {
         return ResultV2<std::vector<McpToolInfo>>::err(Error::Code::NetworkDisconnected,
-            "MCP server 未连接: " + m_name, "McpClient::list_tools");
+                                                       "MCP server 未连接: " + m_name,
+                                                       "McpClient::list_tools");
     }
     auto result = request_cached("tools/list", nlohmann::json::object(), 15000);
     if (result.is_err()) return result.error();
@@ -156,12 +154,10 @@ ResultV2<McpCallResult> McpClient::call_tool(const std::string& tool_name,
                                              const nlohmann::json& args) {
     if (!m_connected) {
         return ResultV2<McpCallResult>::err(Error::Code::NetworkDisconnected,
-            "MCP server 未连接: " + m_name, "McpClient::call_tool");
+                                            "MCP server 未连接: " + m_name, "McpClient::call_tool");
     }
-    nlohmann::json params = {
-        {"name", tool_name},
-        {"arguments", args.is_object() ? args : nlohmann::json::object()}
-    };
+    nlohmann::json params = {{"name", tool_name},
+                             {"arguments", args.is_object() ? args : nlohmann::json::object()}};
     auto result = request("tools/call", params, 30000);
     if (result.is_err()) return result.error();
 
@@ -183,7 +179,8 @@ ResultV2<McpCallResult> McpClient::call_tool(const std::string& tool_name,
 ResultV2<std::vector<McpResourceInfo>> McpClient::list_resources() {
     if (!m_connected) {
         return ResultV2<std::vector<McpResourceInfo>>::err(Error::Code::NetworkDisconnected,
-            "MCP server 未连接: " + m_name, "McpClient::list_resources");
+                                                           "MCP server 未连接: " + m_name,
+                                                           "McpClient::list_resources");
     }
     auto result = request_cached("resources/list", nlohmann::json::object(), 15000);
     if (result.is_err()) return result.error();
@@ -205,9 +202,9 @@ ResultV2<std::vector<McpResourceInfo>> McpClient::list_resources() {
 
 ResultV2<std::vector<McpResourceContent>> McpClient::read_resource(const std::string& uri) {
     if (!m_connected) {
-        return ResultV2<std::vector<McpResourceContent>>::err(
-            Error::Code::NetworkDisconnected,
-            "MCP server 未连接: " + m_name, "McpClient::read_resource");
+        return ResultV2<std::vector<McpResourceContent>>::err(Error::Code::NetworkDisconnected,
+                                                              "MCP server 未连接: " + m_name,
+                                                              "McpClient::read_resource");
     }
     nlohmann::json params = {{"uri", uri}};
     auto result = request_cached("resources/read", params, 15000);
@@ -235,8 +232,8 @@ ResultV2<std::vector<McpResourceContent>> McpClient::read_resource(const std::st
 ResultV2<std::vector<McpResourceTemplateInfo>> McpClient::list_resource_templates() {
     if (!m_connected) {
         return ResultV2<std::vector<McpResourceTemplateInfo>>::err(
-            Error::Code::NetworkDisconnected,
-            "MCP server 未连接: " + m_name, "McpClient::list_resource_templates");
+            Error::Code::NetworkDisconnected, "MCP server 未连接: " + m_name,
+            "McpClient::list_resource_templates");
     }
     auto result = request_cached("resources/templates/list", nlohmann::json::object(), 15000);
     if (result.is_err()) return result.error();
@@ -262,7 +259,8 @@ ResultV2<std::vector<McpResourceTemplateInfo>> McpClient::list_resource_template
 ResultV2<std::vector<McpPromptInfo>> McpClient::list_prompts() {
     if (!m_connected) {
         return ResultV2<std::vector<McpPromptInfo>>::err(Error::Code::NetworkDisconnected,
-            "MCP server 未连接: " + m_name, "McpClient::list_prompts");
+                                                         "MCP server 未连接: " + m_name,
+                                                         "McpClient::list_prompts");
     }
     auto result = request_cached("prompts/list", nlohmann::json::object(), 15000);
     if (result.is_err()) return result.error();
@@ -288,12 +286,12 @@ ResultV2<std::vector<McpPromptInfo>> McpClient::list_prompts() {
     return ResultV2<std::vector<McpPromptInfo>>::ok(std::move(prompts));
 }
 
-ResultV2<std::vector<McpPromptMessage>> McpClient::get_prompt(
-    const std::string& name, const nlohmann::json& arguments) {
+ResultV2<std::vector<McpPromptMessage>> McpClient::get_prompt(const std::string& name,
+                                                              const nlohmann::json& arguments) {
     if (!m_connected) {
-        return ResultV2<std::vector<McpPromptMessage>>::err(
-            Error::Code::NetworkDisconnected,
-            "MCP server 未连接: " + m_name, "McpClient::get_prompt");
+        return ResultV2<std::vector<McpPromptMessage>>::err(Error::Code::NetworkDisconnected,
+                                                            "MCP server 未连接: " + m_name,
+                                                            "McpClient::get_prompt");
     }
     nlohmann::json params = {{"name", name}};
     if (arguments.is_object() && !arguments.empty()) {
@@ -319,13 +317,8 @@ ResultV2<std::vector<McpPromptMessage>> McpClient::get_prompt(
 // ============================================================
 
 ResultV2<nlohmann::json> McpClient::raw_request(const std::string& method,
-                                                const nlohmann::json& params,
-                                                int timeout_ms) {
-    nlohmann::json msg = {
-        {"jsonrpc", "2.0"},
-        {"id", m_next_id++},
-        {"method", method}
-    };
+                                                const nlohmann::json& params, int timeout_ms) {
+    nlohmann::json msg = {{"jsonrpc", "2.0"}, {"id", m_next_id++}, {"method", method}};
     if (params.is_object()) {
         msg["params"] = params;
     }
@@ -334,36 +327,28 @@ ResultV2<nlohmann::json> McpClient::raw_request(const std::string& method,
         if (!msg.contains("params") || !msg["params"].is_object()) {
             msg["params"] = nlohmann::json::object();
         }
-        msg["params"]["_meta"] = {
-            {"io.modelcontextprotocol/protocolVersion", m_protocol_version}
-        };
+        msg["params"]["_meta"] = {{"io.modelcontextprotocol/protocolVersion", m_protocol_version}};
     }
     return m_transport->send_request(msg, timeout_ms);
 }
 
-ResultV2<nlohmann::json> McpClient::request(const std::string& method,
-                                            const nlohmann::json& params,
+ResultV2<nlohmann::json> McpClient::request(const std::string& method, const nlohmann::json& params,
                                             int timeout_ms) {
     auto resp = raw_request(method, params, timeout_ms);
     if (resp.is_err()) return resp.error();
     const auto& r = resp.value();
     if (r.contains("error")) {
-        return ResultV2<nlohmann::json>::err(
-            error_from_rpc(r.at("error"), method));
+        return ResultV2<nlohmann::json>::err(error_from_rpc(r.at("error"), method));
     }
     if (!r.contains("result")) {
-        return ResultV2<nlohmann::json>::err(Error::Code::InternalError,
-            "MCP 响应缺少 result", "method=" + method);
+        return ResultV2<nlohmann::json>::err(Error::Code::InternalError, "MCP 响应缺少 result",
+                                             "method=" + method);
     }
     return ResultV2<nlohmann::json>::ok(r.at("result"));
 }
 
-ResultV2<void> McpClient::notify(const std::string& method,
-                                 const nlohmann::json& params) {
-    nlohmann::json msg = {
-        {"jsonrpc", "2.0"},
-        {"method", method}
-    };
+ResultV2<void> McpClient::notify(const std::string& method, const nlohmann::json& params) {
+    nlohmann::json msg = {{"jsonrpc", "2.0"}, {"method", method}};
     if (params.is_object()) {
         msg["params"] = params;
     }
@@ -382,8 +367,7 @@ McpCacheMeta McpClient::extract_cache_meta(const nlohmann::json& result) {
 }
 
 ResultV2<nlohmann::json> McpClient::request_cached(const std::string& method,
-                                                   const nlohmann::json& params,
-                                                   int timeout_ms) {
+                                                   const nlohmann::json& params, int timeout_ms) {
     const std::string key = method + "|" + params.dump();
     const auto now = std::chrono::steady_clock::now();
     auto it = m_cache.find(key);
@@ -398,19 +382,15 @@ ResultV2<nlohmann::json> McpClient::request_cached(const std::string& method,
     const auto& result = resp.value();
     const auto meta = extract_cache_meta(result);
     if (meta.ttl_ms > 0) {
-        m_cache[key] = CacheEntry{
-            result, now + std::chrono::milliseconds(meta.ttl_ms)};
+        m_cache[key] = CacheEntry{result, now + std::chrono::milliseconds(meta.ttl_ms)};
     }
     return resp;
 }
 
-ResultV2<nlohmann::json> McpClient::do_initialize(const std::string& version,
-                                                  int timeout_ms) {
-    nlohmann::json params = {
-        {"protocolVersion", version},
-        {"capabilities", nlohmann::json::object()},
-        {"clientInfo", {{"name", "workx"}, {"version", "0.5.x"}}}
-    };
+ResultV2<nlohmann::json> McpClient::do_initialize(const std::string& version, int timeout_ms) {
+    nlohmann::json params = {{"protocolVersion", version},
+                             {"capabilities", nlohmann::json::object()},
+                             {"clientInfo", {{"name", "workx"}, {"version", "0.5.x"}}}};
     auto resp = raw_request("initialize", params, timeout_ms);
     if (resp.is_err()) return resp.error();
     const auto& r = resp.value();
@@ -418,17 +398,16 @@ ResultV2<nlohmann::json> McpClient::do_initialize(const std::string& version,
         // 标记协议版本不匹配，供 connect 决定是否重试
         if (is_unsupported_protocol_version(r.at("error"))) {
             return ResultV2<nlohmann::json>::err(Error::Code::ToolExecutionFailed,
-                "Unsupported protocol version",
-                "unsupported_protocol");
+                                                 "Unsupported protocol version",
+                                                 "unsupported_protocol");
         }
-        return ResultV2<nlohmann::json>::err(
-            error_from_rpc(r.at("error"), "initialize"));
+        return ResultV2<nlohmann::json>::err(error_from_rpc(r.at("error"), "initialize"));
     }
     if (!r.contains("result")) {
-        return ResultV2<nlohmann::json>::err(Error::Code::InternalError,
-            "initialize 响应缺少 result", "McpClient::do_initialize");
+        return ResultV2<nlohmann::json>::err(
+            Error::Code::InternalError, "initialize 响应缺少 result", "McpClient::do_initialize");
     }
     return ResultV2<nlohmann::json>::ok(r.at("result"));
 }
 
-} // namespace agent::mcp
+}  // namespace agent::mcp

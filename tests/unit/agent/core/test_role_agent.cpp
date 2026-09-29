@@ -31,7 +31,7 @@ GoalAgentDeps make_deps() {
     return d;
 }
 
-} // namespace
+}  // namespace
 
 // ============================================================
 // role_profile_of：角色策略
@@ -95,9 +95,8 @@ TEST_CASE("role: Unknown 仍未实现", "[agent][role]") {
 
 TEST_CASE("role: make_loop 五角色返回对应 IAgentLoop（type 匹配）", "[agent][role]") {
     QueryEngine qe(make_deps());
-    for (const AgentType t : {AgentType::Planner, AgentType::Executor,
-                              AgentType::Coordinator, AgentType::Researcher,
-                              AgentType::Reviewer}) {
+    for (const AgentType t : {AgentType::Planner, AgentType::Executor, AgentType::Coordinator,
+                              AgentType::Researcher, AgentType::Reviewer}) {
         auto loop = qe.make_loop(t);
         REQUIRE(loop != nullptr);
         CHECK(loop->type() == t);  // 不再回退 ReAct

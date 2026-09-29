@@ -37,7 +37,7 @@ namespace agent::test {
 /// 按预定的 chunk 序列依次返回，最后返回 Complete。
 /// 支持注入错误/取消状态、token 统计。
 class MockStreamReader : public IStreamReader {
-public:
+   public:
     /// @brief 添加一个普通内容 chunk
     MockStreamReader& add_content_chunk(std::string delta) {
         StreamChunk chunk;
@@ -75,8 +75,8 @@ public:
     }
 
     /// @brief 设置最终 chunk 的 token 统计
-    MockStreamReader& set_usage(int32_t prompt, int32_t generated,
-                                 int32_t cache_creation = 0, int32_t cache_read = 0) {
+    MockStreamReader& set_usage(int32_t prompt, int32_t generated, int32_t cache_creation = 0,
+                                int32_t cache_read = 0) {
         prompt_tokens_ = prompt;
         generated_tokens_ = generated;
         cache_creation_ = cache_creation;
@@ -127,7 +127,7 @@ public:
 
     void cancel() override {}
 
-private:
+   private:
     std::vector<StreamChunk> chunks_;
     size_t consumed_ = 0;
     std::optional<size_t> error_at_;
@@ -146,7 +146,7 @@ private:
 /// 行为兼容性：readers 为空时 submit_completion 返回 nullptr，
 /// 与极简版 MockProvider 行为一致，可安全替换。
 class MockCompletionProvider : public ICompletionProvider {
-public:
+   public:
     /// @brief 排队下一次 submit_completion 返回的 reader
     void set_next_reader(std::shared_ptr<MockStreamReader> reader) {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -183,9 +183,9 @@ public:
         return !readers_.empty();
     }
 
-private:
+   private:
     mutable std::mutex mutex_;
     std::deque<std::shared_ptr<MockStreamReader>> readers_;
 };
 
-} // namespace agent::test
+}  // namespace agent::test

@@ -27,17 +27,16 @@ namespace island::ipc {
 namespace {
 
 class NamedPipeTransport final : public ITransport {
-public:
+   public:
     ~NamedPipeTransport() override { close(); }
 
     bool listen(const std::string& endpoint) override {
         close();  // 支持重 listen（断连后重新创建实例）
-        const HANDLE h = CreateNamedPipeA(
-            endpoint.c_str(),
-            PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-            1,  // 单客户端实例
-            65536, 65536, 0, nullptr);
+        const HANDLE h =
+            CreateNamedPipeA(endpoint.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+                             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+                             1,  // 单客户端实例
+                             65536, 65536, 0, nullptr);
         {
             std::lock_guard<std::mutex> lock(m_handle_mutex);
             m_endpoint = endpoint;
@@ -80,10 +79,8 @@ public:
         close();
         HANDLE h = INVALID_HANDLE_VALUE;
         for (int attempt = 0; attempt < 3; ++attempt) {
-            const HANDLE fd = CreateFileA(
-                endpoint.c_str(),
-                GENERIC_READ | GENERIC_WRITE,
-                0, nullptr, OPEN_EXISTING, 0, nullptr);
+            const HANDLE fd = CreateFileA(endpoint.c_str(), GENERIC_READ | GENERIC_WRITE, 0,
+                                          nullptr, OPEN_EXISTING, 0, nullptr);
             if (fd != INVALID_HANDLE_VALUE) {
                 h = fd;  // byte 模式无需 SetNamedPipeHandleState
                 break;
@@ -183,26 +180,22 @@ public:
         return m_handle != INVALID_HANDLE_VALUE;
     }
 
-private:
+   private:
     mutable std::mutex m_handle_mutex;
     HANDLE m_handle = INVALID_HANDLE_VALUE;
     std::string m_endpoint;
 };
 
-} // namespace
+}  // namespace
 
 std::string default_endpoint(uint32_t pid) {
     return "\\\\.\\pipe\\workx-island-" + std::to_string(pid);
 }
 
-std::unique_ptr<ITransport> create_listener() {
-    return std::make_unique<NamedPipeTransport>();
-}
+std::unique_ptr<ITransport> create_listener() { return std::make_unique<NamedPipeTransport>(); }
 
-std::unique_ptr<ITransport> create_connector() {
-    return std::make_unique<NamedPipeTransport>();
-}
+std::unique_ptr<ITransport> create_connector() { return std::make_unique<NamedPipeTransport>(); }
 
-} // namespace island::ipc
+}  // namespace island::ipc
 
-#endif // _WIN32
+#endif  // _WIN32

@@ -16,23 +16,22 @@
 namespace agent {
 
 namespace detail {
-    template<typename T>
-    struct ErrorWrapper {
-        T value;
-    };
-}
+template <typename T>
+struct ErrorWrapper {
+    T value;
+};
+}  // namespace detail
 
-template<typename T, typename E>
+template <typename T, typename E>
 class Result;
 
-template<typename T, typename E = std::string>
+template <typename T, typename E = std::string>
 class Result {
-    using VariantType = std::conditional_t<
-        std::is_same_v<T, E>,
-        std::variant<T, detail::ErrorWrapper<E>>,
-        std::variant<T, E>
-    >;
-public:
+    using VariantType =
+        std::conditional_t<std::is_same_v<T, E>, std::variant<T, detail::ErrorWrapper<E>>,
+                           std::variant<T, E>>;
+
+   public:
     using value_type = T;
     using error_type = E;
 
@@ -90,7 +89,7 @@ public:
         }
     }
 
-    template<typename U, typename F>
+    template <typename U, typename F>
     [[nodiscard]] auto map(F&& f) -> Result<U, E> {
         if (isOk()) return Result<U, E>::ok(f(std::get<0>(m_data)));
         if constexpr (std::is_same_v<T, E>) {
@@ -100,7 +99,7 @@ public:
         }
     }
 
-    template<typename F, typename G>
+    template <typename F, typename G>
     [[nodiscard]] auto map_err(F&& f) -> Result<T, G> {
         if (isErr()) {
             if constexpr (std::is_same_v<T, E>) {
@@ -112,7 +111,7 @@ public:
         return Result<T, G>::ok(std::get<0>(m_data));
     }
 
-    template<typename U, typename F>
+    template <typename U, typename F>
     [[nodiscard]] auto and_then(F&& f) -> Result<U, E> {
         if (isOk()) return f(std::get<0>(m_data));
         if constexpr (std::is_same_v<T, E>) {
@@ -122,7 +121,7 @@ public:
         }
     }
 
-private:
+   private:
     VariantType m_data;
 
     Result(std::in_place_index_t<0>, T value) : m_data(std::move(value)) {}
@@ -130,9 +129,9 @@ private:
     Result(std::in_place_index_t<1>, detail::ErrorWrapper<E> error) : m_data(std::move(error)) {}
 };
 
-template<typename E>
+template <typename E>
 class Result<void, E> {
-public:
+   public:
     using value_type = void;
     using error_type = E;
 
@@ -157,13 +156,13 @@ public:
         return m_error;
     }
 
-    template<typename F, typename G>
+    template <typename F, typename G>
     [[nodiscard]] auto map_err(F&& f) -> Result<void, G> {
         if (isErr()) return Result<void, G>::err(f(m_error));
         return Result<void, G>::ok();
     }
 
-private:
+   private:
     bool m_is_ok;
     E m_error;
 
@@ -171,26 +170,32 @@ private:
     explicit Result(E error) : m_is_ok(false), m_error(std::move(error)) {}
 };
 
-#define TRY_RESULT(expr) \
-    do { \
-        auto _result = (expr); \
-        if (_result.isErr()) { \
+#define TRY_RESULT(expr)                         \
+    do {                                         \
+        auto _result = (expr);                   \
+        if (_result.isErr()) {                   \
             return Result::err(_result.error()); \
-        } \
-    } while(0)
+        }                                        \
+    } while (0)
 
-#define UNWRAP_RESULT(var, expr) \
-    auto _result_##var = (expr); \
-    if (_result_##var.isErr()) { \
+#define UNWRAP_RESULT(var, expr)                   \
+    auto _result_##var = (expr);                   \
+    if (_result_##var.isErr()) {                   \
         return Result::err(_result_##var.error()); \
-    } \
+    }                                              \
     auto var = _result_##var.unwrap()
 
-template<typename T> struct is_result : std::false_type {};
-template<typename T, typename E> struct is_result<Result<T, E>> : std::true_type {};
-template<typename T> struct is_result<const T> : is_result<T> {};
-template<typename T> struct is_result<volatile T> : is_result<T> {};
-template<typename T> struct is_result<const volatile T> : is_result<T> {};
-template<typename T> inline constexpr bool is_result_v = is_result<T>::value;
+template <typename T>
+struct is_result : std::false_type {};
+template <typename T, typename E>
+struct is_result<Result<T, E>> : std::true_type {};
+template <typename T>
+struct is_result<const T> : is_result<T> {};
+template <typename T>
+struct is_result<volatile T> : is_result<T> {};
+template <typename T>
+struct is_result<const volatile T> : is_result<T> {};
+template <typename T>
+inline constexpr bool is_result_v = is_result<T>::value;
 
-} // namespace agent
+}  // namespace agent

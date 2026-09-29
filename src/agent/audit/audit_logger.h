@@ -31,37 +31,37 @@ namespace agent::audit {
 
 /// @brief 审计事件严重级别
 enum class Severity {
-    Info,       ///< 一般信息（工具调用、会话生命周期）
-    Warn,       ///< 警告（权限拒绝、沙盒降级、敏感文件访问）
-    Critical    ///< 严重（危险命令、密钥检测、路径穿越）
+    Info,     ///< 一般信息（工具调用、会话生命周期）
+    Warn,     ///< 警告（权限拒绝、沙盒降级、敏感文件访问）
+    Critical  ///< 严重（危险命令、密钥检测、路径穿越）
 };
 
 /// @brief 审计事件类型
 enum class EventType {
     // 工具生命周期
-    ToolInvoke,             ///< 工具调用
-    ToolPermissionDecision, ///< 权限决策（allow/ask/deny）
-    ToolPermissionDenied,   ///< 权限拒绝
-    ToolResultTruncated,    ///< 输出被截断
+    ToolInvoke,              ///< 工具调用
+    ToolPermissionDecision,  ///< 权限决策（allow/ask/deny）
+    ToolPermissionDenied,    ///< 权限拒绝
+    ToolResultTruncated,     ///< 输出被截断
 
     // 安全事件
-    SecurityDangerousCommand,   ///< 危险命令检测
-    SecuritySensitiveFile,      ///< 敏感文件访问
-    SecuritySecretDetected,     ///< 密钥检测命中
-    SecuritySandboxDisabled,    ///< 沙盒被关闭
-    SecuritySandboxDegraded,    ///< 沙盒降级
-    SecurityPathTraversal,      ///< 路径穿越尝试
-    SecuritySymlinkBypass,      ///< 符号链接绕过尝试
-    SecuritySSRFAttempt,        ///< SSRF 尝试
-    SecurityEnvVarLeak,         ///< 环境变量泄露尝试
+    SecurityDangerousCommand,  ///< 危险命令检测
+    SecuritySensitiveFile,     ///< 敏感文件访问
+    SecuritySecretDetected,    ///< 密钥检测命中
+    SecuritySandboxDisabled,   ///< 沙盒被关闭
+    SecuritySandboxDegraded,   ///< 沙盒降级
+    SecurityPathTraversal,     ///< 路径穿越尝试
+    SecuritySymlinkBypass,     ///< 符号链接绕过尝试
+    SecuritySSRFAttempt,       ///< SSRF 尝试
+    SecurityEnvVarLeak,        ///< 环境变量泄露尝试
 
     // 会话/Agent 生命周期
-    SessionStart,       ///< 会话开始
-    SessionEnd,         ///< 会话结束
-    AgentStart,         ///< Agent 开始
-    AgentDone,          ///< Agent 完成
-    AgentInterrupted,   ///< Agent 被取消
-    AgentMaxIterations, ///< 达到最大迭代
+    SessionStart,        ///< 会话开始
+    SessionEnd,          ///< 会话结束
+    AgentStart,          ///< Agent 开始
+    AgentDone,           ///< Agent 完成
+    AgentInterrupted,    ///< Agent 被取消
+    AgentMaxIterations,  ///< 达到最大迭代
 };
 
 /// @brief 将 EventType 转换为字符串标识（用于 JSONL event_type 字段）
@@ -72,26 +72,26 @@ std::string_view to_string(Severity sev) noexcept;
 
 /// @brief 审计事件（构建后传给 AuditLogger::log）
 struct AuditEvent {
-    EventType type;                 ///< 事件类型
-    Severity severity;              ///< 严重级别
-    std::string session_id;         ///< 会话 ID（可选）
-    std::string request_id;         ///< 请求 ID（可选）
-    std::string trace_id;           ///< 调用链 ID（可选，如 "root"、"parent:child"）
-    std::string tool_name;          ///< 工具名称（工具事件必填）
-    nlohmann::json input;           ///< 工具输入关键字段（非全量，避免日志爆炸）
-    std::string decision;           ///< 权限决策结果（allow/ask/deny）
-    std::string decision_reason;    ///< 决策原因（哪条规则触发）
-    int64_t duration_ms = 0;        ///< 耗时（毫秒）
-    std::string output_summary;     ///< 输出摘要（前 200 字符）
-    std::vector<std::string> security_flags; ///< 安全标记（如 "destructive_command"）
-    std::string user;               ///< 用户@主机
+    EventType type;               ///< 事件类型
+    Severity severity;            ///< 严重级别
+    std::string session_id;       ///< 会话 ID（可选）
+    std::string request_id;       ///< 请求 ID（可选）
+    std::string trace_id;         ///< 调用链 ID（可选，如 "root"、"parent:child"）
+    std::string tool_name;        ///< 工具名称（工具事件必填）
+    nlohmann::json input;         ///< 工具输入关键字段（非全量，避免日志爆炸）
+    std::string decision;         ///< 权限决策结果（allow/ask/deny）
+    std::string decision_reason;  ///< 决策原因（哪条规则触发）
+    int64_t duration_ms = 0;      ///< 耗时（毫秒）
+    std::string output_summary;   ///< 输出摘要（前 200 字符）
+    std::vector<std::string> security_flags;  ///< 安全标记（如 "destructive_command"）
+    std::string user;                         ///< 用户@主机
 };
 
 /// @brief 审计日志记录器（单例）
 /// @details 独立于 liblogger 的运行日志，专用于安全审计。
 ///          线程安全，同步写入，不可屏蔽。
 class AuditLogger {
-public:
+   public:
     /// @brief 获取单例实例
     static AuditLogger& instance() noexcept;
 
@@ -125,27 +125,19 @@ public:
     /// @param duration_ms 耗时
     /// @param output 输出文本（将脱敏后取前 200 字符）
     /// @param security_flags 安全标记
-    void log_tool_invoke(
-        const std::string& tool_name,
-        const nlohmann::json& input,
-        const std::string& session_id,
-        const std::string& request_id,
-        std::string_view decision = "allow",
-        std::string_view decision_reason = "",
-        int64_t duration_ms = 0,
-        std::string_view output = "",
-        const std::vector<std::string>& security_flags = {});
+    void log_tool_invoke(const std::string& tool_name, const nlohmann::json& input,
+                         const std::string& session_id, const std::string& request_id,
+                         std::string_view decision = "allow", std::string_view decision_reason = "",
+                         int64_t duration_ms = 0, std::string_view output = "",
+                         const std::vector<std::string>& security_flags = {});
 
     /// @brief 记录安全违规事件
     /// @param type 事件类型（须为 Security* 系列）
     /// @param detail 事件详情
     /// @param session_id 会话 ID
     /// @param tool_name 相关工具名称（可选）
-    void log_security(
-        EventType type,
-        const std::string& detail,
-        const std::string& session_id,
-        std::string_view tool_name = "");
+    void log_security(EventType type, const std::string& detail, const std::string& session_id,
+                      std::string_view tool_name = "");
 
     /// @brief 记录会话生命周期事件
     void log_session_lifecycle(EventType type, const std::string& session_id);
@@ -156,7 +148,7 @@ public:
     /// @brief 手动 flush（用于测试和优雅关闭）
     void flush();
 
-private:
+   private:
     AuditLogger() = default;
     ~AuditLogger();
     AuditLogger(const AuditLogger&) = delete;
@@ -191,4 +183,4 @@ private:
     std::atomic<bool> initialized_{false};
 };
 
-} // namespace agent::audit
+}  // namespace agent::audit

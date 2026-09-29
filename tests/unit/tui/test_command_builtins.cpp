@@ -16,10 +16,9 @@ using namespace ftxtui;
 namespace {
 
 /// @brief 执行注册表里的命令，返回结果文本
-agent::command::CommandResult run_registered(
-    const agent::command::CommandRegistry& reg,
-    const std::string& name,
-    const std::string& args = "") {
+agent::command::CommandResult run_registered(const agent::command::CommandRegistry& reg,
+                                             const std::string& name,
+                                             const std::string& args = "") {
     auto cmd = reg.find_by_name(name);
     REQUIRE(cmd != nullptr);
     auto local = std::dynamic_pointer_cast<agent::command::LocalCommand>(cmd);
@@ -33,7 +32,9 @@ agent::command::CommandResult run_registered(
 TEST_CASE("register_ftx_builtins registers the core commands", "[ftx_builtins][registry]") {
     agent::command::CommandRegistry reg;
     register_ftx_builtins(reg, {});
-    REQUIRE(reg.size() == 14);  // help/exit/quit/clear/new/compact/model/provider/resume/rename/view/edit/nvim/Test:askuser
+    REQUIRE(
+        reg.size() ==
+        14);  // help/exit/quit/clear/new/compact/model/provider/resume/rename/view/edit/nvim/Test:askuser
     REQUIRE(reg.exists("help"));
     REQUIRE(reg.exists("exit"));
     REQUIRE(reg.exists("quit"));
@@ -135,7 +136,8 @@ TEST_CASE("register_ftx_builtins edit passes path to callback", "[ftx_builtins][
     REQUIRE(captured == "src/main.cpp");
 }
 
-TEST_CASE("register_ftx_builtins Test:askuser triggers on_test_askuser callback", "[ftx_builtins][exec]") {
+TEST_CASE("register_ftx_builtins Test:askuser triggers on_test_askuser callback",
+          "[ftx_builtins][exec]") {
     int opened = 0;
     agent::command::CommandRegistry reg;
     register_ftx_builtins(reg, {.on_test_askuser = [&] { ++opened; }});

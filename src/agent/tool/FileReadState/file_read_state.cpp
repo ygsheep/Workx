@@ -42,10 +42,7 @@ void merge_range(std::vector<LineRange>& ranges, const LineRange& r) {
         }
         // 与当前范围重叠或相邻：扩展新范围
         if (!inserted) {
-            merged.push_back({
-                std::min(cur.start, r.start),
-                std::max(cur.end, r.end)
-            });
+            merged.push_back({std::min(cur.start, r.start), std::max(cur.end, r.end)});
             inserted = true;
         } else {
             // 与已插入的合并范围再次重叠（罕见，防御性处理）
@@ -59,21 +56,15 @@ void merge_range(std::vector<LineRange>& ranges, const LineRange& r) {
     ranges = std::move(merged);
 }
 
-} // namespace
+}  // namespace
 
 // ============================================================
 // 公共 API
 // ============================================================
 
-void FileReadStateTracker::record_read(
-    const std::string& canonical_path,
-    std::string content,
-    std::filesystem::file_time_type mtime,
-    bool is_partial_view,
-    int32_t offset,
-    int32_t lines_read,
-    int32_t total_lines
-) {
+void FileReadStateTracker::record_read(const std::string& canonical_path, std::string content,
+                                       std::filesystem::file_time_type mtime, bool is_partial_view,
+                                       int32_t offset, int32_t lines_read, int32_t total_lines) {
     std::lock_guard<std::mutex> lock(m_mutex);
     auto& state = m_states[canonical_path];
     state.mtime = mtime;
@@ -91,8 +82,7 @@ void FileReadStateTracker::record_read(
 }
 
 std::optional<FileReadState> FileReadStateTracker::get_state(
-    const std::string& canonical_path
-) const {
+    const std::string& canonical_path) const {
     std::lock_guard<std::mutex> lock(m_mutex);
     auto it = m_states.find(canonical_path);
     if (it == m_states.end()) {
@@ -101,12 +91,10 @@ std::optional<FileReadState> FileReadStateTracker::get_state(
     return it->second;
 }
 
-void FileReadStateTracker::update_after_write(
-    const std::string& canonical_path,
-    std::string new_content,
-    std::filesystem::file_time_type new_mtime,
-    bool is_partial_view
-) {
+void FileReadStateTracker::update_after_write(const std::string& canonical_path,
+                                              std::string new_content,
+                                              std::filesystem::file_time_type new_mtime,
+                                              bool is_partial_view) {
     std::lock_guard<std::mutex> lock(m_mutex);
     auto& state = m_states[canonical_path];
     state.mtime = new_mtime;
@@ -131,13 +119,11 @@ void FileReadStateTracker::clear() {
     m_states.clear();
 }
 
-void FileReadStateTracker::clear_for_test() {
-    clear();
-}
+void FileReadStateTracker::clear_for_test() { clear(); }
 
 size_t FileReadStateTracker::size() const {
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_states.size();
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

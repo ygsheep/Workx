@@ -31,16 +31,13 @@ namespace {
 std::unique_ptr<ChatSession> make_test_session(MockConfigManager& cfg) {
     return std::make_unique<ChatSession>(
         std::unique_ptr<ICompletionProvider>(new test::MockCompletionProvider()),
-        TaskManager::instance(),
-        EventBus::instance(),
-        cfg
-    );
+        TaskManager::instance(), EventBus::instance(), cfg);
 }
 
 /// @brief 可阻塞的流式读取器：next() 挂起直到 release()，用于制造"模型忙碌"窗口
 /// @details 继承 MockStreamReader 以便传给 MockCompletionProvider::set_next_reader
 class BlockingStreamReader : public MockStreamReader {
-public:
+   public:
     void release() {
         {
             std::lock_guard<std::mutex> lock(m_);
@@ -63,13 +60,13 @@ public:
 
     void cancel() override {}
 
-private:
+   private:
     std::mutex m_;
     std::condition_variable cv_;
     bool released_ = false;
 };
 
-} // anonymous namespace
+}  // anonymous namespace
 
 TEST_CASE("ChatSession basic operations", "[session]") {
     MockConfigManager cfg;
@@ -155,17 +152,12 @@ TEST_CASE("ChatSession serialize_state all roles", "[session][h6][serialize]") {
     std::vector<ChatMessage> messages;
     messages.push_back({.role = ChatMessage::Role::System, .content = "sys msg"});
     messages.push_back({.role = ChatMessage::Role::User, .content = "hello"});
-    messages.push_back({
-        .role = ChatMessage::Role::Assistant,
-        .content = "hi",
-        .reasoning_content = "thinking"
-    });
-    messages.push_back({
-        .role = ChatMessage::Role::Tool,
-        .content = "result",
-        .tool_call_id = "tc1",
-        .tool_name = "Read"
-    });
+    messages.push_back(
+        {.role = ChatMessage::Role::Assistant, .content = "hi", .reasoning_content = "thinking"});
+    messages.push_back({.role = ChatMessage::Role::Tool,
+                        .content = "result",
+                        .tool_call_id = "tc1",
+                        .tool_name = "Read"});
     session->commit_state(std::move(messages), "sys");
 
     auto j = session->serialize_state();
@@ -195,10 +187,8 @@ TEST_CASE("ChatSession deserialize_state round-trip", "[session][h6][deserialize
     // H-A 修复：直接测试 deserialize_state 纯函数本身，不依赖 session 实例
     nlohmann::json input;
     input["system_prompt"] = "round-trip test";
-    input["messages"] = nlohmann::json::array({
-        {{"role", "user"}, {"content", "q1"}},
-        {{"role", "assistant"}, {"content", "a1"}}
-    });
+    input["messages"] = nlohmann::json::array(
+        {{{"role", "user"}, {"content", "q1"}}, {{"role", "assistant"}, {"content", "a1"}}});
 
     auto parse_result = ChatSession::deserialize_state(input);
     REQUIRE(parse_result.isOk());
@@ -224,9 +214,7 @@ TEST_CASE("ChatSession deserialize_state round-trip", "[session][h6][deserialize
 
 TEST_CASE("ChatSession deserialize_state rejects unknown role", "[session][h6][deserialize]") {
     nlohmann::json input;
-    input["messages"] = nlohmann::json::array({
-        {{"role", "alien"}, {"content", "??"}}
-    });
+    input["messages"] = nlohmann::json::array({{{"role", "alien"}, {"content", "??"}}});
 
     auto r = ChatSession::deserialize_state(input);
     REQUIRE(r.isErr());
@@ -367,19 +355,26 @@ TEST_CASE("compute_retry handles attempt >= 63 without UB", "[session][h7][retry
 // 项目会话恢复：serialize_state/deserialize_state tool_uses round-trip
 // ============================================================
 
-TEST_CASE("ChatSession serialize/deserialize tool_uses round-trip", "[session][restore][serialize]") {
+TEST_CASE("ChatSession serialize/deserialize tool_uses round-trip",
+          "[session][restore][serialize]") {
     // 构造含 tool_uses 的 assistant 消息
     nlohmann::json input;
     input["system_prompt"] = "test";
-    nlohmann::json uses = nlohmann::json::array({
-        {{"id", "toolu_001"}, {"name", "Read"}, {"input", {{"path", "/tmp/test"}}}},
-        {{"id", "toolu_002"}, {"name", "Write"}, {"input", {{"path", "/tmp/out"}, {"content", "hi"}}}}
-    });
-    input["messages"] = nlohmann::json::array({
-        {{"role", "user"}, {"content", "read and write"}},
-        {{"role", "assistant"}, {"content", "calling tools"}, {"reasoning_content", "thinking"}, {"tool_uses", uses}},
-        {{"role", "tool"}, {"content", "ok"}, {"tool_call_id", "toolu_001"}, {"tool_name", "Read"}, {"is_error", true}}
-    });
+    nlohmann::json uses = nlohmann::json::array(
+        {{{"id", "toolu_001"}, {"name", "Read"}, {"input", {{"path", "/tmp/test"}}}},
+         {{"id", "toolu_002"},
+          {"name", "Write"},
+          {"input", {{"path", "/tmp/out"}, {"content", "hi"}}}}});
+    input["messages"] = nlohmann::json::array({{{"role", "user"}, {"content", "read and write"}},
+                                               {{"role", "assistant"},
+                                                {"content", "calling tools"},
+                                                {"reasoning_content", "thinking"},
+                                                {"tool_uses", uses}},
+                                               {{"role", "tool"},
+                                                {"content", "ok"},
+                                                {"tool_call_id", "toolu_001"},
+                                                {"tool_name", "Read"},
+                                                {"is_error", true}}});
 
     // 反序列化
     auto parse_result = ChatSession::deserialize_state(input);
@@ -422,10 +417,14 @@ TEST_CASE("ChatSession restore_from_file loads messages", "[session][restore]") 
     // 写入测试数据
     {
         std::ofstream f(tmp.string());
-        f << R"({"type":"session_start","sessionId":"s1","cwd":"/tmp","model":"m","gitBranch":"main"})" << "\n";
-        f << R"({"type":"user","uuid":"u1","parentUuid":"","timestamp":"t1","content":"hello"})" << "\n";
-        f << R"({"type":"assistant","uuid":"a1","parentUuid":"u1","timestamp":"t2","content":"hi","reasoningContent":"thinking","toolUses":[]})" << "\n";
-        f << R"({"type":"tool","uuid":"t1","parentUuid":"a1","timestamp":"t3","toolCallId":"tc1","toolName":"Read","content":"file","isError":false})" << "\n";
+        f << R"({"type":"session_start","sessionId":"s1","cwd":"/tmp","model":"m","gitBranch":"main"})"
+          << "\n";
+        f << R"({"type":"user","uuid":"u1","parentUuid":"","timestamp":"t1","content":"hello"})"
+          << "\n";
+        f << R"({"type":"assistant","uuid":"a1","parentUuid":"u1","timestamp":"t2","content":"hi","reasoningContent":"thinking","toolUses":[]})"
+          << "\n";
+        f << R"({"type":"tool","uuid":"t1","parentUuid":"a1","timestamp":"t3","toolCallId":"tc1","toolName":"Read","content":"file","isError":false})"
+          << "\n";
     }
 
     auto session = make_test_session(cfg);
@@ -718,8 +717,7 @@ TEST_CASE("ChatSession set_permission_mode injects bypass", "[session][permissio
 // 会话工作模式三态切换（标准 → 极简 → 计划 → 标准）+ 计划联动权限
 // ============================================================
 
-TEST_CASE("ChatSession session mode toggle cycles and links plan permission",
-          "[session][mode]" ) {
+TEST_CASE("ChatSession session mode toggle cycles and links plan permission", "[session][mode]") {
     MockConfigManager cfg;
     auto session = make_test_session(cfg);
 
@@ -849,8 +847,7 @@ TEST_CASE("ChatSession queue enqueue/remove/clear while busy", "[session][queue]
     REQUIRE_FALSE(session->is_generating());
 }
 
-TEST_CASE("ChatSession queue removed message cannot be removed twice",
-          "[session][queue]") {
+TEST_CASE("ChatSession queue removed message cannot be removed twice", "[session][queue]") {
     MockConfigManager cfg;
     auto session = make_test_session(cfg);
 
@@ -861,12 +858,10 @@ TEST_CASE("ChatSession queue removed message cannot be removed twice",
     REQUIRE(session->queued_messages().empty());
 }
 
-TEST_CASE("ChatSession queue auto-sends after current loop ends",
-          "[session][queue][autosend]") {
+TEST_CASE("ChatSession queue auto-sends after current loop ends", "[session][queue][autosend]") {
     MockConfigManager cfg;
     auto session = make_test_session(cfg);
-    auto* provider =
-        static_cast<MockCompletionProvider*>(session->completion_provider());
+    auto* provider = static_cast<MockCompletionProvider*>(session->completion_provider());
 
     // 第一轮：阻塞 reader 挂起生成，制造"模型忙碌"窗口
     auto blocking = std::make_shared<BlockingStreamReader>();

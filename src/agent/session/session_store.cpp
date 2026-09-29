@@ -45,7 +45,7 @@ std::string djb2_hex(const std::string& s) {
     return oss.str();
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 // ============================================================
 // SubAgentEvent 序列化
@@ -92,12 +92,8 @@ void from_json(const nlohmann::json& j, SubAgentEvent& ev) {
 
 void to_json(nlohmann::json& j, const SkillEvent& ev) {
     j = nlohmann::json{
-        {"type", "skill"},
-        {"name", ev.name},
-        {"input", ev.input},
-        {"rawInput", ev.raw_input},
-        {"query", ev.query},
-        {"isError", ev.is_error},
+        {"type", "skill"},          {"name", ev.name},   {"input", ev.input},
+        {"rawInput", ev.raw_input}, {"query", ev.query}, {"isError", ev.is_error},
     };
 }
 
@@ -114,12 +110,9 @@ void from_json(const nlohmann::json& j, SkillEvent& ev) {
 // ============================================================
 
 SessionStore::SessionStore(std::string file_path, std::string session_id)
-    : m_file_path(std::move(file_path))
-    , m_session_id(std::move(session_id)) {}
+    : m_file_path(std::move(file_path)), m_session_id(std::move(session_id)) {}
 
-SessionStore::~SessionStore() {
-    close();
-}
+SessionStore::~SessionStore() { close(); }
 
 bool SessionStore::open() {
     // 确保父目录存在
@@ -151,8 +144,7 @@ bool SessionStore::append_line(const nlohmann::json& j) {
 // 事件追加
 // ============================================================
 
-bool SessionStore::append_session_start(const std::string& cwd,
-                                        const std::string& model,
+bool SessionStore::append_session_start(const std::string& cwd, const std::string& model,
                                         const std::string& git_branch) {
     nlohmann::json j;
     j["type"] = "session_start";
@@ -164,10 +156,8 @@ bool SessionStore::append_session_start(const std::string& cwd,
     return append_line(j);
 }
 
-bool SessionStore::append_user_message(const std::string& uuid,
-                                       const std::string& parent_uuid,
-                                       const std::string& content,
-                                       const std::string& timestamp) {
+bool SessionStore::append_user_message(const std::string& uuid, const std::string& parent_uuid,
+                                       const std::string& content, const std::string& timestamp) {
     nlohmann::json j;
     j["type"] = "user";
     j["uuid"] = uuid;
@@ -177,13 +167,11 @@ bool SessionStore::append_user_message(const std::string& uuid,
     return append_line(j);
 }
 
-bool SessionStore::append_assistant_message(const std::string& uuid,
-                                            const std::string& parent_uuid,
+bool SessionStore::append_assistant_message(const std::string& uuid, const std::string& parent_uuid,
                                             const std::string& content,
                                             const std::string& reasoning_content,
                                             const std::vector<ToolUse>& tool_uses,
-                                            const std::string& timestamp,
-                                            double reasoning_ms) {
+                                            const std::string& timestamp, double reasoning_ms) {
     nlohmann::json j;
     j["type"] = "assistant";
     j["uuid"] = uuid;
@@ -200,13 +188,10 @@ bool SessionStore::append_assistant_message(const std::string& uuid,
     return append_line(j);
 }
 
-bool SessionStore::append_tool_message(const std::string& uuid,
-                                       const std::string& parent_uuid,
+bool SessionStore::append_tool_message(const std::string& uuid, const std::string& parent_uuid,
                                        const std::string& tool_call_id,
-                                       const std::string& tool_name,
-                                       const std::string& content,
-                                       bool is_error,
-                                       const std::string& timestamp) {
+                                       const std::string& tool_name, const std::string& content,
+                                       bool is_error, const std::string& timestamp) {
     nlohmann::json j;
     j["type"] = "tool";
     j["uuid"] = uuid;
@@ -236,8 +221,7 @@ bool SessionStore::append_title(const std::string& title) {
     return append_line(j);
 }
 
-bool SessionStore::append_system_prompt(const std::string& reason,
-                                        const std::string& content) {
+bool SessionStore::append_system_prompt(const std::string& reason, const std::string& content) {
     nlohmann::json j;
     j["type"] = "system_prompt";
     j["sessionId"] = m_session_id;
@@ -312,10 +296,9 @@ std::vector<SessionMeta> SessionStore::list_sessions(const std::string& project_
     }
 
     // 按修改时间倒序（最新在前）
-    std::sort(sessions.begin(), sessions.end(),
-              [](const SessionMeta& a, const SessionMeta& b) {
-                  return a.last_modified > b.last_modified;
-              });
+    std::sort(sessions.begin(), sessions.end(), [](const SessionMeta& a, const SessionMeta& b) {
+        return a.last_modified > b.last_modified;
+    });
     return sessions;
 }
 
@@ -343,12 +326,9 @@ std::vector<ChatMessage> SessionStore::load_messages(const std::string& file_pat
             }
             messages.push_back(msg);
         } else if (type == "tool") {
-            ChatMessage msg = ChatMessage::tool_result(
-                j.value("toolCallId", ""),
-                j.value("toolName", ""),
-                j.value("content", ""),
-                j.value("isError", false)
-            );
+            ChatMessage msg =
+                ChatMessage::tool_result(j.value("toolCallId", ""), j.value("toolName", ""),
+                                         j.value("content", ""), j.value("isError", false));
             messages.push_back(msg);
         }
         // session_start / session_end 不转为消息
@@ -395,11 +375,16 @@ std::optional<SessionMeta> SessionStore::load_meta(const std::string& file_path)
             size_t byte_pos = 0;
             while (char_count < 20 && byte_pos < first_user_content.size()) {
                 unsigned char c = static_cast<unsigned char>(first_user_content[byte_pos]);
-                if (c < 0x80) byte_pos += 1;
-                else if ((c & 0xE0) == 0xC0) byte_pos += 2;
-                else if ((c & 0xF0) == 0xE0) byte_pos += 3;
-                else if ((c & 0xF8) == 0xF0) byte_pos += 4;
-                else byte_pos += 1;  // 无效 UTF-8，单字节前进
+                if (c < 0x80)
+                    byte_pos += 1;
+                else if ((c & 0xE0) == 0xC0)
+                    byte_pos += 2;
+                else if ((c & 0xF0) == 0xE0)
+                    byte_pos += 3;
+                else if ((c & 0xF8) == 0xF0)
+                    byte_pos += 4;
+                else
+                    byte_pos += 1;  // 无效 UTF-8，单字节前进
                 ++char_count;
             }
             meta.title = first_user_content.substr(0, byte_pos);
@@ -457,4 +442,4 @@ std::filesystem::path get_project_session_dir(const std::filesystem::path& confi
     return config_dir / "projects" / core::util::encode_project_path(cwd);
 }
 
-} // namespace agent::session
+}  // namespace agent::session

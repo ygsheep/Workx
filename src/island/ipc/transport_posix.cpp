@@ -26,7 +26,7 @@ namespace island::ipc {
 namespace {
 
 class UnixSocketTransport final : public ITransport {
-public:
+   public:
     ~UnixSocketTransport() override { close(); }
 
     bool listen(const std::string& endpoint) override {
@@ -123,11 +123,9 @@ public:
         }
     }
 
-    bool is_connected() const override {
-        return m_conn_fd >= 0;
-    }
+    bool is_connected() const override { return m_conn_fd >= 0; }
 
-private:
+   private:
     int m_listen_fd = -1;
     int m_conn_fd = -1;
     std::string m_endpoint;
@@ -140,21 +138,18 @@ std::string runtime_dir() {
     return "/tmp";
 }
 
-} // namespace
+}  // namespace
 
 std::string default_endpoint(uint32_t pid) {
     const long uid = static_cast<long>(getuid());
-    return runtime_dir() + "/workx-island-" + std::to_string(uid) + "-" + std::to_string(pid) + ".sock";
+    return runtime_dir() + "/workx-island-" + std::to_string(uid) + "-" + std::to_string(pid) +
+           ".sock";
 }
 
-std::unique_ptr<ITransport> create_listener() {
-    return std::make_unique<UnixSocketTransport>();
-}
+std::unique_ptr<ITransport> create_listener() { return std::make_unique<UnixSocketTransport>(); }
 
-std::unique_ptr<ITransport> create_connector() {
-    return std::make_unique<UnixSocketTransport>();
-}
+std::unique_ptr<ITransport> create_connector() { return std::make_unique<UnixSocketTransport>(); }
 
-} // namespace island::ipc
+}  // namespace island::ipc
 
-#endif // __unix__ || __APPLE__
+#endif  // __unix__ || __APPLE__

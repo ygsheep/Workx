@@ -15,7 +15,7 @@
 #include "agent/api/remote/remote_backend.h"
 #include "agent/api/backend_factory.h"
 #include "agent/api/backend_types.h"
-#include "agent/message/types.h"  // BackendStatusEvent
+#include "agent/message/types.h"    // BackendStatusEvent
 #include "core/events/event_bus.h"  // H-A：验证未污染全局单例
 #include "helpers/mock_event_bus.h"
 
@@ -40,29 +40,23 @@ BackendConfig make_remote_config() {
 /// @details 不发起真实网络请求；记录每个 reader 的 on_complete 回调，
 ///          测试可手动触发 complete() 模拟请求结束，验证多 reader 并发仲裁路径。
 class FakeHttpClient : public IHttpClient {
-public:
-    ResultV2<HttpResponse> get(
-        const std::string&,
-        const std::vector<std::pair<std::string, std::string>>&,
-        int) override {
+   public:
+    ResultV2<HttpResponse> get(const std::string&,
+                               const std::vector<std::pair<std::string, std::string>>&,
+                               int) override {
         return ResultV2<HttpResponse>::ok(HttpResponse{});
     }
 
-    ResultV2<HttpResponse> post(
-        const std::string&,
-        const std::vector<std::pair<std::string, std::string>>&,
-        const std::string&,
-        int) override {
+    ResultV2<HttpResponse> post(const std::string&,
+                                const std::vector<std::pair<std::string, std::string>>&,
+                                const std::string&, int) override {
         return ResultV2<HttpResponse>::ok(HttpResponse{});
     }
 
-    void async_post_stream(
-        const std::string&,
-        const std::vector<std::pair<std::string, std::string>>&,
-        const std::string&,
-        std::shared_ptr<SSEStreamReader> reader,
-        std::function<void()> on_complete,
-        int) const override {
+    void async_post_stream(const std::string&,
+                           const std::vector<std::pair<std::string, std::string>>&,
+                           const std::string&, std::shared_ptr<SSEStreamReader> reader,
+                           std::function<void()> on_complete, int) const override {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_on_complete[reader.get()] = std::move(on_complete);
     }
@@ -98,20 +92,21 @@ public:
         return m_cancelled.count(reader) > 0;
     }
 
-private:
+   private:
     mutable std::mutex m_mutex;
     mutable std::map<IStreamReader*, std::function<void()>> m_on_complete;
     mutable std::set<IStreamReader*> m_cancelled;
     mutable size_t m_cancel_count = 0;
 };
 
-} // namespace
+}  // namespace
 
 // ============================================================================
 // H-1：RemoteBackend 构造接收 IEventBus*，不再调用单例
 // ============================================================================
 
-TEST_CASE("RemoteBackend initialize publishes Connected via injected bus", "[backend][remote][h-1]") {
+TEST_CASE("RemoteBackend initialize publishes Connected via injected bus",
+          "[backend][remote][h-1]") {
     MockEventBus bus;
     RemoteBackend backend(&bus);
 
@@ -145,7 +140,7 @@ TEST_CASE("RemoteBackend initialize publishes Connected via injected bus", "[bac
             RemoteBackend b(&bus);
             b.initialize(make_remote_config());
             bus.process_async_events();
-        } // 析构调用 shutdown
+        }  // 析构调用 shutdown
         bus.process_async_events();
         // 初始化 1 次 Connected + 析构 1 次 Disconnected
         REQUIRE(bus.published_count<BackendStatusEvent>() == 2);
@@ -187,7 +182,8 @@ TEST_CASE("RemoteBackend event content correctness", "[backend][remote][h-1]") {
     }
 }
 
-TEST_CASE("RemoteBackend nullptr event_bus skips publishing - backward compat", "[backend][remote][h-1]") {
+TEST_CASE("RemoteBackend nullptr event_bus skips publishing - backward compat",
+          "[backend][remote][h-1]") {
     // H-1：event_bus=nullptr 时不发布，保持向后兼容
     // H-A：扩展验证未污染全局单例（Closed AI Loop 防护）
     EventBus::instance().clear();
@@ -273,7 +269,8 @@ TEST_CASE("BackendFactory propagates event_bus to RemoteBackend", "[backend][fac
 // Shutdown 为终态，幂等。非 Ready 态拒绝 submit_completion / list_models。
 // ============================================================================
 
-TEST_CASE("RemoteBackend state machine: initial state is Idle", "[backend][remote][m7][state_machine]") {
+TEST_CASE("RemoteBackend state machine: initial state is Idle",
+          "[backend][remote][m7][state_machine]") {
     // M-7：构造后未 initialize 前，状态为 Idle（不是 Ready / Generating / Shutdown）
     MockEventBus bus;
     RemoteBackend backend(&bus);
@@ -283,7 +280,8 @@ TEST_CASE("RemoteBackend state machine: initial state is Idle", "[backend][remot
     REQUIRE_FALSE(backend.is_generating());
 }
 
-TEST_CASE("RemoteBackend state machine: Idle -> Ready via initialize", "[backend][remote][m7][state_machine]") {
+TEST_CASE("RemoteBackend state machine: Idle -> Ready via initialize",
+          "[backend][remote][m7][state_machine]") {
     MockEventBus bus;
     RemoteBackend backend(&bus);
 
@@ -299,7 +297,8 @@ TEST_CASE("RemoteBackend state machine: Idle -> Ready via initialize", "[backend
     REQUIRE(bus.published_count<BackendStatusEvent>() == 1);
 }
 
-TEST_CASE("RemoteBackend state machine: Ready -> Shutdown via shutdown", "[backend][remote][m7][state_machine]") {
+TEST_CASE("RemoteBackend state machine: Ready -> Shutdown via shutdown",
+          "[backend][remote][m7][state_machine]") {
     MockEventBus bus;
     RemoteBackend backend(&bus);
     backend.initialize(make_remote_config());
@@ -318,7 +317,8 @@ TEST_CASE("RemoteBackend state machine: Ready -> Shutdown via shutdown", "[backe
     REQUIRE(bus.published_count<BackendStatusEvent>() == 2);
 }
 
-TEST_CASE("RemoteBackend state machine: shutdown is idempotent", "[backend][remote][m7][state_machine]") {
+TEST_CASE("RemoteBackend state machine: shutdown is idempotent",
+          "[backend][remote][m7][state_machine]") {
     // M-7：Shutdown 是终态，重复 shutdown 应为 no-op（幂等）
     MockEventBus bus;
     RemoteBackend backend(&bus);
@@ -341,7 +341,8 @@ TEST_CASE("RemoteBackend state machine: shutdown is idempotent", "[backend][remo
     REQUIRE(bus.published_count<BackendStatusEvent>() == 2);
 }
 
-TEST_CASE("RemoteBackend state machine: shutdown on Idle is no-op", "[backend][remote][m7][state_machine]") {
+TEST_CASE("RemoteBackend state machine: shutdown on Idle is no-op",
+          "[backend][remote][m7][state_machine]") {
     // M-7：Idle 态（未 initialize）shutdown 应为 no-op，不发布事件
     MockEventBus bus;
     RemoteBackend backend(&bus);
@@ -356,7 +357,8 @@ TEST_CASE("RemoteBackend state machine: shutdown on Idle is no-op", "[backend][r
     REQUIRE(bus.async_queue_size() == 0);
 }
 
-TEST_CASE("RemoteBackend state machine: non-Ready rejects submit_completion", "[backend][remote][m7][state_machine]") {
+TEST_CASE("RemoteBackend state machine: non-Ready rejects submit_completion",
+          "[backend][remote][m7][state_machine]") {
     // M-7：非 Ready 态（Idle / Shutdown）拒绝 submit_completion
     MockEventBus bus;
     RemoteBackend backend(&bus);
@@ -383,7 +385,8 @@ TEST_CASE("RemoteBackend state machine: non-Ready rejects submit_completion", "[
     }
 }
 
-TEST_CASE("RemoteBackend state machine: non-Ready rejects list_models", "[backend][remote][m7][state_machine]") {
+TEST_CASE("RemoteBackend state machine: non-Ready rejects list_models",
+          "[backend][remote][m7][state_machine]") {
     // M-7：非 Ready 态（Idle / Shutdown）拒绝 list_models
     MockEventBus bus;
     RemoteBackend backend(&bus);
@@ -407,7 +410,8 @@ TEST_CASE("RemoteBackend state machine: non-Ready rejects list_models", "[backen
     }
 }
 
-TEST_CASE("RemoteBackend state machine: single enum eliminates illegal combinations", "[backend][remote][m7][state_machine]") {
+TEST_CASE("RemoteBackend state machine: single enum eliminates illegal combinations",
+          "[backend][remote][m7][state_machine]") {
     // M-7：验证单一 atomic<BackendState> 消除非法组合
     // 原实现用两个 atomic<bool> m_ready/m_generating，可能出现：
     //   - m_ready=false 但 m_generating=true（非法）
@@ -447,7 +451,8 @@ TEST_CASE("RemoteBackend state machine: single enum eliminates illegal combinati
 // 不覆盖状态。
 // ============================================================================
 
-TEST_CASE("RemoteBackend interrupt on Shutdown keeps Shutdown (M-N1 CAS contract)", "[backend][remote][m-n1]") {
+TEST_CASE("RemoteBackend interrupt on Shutdown keeps Shutdown (M-N1 CAS contract)",
+          "[backend][remote][m-n1]") {
     // M-N1：验证 CAS `Generating→Ready` 在 Shutdown 态下失败，不覆盖终态
     // on_complete 回调与 interrupt_locked() 使用相同 CAS 模式：
     //   BackendState expected = Generating;
@@ -468,7 +473,8 @@ TEST_CASE("RemoteBackend interrupt on Shutdown keeps Shutdown (M-N1 CAS contract
     REQUIRE_FALSE(backend.is_generating());
 }
 
-TEST_CASE("RemoteBackend interrupt on Idle keeps Idle (M-N1 CAS contract)", "[backend][remote][m-n1]") {
+TEST_CASE("RemoteBackend interrupt on Idle keeps Idle (M-N1 CAS contract)",
+          "[backend][remote][m-n1]") {
     // M-N1：验证 CAS `Generating→Ready` 在 Idle 态下也失败，不覆盖状态
     MockEventBus bus;
     RemoteBackend backend(&bus);
@@ -487,7 +493,8 @@ TEST_CASE("RemoteBackend interrupt on Idle keeps Idle (M-N1 CAS contract)", "[ba
 // 覆盖 v1.2.0 最复杂、风险最高的改动：集合增删清 + 并发状态仲裁。
 // ============================================================================
 
-TEST_CASE("RemoteBackend concurrent submits both return readers and return to Ready", "[backend][remote][concurrency]") {
+TEST_CASE("RemoteBackend concurrent submits both return readers and return to Ready",
+          "[backend][remote][concurrency]") {
     // M-1：两个并发 submit 均返回 reader（不再拒绝第二个），各自 on_complete 后状态回 Ready
     MockEventBus bus;
     RemoteBackend backend(&bus);
@@ -544,7 +551,8 @@ TEST_CASE("RemoteBackend interrupt cancels all active readers", "[backend][remot
     REQUIRE(backend.is_ready());
 }
 
-TEST_CASE("RemoteBackend shutdown cancels active readers and rejects new submits", "[backend][remote][concurrency]") {
+TEST_CASE("RemoteBackend shutdown cancels active readers and rejects new submits",
+          "[backend][remote][concurrency]") {
     // M-1：shutdown 持锁 CAS Generating→Shutdown 并清理全部 reader，Shutdown 后新请求被拒
     MockEventBus bus;
     RemoteBackend backend(&bus);
@@ -572,7 +580,8 @@ TEST_CASE("RemoteBackend shutdown cancels active readers and rejects new submits
     REQUIRE(backend.state() == BackendState::Shutdown);
 }
 
-TEST_CASE("RemoteBackend late on_complete after shutdown keeps Shutdown (M-N1)", "[backend][remote][concurrency]") {
+TEST_CASE("RemoteBackend late on_complete after shutdown keeps Shutdown (M-N1)",
+          "[backend][remote][concurrency]") {
     // M-1 + M-N1：shutdown 清理后，被取消请求的 on_complete 迟到触发，
     // CAS Generating→Ready 失败，不覆盖 Shutdown 终态
     MockEventBus bus;

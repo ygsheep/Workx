@@ -33,8 +33,8 @@ namespace agent::prompt {
 
 /// @brief 单个记忆文件信息
 struct MemoryFileInfo {
-    std::filesystem::path path;   ///< 文件绝对路径
-    std::string content;          ///< 文件原始内容（UTF-8）
+    std::filesystem::path path;  ///< 文件绝对路径
+    std::string content;         ///< 文件原始内容（UTF-8）
 };
 
 /// @brief 从 CWD 向上遍历加载 CLAUDE.md / AGENT.md
@@ -121,9 +121,8 @@ inline std::string format_project_memory(const std::vector<MemoryFileInfo>& file
         out += " (project instructions):\n\n";
         // 去除尾部空白行，保持紧凑
         std::string content = f.content;
-        while (!content.empty() &&
-               (content.back() == '\n' || content.back() == '\r' ||
-                content.back() == ' ' || content.back() == '\t')) {
+        while (!content.empty() && (content.back() == '\n' || content.back() == '\r' ||
+                                    content.back() == ' ' || content.back() == '\t')) {
             content.pop_back();
         }
         out += content;
@@ -139,4 +138,4 @@ inline std::string load_and_format_project_memory(const std::filesystem::path& c
     return format_project_memory(load_project_memory(cwd));
 }
 
-} // namespace agent::prompt
+}  // namespace agent::prompt

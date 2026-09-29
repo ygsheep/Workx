@@ -41,14 +41,10 @@ std::optional<double> extract_cny(const nlohmann::json& balance_infos) {
     }
 }
 
-} // namespace
+}  // namespace
 
-BalanceFetcher::BalanceFetcher(agent::IEventBus& bus,
-                               std::string api_key,
-                               std::string base_url,
-                               double usd_cny_rate,
-                               HttpGetFn getter,
-                               std::chrono::seconds interval)
+BalanceFetcher::BalanceFetcher(agent::IEventBus& bus, std::string api_key, std::string base_url,
+                               double usd_cny_rate, HttpGetFn getter, std::chrono::seconds interval)
     : m_bus(bus),
       m_api_key(std::move(api_key)),
       m_base_url(std::move(base_url)),
@@ -56,9 +52,7 @@ BalanceFetcher::BalanceFetcher(agent::IEventBus& bus,
       m_getter(std::move(getter)),
       m_interval(interval) {}
 
-BalanceFetcher::~BalanceFetcher() {
-    stop();
-}
+BalanceFetcher::~BalanceFetcher() { stop(); }
 
 void BalanceFetcher::start() {
     if (m_thread.joinable()) return;
@@ -134,8 +128,7 @@ BalanceResult BalanceFetcher::do_fetch() {
     return r;
 }
 
-BalanceResult BalanceFetcher::parse_balance_response(const std::string& body,
-                                                     double usd_cny_rate) {
+BalanceResult BalanceFetcher::parse_balance_response(const std::string& body, double usd_cny_rate) {
     BalanceResult r;
     r.fetched_at = static_cast<int64_t>(std::time(nullptr));
 
@@ -170,12 +163,12 @@ BalanceResult BalanceFetcher::parse_balance_response(const std::string& body,
 }
 
 BalanceFetcher::HttpGetFn BalanceFetcher::default_http_getter() {
-    return [](const std::string& url,
-              const std::vector<std::pair<std::string, std::string>>& headers,
-              int timeout_ms) -> agent::ResultV2<agent::HttpResponse> {
-        agent::HttpClient http;
-        return http.get(url, headers, timeout_ms);
-    };
+    return
+        [](const std::string& url, const std::vector<std::pair<std::string, std::string>>& headers,
+           int timeout_ms) -> agent::ResultV2<agent::HttpResponse> {
+            agent::HttpClient http;
+            return http.get(url, headers, timeout_ms);
+        };
 }
 
 void BalanceFetcher::run_loop() {
@@ -183,9 +176,8 @@ void BalanceFetcher::run_loop() {
     trigger_refresh();
     while (!m_stop.load()) {
         std::unique_lock<std::mutex> lock(m_mtx);
-        m_cv.wait_for(lock, m_interval, [this] {
-            return m_stop.load() || m_refresh_requested.load();
-        });
+        m_cv.wait_for(lock, m_interval,
+                      [this] { return m_stop.load() || m_refresh_requested.load(); });
         const bool manual = m_refresh_requested.exchange(false);
         lock.unlock();
 
@@ -217,4 +209,4 @@ void BalanceFetcher::run_loop() {
     }
 }
 
-} // namespace island
+}  // namespace island

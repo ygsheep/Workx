@@ -52,4 +52,4 @@ std::string expand_home(std::string_view pattern);
 /// @return POSIX 风格路径
 std::string to_posix_path(std::string_view path);
 
-} // namespace agent::tool
+}  // namespace agent::tool

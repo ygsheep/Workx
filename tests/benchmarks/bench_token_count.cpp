@@ -20,9 +20,7 @@ TEST_CASE("rough_token_count throughput", "[benchmark][token_count]") {
     // 100KB 文本
     std::string text(100'000, 'x');
 
-    BENCHMARK("rough_token_count 100KB text") {
-        return rough_token_count(text);
-    };
+    BENCHMARK("rough_token_count 100KB text") { return rough_token_count(text); };
 
     // 含 JSON 内容
     std::string json_text = R"({"key":"value","nested":{"arr":[1,2,3],"num":42}})";

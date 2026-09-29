@@ -40,12 +40,9 @@ bool char_equal(char a, char b) {
 /// @param pattern 模式当前位置指针
 /// @param pattern_end 模式末尾
 /// @return 完整匹配返回 true
-bool match_impl(
-    std::string_view::const_iterator path,
-    std::string_view::const_iterator path_end,
-    std::string_view::const_iterator pattern,
-    std::string_view::const_iterator pattern_end
-) {
+bool match_impl(std::string_view::const_iterator path, std::string_view::const_iterator path_end,
+                std::string_view::const_iterator pattern,
+                std::string_view::const_iterator pattern_end) {
     while (pattern != pattern_end) {
         // ** — 跨段通配
         if (pattern + 1 != pattern_end && *pattern == '*' && *(pattern + 1) == '*') {
@@ -98,7 +95,7 @@ bool match_impl(
     return path == path_end;
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 bool match_path_glob(std::string_view path, std::string_view pattern) {
     // 空模式只匹配空路径
@@ -108,15 +105,12 @@ bool match_path_glob(std::string_view path, std::string_view pattern) {
     // （gitignore 语义：`**/foo` 等价于「任意深度下的 foo」）
     // 已由 match_impl 中的 `**` 分支自动处理
 
-    return match_impl(
-        path.cbegin(), path.cend(),
-        pattern.cbegin(), pattern.cend()
-    );
+    return match_impl(path.cbegin(), path.cend(), pattern.cbegin(), pattern.cend());
 }
 
 bool matches_any_pattern(std::string_view path, const std::vector<std::string>& patterns) {
     return std::any_of(patterns.begin(), patterns.end(),
-        [&](const std::string& p) { return match_path_glob(path, p); });
+                       [&](const std::string& p) { return match_path_glob(path, p); });
 }
 
 std::string expand_home(std::string_view pattern) {
@@ -156,4 +150,4 @@ std::string to_posix_path(std::string_view path) {
     return result;
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

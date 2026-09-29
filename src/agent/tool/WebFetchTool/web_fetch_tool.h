@@ -23,7 +23,7 @@ namespace agent::tool {
 /// - 列表 <ul>/<ol> → - / 1.
 /// - 最大字符数 max_chars 默认 20000，超出按首段截断
 class WebFetchTool : public ITool {
-public:
+   public:
     const std::string& name() const override;
     const std::string& description() const override;
     const std::string& prompt() const override;
@@ -39,15 +39,10 @@ public:
 
     /// @brief 权限检查（#25）：Bypass 放行；内网/非法协议/非法端口硬拦截；
     ///        白名单域名自动放行，其余域名 AskUser 确认
-    PermissionResult check_permissions(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    PermissionResult check_permissions(const nlohmann::json& input,
+                                       const ToolContext& ctx) const override;
 
-    ResultV2<ToolResult> call(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    ResultV2<ToolResult> call(const nlohmann::json& input, const ToolContext& ctx) const override;
 };
 
-} // namespace agent::tool
+}  // namespace agent::tool

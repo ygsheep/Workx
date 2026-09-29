@@ -32,10 +32,10 @@ namespace agent::process {
 
 /// @brief exec() 调用选项
 struct ExecOptions {
-    std::string cwd;                                    ///< 工作目录（空表示继承父进程）
-    std::vector<std::string> args;                      ///< 命令行参数（不含命令本身）
-    std::optional<std::chrono::milliseconds> timeout;   ///< 超时（不设则无超时）
-    std::function<bool()> is_cancelled;                 ///< 取消检查回调（返回 true 表示已取消）
+    std::string cwd;                ///< 工作目录（空表示继承父进程）
+    std::vector<std::string> args;  ///< 命令行参数（不含命令本身）
+    std::optional<std::chrono::milliseconds> timeout;  ///< 超时（不设则无超时）
+    std::function<bool()> is_cancelled;  ///< 取消检查回调（返回 true 表示已取消）
 
     /// @brief stdout 缓冲区上限（字节），超限截断并置 truncated 标志
     /// @details 防止恶意/失控子进程写爆内存。默认 20MB（对齐 CC ripgrep.ts MAX_BUFFER_SIZE）
@@ -79,4 +79,4 @@ ResultV2<InteractiveExecResult> exec_interactive(const std::string& cmd,
                                                  const std::vector<std::string>& args,
                                                  const std::string& cwd = {});
 
-} // namespace agent::process
+}  // namespace agent::process

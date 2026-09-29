@@ -19,4 +19,4 @@ namespace core::util {
 ///          线程安全（无共享状态）。
 std::string generate_uuid();
 
-} // namespace core::util
+}  // namespace core::util

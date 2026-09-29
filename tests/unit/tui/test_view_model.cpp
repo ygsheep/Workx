@@ -33,7 +33,7 @@ TEST_CASE("ViewModel active_stream reuses an unsealed assistant", "[view_model][
     auto& m1 = vm.active_stream();
     m1.text = "abc";
     auto& m2 = vm.active_stream();
-    REQUIRE(&m1 == &m2);           // 复用同一节点
+    REQUIRE(&m1 == &m2);  // 复用同一节点
     REQUIRE(vm.messages.size() == 1);
 }
 
@@ -85,7 +85,8 @@ TEST_CASE("ViewModel token delta appends and flips streaming", "[view_model][tok
     REQUIRE(vm.active_stream().streaming);
 }
 
-TEST_CASE("ViewModel reasoning delta marks reasoned and expands by default", "[view_model][reasoning]") {
+TEST_CASE("ViewModel reasoning delta marks reasoned and expands by default",
+          "[view_model][reasoning]") {
     ViewModel vm;
     vm.apply(ActionReasoningDelta{.delta = "think"});
     auto& m = vm.messages.back();
@@ -114,9 +115,12 @@ TEST_CASE("ViewModel step done clears streaming on back assistant", "[view_model
 
 TEST_CASE("ViewModel turn done fills text when empty and seals", "[view_model][turn_done]") {
     ViewModel vm;
-    vm.apply(ActionTurnDone{.full_content = "final", .prompt_tokens = 10,
-                            .generated_tokens = 20, .cache_read_input_tokens = 5,
-                            .prompt_ms = 100.0, .generation_ms = 200.0,
+    vm.apply(ActionTurnDone{.full_content = "final",
+                            .prompt_tokens = 10,
+                            .generated_tokens = 20,
+                            .cache_read_input_tokens = 5,
+                            .prompt_ms = 100.0,
+                            .generation_ms = 200.0,
                             .reasoning_ms = 100.0});
     auto& m = vm.messages.back();
     REQUIRE(m.text == "final");
@@ -141,12 +145,18 @@ TEST_CASE("ViewModel turn done keeps existing streamed text", "[view_model][turn
 
 TEST_CASE("ViewModel turn done accumulates fine-grained token stats", "[view_model][turn_done]") {
     ViewModel vm;
-    vm.apply(ActionTurnDone{.full_content = "a", .prompt_tokens = 10, .generated_tokens = 20,
+    vm.apply(ActionTurnDone{.full_content = "a",
+                            .prompt_tokens = 10,
+                            .generated_tokens = 20,
                             .cache_read_input_tokens = 5,
-                            .prompt_cache_hit_tokens = 30, .prompt_cache_miss_tokens = 10});
-    vm.apply(ActionTurnDone{.full_content = "b", .prompt_tokens = 4, .generated_tokens = 6,
+                            .prompt_cache_hit_tokens = 30,
+                            .prompt_cache_miss_tokens = 10});
+    vm.apply(ActionTurnDone{.full_content = "b",
+                            .prompt_tokens = 4,
+                            .generated_tokens = 6,
                             .cache_read_input_tokens = 2,
-                            .prompt_cache_hit_tokens = 20, .prompt_cache_miss_tokens = 5});
+                            .prompt_cache_hit_tokens = 20,
+                            .prompt_cache_miss_tokens = 5});
     // 会话累计：prompt 14 / generated 26 / cache_read 7 / hit 50 / miss 15
     REQUIRE(vm.sidebar.prompt_tokens == 14);
     REQUIRE(vm.sidebar.generated_tokens == 26);
@@ -175,8 +185,7 @@ TEST_CASE("ViewModel turn done zero cache stats stay zero", "[view_model][turn_d
 
 TEST_CASE("ViewModel begin tool creates running block", "[view_model][tool]") {
     ViewModel vm;
-    REQUIRE(vm.apply(ActionBeginTool{.tool_name = "Read", .call_id = "c1",
-                                     .arguments = "{}"}));
+    REQUIRE(vm.apply(ActionBeginTool{.tool_name = "Read", .call_id = "c1", .arguments = "{}"}));
     auto& t = vm.messages.back().tool_calls[0];
     REQUIRE(t.tool_name == "Read");
     REQUIRE(t.call_id == "c1");
@@ -222,7 +231,8 @@ TEST_CASE("ViewModel end tool unknown call_id returns false", "[view_model][tool
 // ActionAgentDone
 // ============================================================================
 
-TEST_CASE("ViewModel agent done seals unsealed assistant and fills text", "[view_model][agent_done]") {
+TEST_CASE("ViewModel agent done seals unsealed assistant and fills text",
+          "[view_model][agent_done]") {
     ViewModel vm;
     vm.apply(ActionSetBusy{.busy = true});  // 预留 assistant
     vm.apply(ActionAgentDone{.final_answer = "answer", .total_duration_ms = 99.0});
@@ -233,7 +243,8 @@ TEST_CASE("ViewModel agent done seals unsealed assistant and fills text", "[view
     REQUIRE_FALSE(vm.busy);
 }
 
-TEST_CASE("ViewModel agent done does not append fallback message when last is sealed", "[view_model][agent_done]") {
+TEST_CASE("ViewModel agent done does not append fallback message when last is sealed",
+          "[view_model][agent_done]") {
     ViewModel vm;
     // 正常流式完成路径：StreamDoneEvent 已封口（ActionTurnDone），
     // AgentDoneEvent 只是最终汇总，不得追加第二条（否则回复显示两遍）
@@ -248,7 +259,8 @@ TEST_CASE("ViewModel agent done does not append fallback message when last is se
     REQUIRE_FALSE(vm.busy);
 }
 
-TEST_CASE("ViewModel agent done fills unsealed assistant without active stream", "[view_model][agent_done]") {
+TEST_CASE("ViewModel agent done fills unsealed assistant without active stream",
+          "[view_model][agent_done]") {
     ViewModel vm;
     // 流式事件缺失（异常/丢失）：未封口 assistant 由 AgentDone 补填封口
     vm.apply(ActionAppendMessage{.role = "user", .text = "q"});
@@ -390,11 +402,12 @@ TEST_CASE("ViewModel sub agent final step does not append message", "[view_model
     REQUIRE(vm.tabs.sub_agents.empty());  // final 步不聚合，由 Completed 处理
 }
 
-TEST_CASE("ViewModel sub agent completed updates status and final answer", "[view_model][subagent]") {
+TEST_CASE("ViewModel sub agent completed updates status and final answer",
+          "[view_model][subagent]") {
     ViewModel vm;
     vm.apply(ActionSubAgentProgress{.task_id = "t1", .step_number = 1, .step_type = "thought"});
-    vm.apply(ActionSubAgentCompleted{.task_id = "t1", .final_answer = "done", .was_error = false,
-                                     .duration_ms = 1500.0});
+    vm.apply(ActionSubAgentCompleted{
+        .task_id = "t1", .final_answer = "done", .was_error = false, .duration_ms = 1500.0});
     REQUIRE(vm.tabs.sub_agents.size() == 1);
     REQUIRE(vm.tabs.sub_agents[0].status == "done");
     REQUIRE(vm.tabs.sub_agents[0].duration_ms == 1500.0);
@@ -412,17 +425,24 @@ TEST_CASE("ViewModel sub agent completed updates status and final answer", "[vie
     REQUIRE(vm.sub_records[1].status == "failed");
 }
 
-TEST_CASE("ViewModel sub agent action merges observation into tool card", "[view_model][subagent]") {
+TEST_CASE("ViewModel sub agent action merges observation into tool card",
+          "[view_model][subagent]") {
     ViewModel vm;
-    vm.apply(ActionSubAgentProgress{
-        .task_id = "t1", .step_number = 1, .step_type = "thought",
-        .thought_text = "let me check", .duration_ms = 100.0});
-    vm.apply(ActionSubAgentProgress{
-        .task_id = "t1", .step_number = 2, .step_type = "action",
-        .tool_name = "Read", .tool_input = "{\"file_path\":\"a.txt\"}"});
-    vm.apply(ActionSubAgentProgress{
-        .task_id = "t1", .step_number = 3, .step_type = "observation",
-        .observation = "file content", .is_error = false});
+    vm.apply(ActionSubAgentProgress{.task_id = "t1",
+                                    .step_number = 1,
+                                    .step_type = "thought",
+                                    .thought_text = "let me check",
+                                    .duration_ms = 100.0});
+    vm.apply(ActionSubAgentProgress{.task_id = "t1",
+                                    .step_number = 2,
+                                    .step_type = "action",
+                                    .tool_name = "Read",
+                                    .tool_input = "{\"file_path\":\"a.txt\"}"});
+    vm.apply(ActionSubAgentProgress{.task_id = "t1",
+                                    .step_number = 3,
+                                    .step_type = "observation",
+                                    .observation = "file content",
+                                    .is_error = false});
 
     REQUIRE(vm.sub_records.size() == 1);
     const auto& rec = vm.sub_records[0];
@@ -441,11 +461,14 @@ TEST_CASE("ViewModel sub agent action merges observation into tool card", "[view
     REQUIRE(rec.steps[1].expanded == true);
 }
 
-TEST_CASE("ViewModel sub agent observation without action stays standalone", "[view_model][subagent]") {
+TEST_CASE("ViewModel sub agent observation without action stays standalone",
+          "[view_model][subagent]") {
     ViewModel vm;
-    vm.apply(ActionSubAgentProgress{
-        .task_id = "t1", .step_number = 1, .step_type = "observation",
-        .observation = "orphan result", .is_error = true});
+    vm.apply(ActionSubAgentProgress{.task_id = "t1",
+                                    .step_number = 1,
+                                    .step_type = "observation",
+                                    .observation = "orphan result",
+                                    .is_error = true});
     REQUIRE(vm.sub_records.size() == 1);
     REQUIRE(vm.sub_records[0].steps.size() == 1);
     REQUIRE(vm.sub_records[0].steps[0].step_type == "observation");
@@ -462,9 +485,7 @@ TEST_CASE("ViewModel edit tool tracks FileChange with diff", "[view_model][file_
     ViewModel vm;
     vm.apply(ActionReasoningDelta{.delta = "改用 bar() 计算 y\n"});
     vm.apply(ActionBeginTool{
-        .tool_name = "Edit",
-        .call_id = "c1",
-        .arguments = R"JSON({"file_path": "src/main.cpp",
+        .tool_name = "Edit", .call_id = "c1", .arguments = R"JSON({"file_path": "src/main.cpp",
                              "old_string": "auto y = foo();",
                              "new_string": "auto y = bar();"})JSON"});
 
@@ -480,20 +501,18 @@ TEST_CASE("ViewModel edit tool tracks FileChange with diff", "[view_model][file_
     REQUIRE(ch.diff[0].kind == agent::DiffKind::Modify);
     REQUIRE(ch.diff[0].text == "auto y = bar();");
     REQUIRE(ch.diff[0].line_no == 1);
-    REQUIRE(vm.tabs.changes_open);               // 首个修改自动打开变更记录 tab
+    REQUIRE(vm.tabs.changes_open);  // 首个修改自动打开变更记录 tab
 }
 
 TEST_CASE("ViewModel write tool tracks FileChange as all Insert", "[view_model][file_change]") {
     ViewModel vm;
     vm.apply(ActionBeginTool{
-        .tool_name = "Write",
-        .call_id = "c1",
-        .arguments = R"JSON({"file_path": "src/new.cpp",
+        .tool_name = "Write", .call_id = "c1", .arguments = R"JSON({"file_path": "src/new.cpp",
                              "content": "int main() {\n    return 0;\n}\n"})JSON"});
 
     REQUIRE(vm.tabs.changes.changes.size() == 1);
     const auto& ch = vm.tabs.changes.changes[0];
-    REQUIRE(ch.old_string.empty());              // Write 全量改写，无旧内容
+    REQUIRE(ch.old_string.empty());  // Write 全量改写，无旧内容
     REQUIRE(ch.new_string == "int main() {\n    return 0;\n}\n");
     REQUIRE(ch.diff.size() == 3);
     REQUIRE(ch.diff[0].kind == agent::DiffKind::Insert);
@@ -506,9 +525,7 @@ TEST_CASE("ViewModel purpose falls back to new_string first line", "[view_model]
     ViewModel vm;
     // 无 reasoning 直接调工具（R1 回退）
     vm.apply(ActionBeginTool{
-        .tool_name = "Edit",
-        .call_id = "c1",
-        .arguments = R"JSON({"file_path": "a.txt",
+        .tool_name = "Edit", .call_id = "c1", .arguments = R"JSON({"file_path": "a.txt",
                              "old_string": "x",
                              "new_string": "y"})JSON"});
     REQUIRE(vm.tabs.changes.changes.size() == 1);
@@ -517,19 +534,19 @@ TEST_CASE("ViewModel purpose falls back to new_string first line", "[view_model]
 
 TEST_CASE("ViewModel non-file tools do not track FileChange", "[view_model][file_change]") {
     ViewModel vm;
-    vm.apply(ActionBeginTool{.tool_name = "Read", .call_id = "c1",
-                             .arguments = R"JSON({"file_path": "a.txt"})JSON"});
-    vm.apply(ActionBeginTool{.tool_name = "Bash", .call_id = "c2",
-                             .arguments = R"JSON({"command": "ls"})JSON"});
+    vm.apply(ActionBeginTool{
+        .tool_name = "Read", .call_id = "c1", .arguments = R"JSON({"file_path": "a.txt"})JSON"});
+    vm.apply(ActionBeginTool{
+        .tool_name = "Bash", .call_id = "c2", .arguments = R"JSON({"command": "ls"})JSON"});
     REQUIRE(vm.tabs.changes.changes.empty());
     REQUIRE_FALSE(vm.tabs.changes_open);
 }
 
 TEST_CASE("ViewModel malformed arguments do not track FileChange", "[view_model][file_change]") {
     ViewModel vm;
-    vm.apply(ActionBeginTool{.tool_name = "Edit", .call_id = "c1",
-                             .arguments = "not json"});
-    vm.apply(ActionBeginTool{.tool_name = "Edit", .call_id = "c2",
+    vm.apply(ActionBeginTool{.tool_name = "Edit", .call_id = "c1", .arguments = "not json"});
+    vm.apply(ActionBeginTool{.tool_name = "Edit",
+                             .call_id = "c2",
                              .arguments = R"JSON({"old_string": "x"})JSON"});  // 缺 file_path
     REQUIRE(vm.tabs.changes.changes.empty());
 }
@@ -537,10 +554,12 @@ TEST_CASE("ViewModel malformed arguments do not track FileChange", "[view_model]
 TEST_CASE("ViewModel multiple edits accumulate FileChanges", "[view_model][file_change]") {
     ViewModel vm;
     vm.apply(ActionBeginTool{
-        .tool_name = "Edit", .call_id = "c1",
+        .tool_name = "Edit",
+        .call_id = "c1",
         .arguments = R"JSON({"file_path": "a.txt", "old_string": "1", "new_string": "2"})JSON"});
     vm.apply(ActionBeginTool{
-        .tool_name = "Edit", .call_id = "c2",
+        .tool_name = "Edit",
+        .call_id = "c2",
         .arguments = R"JSON({"file_path": "b.txt", "old_string": "3", "new_string": "4"})JSON"});
     REQUIRE(vm.tabs.changes.changes.size() == 2);
     REQUIRE(vm.tabs.changes.changes[0].file_path == "a.txt");

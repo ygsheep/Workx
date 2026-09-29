@@ -19,24 +19,24 @@ namespace ftxtui {
 
 /// @brief 提示面板模式
 enum class SuggestMode {
-    None,    ///< 无面板
-    Command, ///< 行首 "/" → 命令候选
-    File,    ///< 行内 "@"（后无空格）→ 文件候选
+    None,     ///< 无面板
+    Command,  ///< 行首 "/" → 命令候选
+    File,     ///< 行内 "@"（后无空格）→ 文件候选
 };
 
 /// @brief 提示面板条目（UI 侧独立数据模型；payload 为调用方数据源下标）
 struct SuggestEntry {
-    std::string title;    ///< 主标题（如 "/clear"、文件名）
-    std::string subtitle; ///< 副标题（命令描述 / 相对路径），可空
-    int payload = 0;      ///< 原始下标（命令 / 文件各自索引）
+    std::string title;     ///< 主标题（如 "/clear"、文件名）
+    std::string subtitle;  ///< 副标题（命令描述 / 相对路径），可空
+    int payload = 0;       ///< 原始下标（命令 / 文件各自索引）
 };
 
 /// @brief 命令条目（从 agent 命令注册表派生；UI 侧数据模型，命令/搜索面板共用）
 struct PaletteCommand {
-    std::string command;     ///< 实际执行命令，如 "/model"
-    std::string title;       ///< 命令名，如 "model"（副标题的降级提示语来源）
-    std::string description; ///< 命令描述（提示语），如 "切换模型"
-    std::string keywords;    ///< 额外搜索关键词（中英文/别名），可空
+    std::string command;      ///< 实际执行命令，如 "/model"
+    std::string title;        ///< 命令名，如 "model"（副标题的降级提示语来源）
+    std::string description;  ///< 命令描述（提示语），如 "切换模型"
+    std::string keywords;     ///< 额外搜索关键词（中英文/别名），可空
 };
 
 /// @brief 从输入行推导提示面板模式与过滤查询（对齐 src/tui bottom_bar 语义）
@@ -64,10 +64,8 @@ std::string apply_command_suggest(const std::string& line, const std::string& fu
 /// @param file_ready 文件索引是否就绪（File 模式未就绪时显示「构建中」）
 /// @param hit_boxes 非空时记录每条候选行渲染后的屏幕 box（鼠标点击命中用；
 ///                  deque 保证 reflect 持有的 Box& 地址稳定）
-ftxui::Element render_suggest_panel(SuggestMode mode,
-                                    const std::vector<SuggestEntry>& entries,
-                                    int selected,
-                                    bool file_ready,
+ftxui::Element render_suggest_panel(SuggestMode mode, const std::vector<SuggestEntry>& entries,
+                                    int selected, bool file_ready,
                                     std::deque<ftxui::Box>* hit_boxes = nullptr);
 
 }  // namespace ftxtui

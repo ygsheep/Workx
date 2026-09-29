@@ -17,7 +17,7 @@
 #include "agent/core/agent_task_id.h"
 #include "agent/core/react_loop.h"
 #include "agent/core/react_step_format.h"
-#include "agent/hook/hook_event.h"   // #50 通用 Hook 事件系统：SubagentStart/SubagentStop
+#include "agent/hook/hook_event.h"  // #50 通用 Hook 事件系统：SubagentStart/SubagentStop
 #include "agent/hook/hook_manager.h"
 #include "agent/mcp/mcp_client_manager.h"  // #56 方案 D：子作用域 MCP 管理器
 #include "agent/tool/MCPTool/mcp_tool.h"   // H-1：子 Agent 绑定作用域 manager 的 MCPTool
@@ -41,11 +41,9 @@ std::string fmt_join_ids(const std::vector<std::string>& ids) {
 }
 
 /// @brief 格式化任务数量描述（单复数："1 task" / "3 tasks"）
-std::string fmt_task_count(size_t n) {
-    return std::format("{} {}", n, n == 1 ? "task" : "tasks");
-}
+std::string fmt_task_count(size_t n) { return std::format("{} {}", n, n == 1 ? "task" : "tasks"); }
 
-} // namespace
+}  // namespace
 
 /// @brief 启动单个子 Agent 任务
 /// @details v1.2.0：并行批量调度复用。为每个任务生成独立 task_id 并投递到线程池，
@@ -53,8 +51,8 @@ std::string fmt_task_count(size_t n) {
 /// @param options 子 Agent 启动参数
 /// @return 已启动的 Task
 std::shared_ptr<agent::Task> launch_sub_agent(const SubAgentLaunchOptions& options) {
-    return options.task_manager->launch(options.task_id,
-        [options](const std::atomic<bool>& should_cancel) {
+    return options.task_manager->launch(
+        options.task_id, [options](const std::atomic<bool>& should_cancel) {
             // v1.1.0：为子 Agent 构建独立工具集（不共享父 registry 的暴露面）
             //  - 白名单过滤：tools 为空使用全部已注册工具，否则仅保留白名单内工具
             //  - Plan 只读：父处于 Plan（只读）时仅保留只读工具，杜绝写/执行能力，
@@ -69,22 +67,21 @@ std::shared_ptr<agent::Task> launch_sub_agent(const SubAgentLaunchOptions& optio
             const bool have_mcp_scope = mcp_scope.scope && !mcp_scope.scope->empty();
             if (options.sub_registry) {
                 std::vector<std::shared_ptr<ITool>> candidates =
-                    options.tool_whitelist.empty()
-                        ? options.sub_registry->get_all_tools()
-                        : [&] {
-                            std::vector<std::shared_ptr<ITool>> sel;
-                            for (const auto& name : options.tool_whitelist) {
-                                if (auto t = options.sub_registry->find_by_name(name)) {
-                                    sel.push_back(t);
-                                }
+                    options.tool_whitelist.empty() ? options.sub_registry->get_all_tools() : [&] {
+                        std::vector<std::shared_ptr<ITool>> sel;
+                        for (const auto& name : options.tool_whitelist) {
+                            if (auto t = options.sub_registry->find_by_name(name)) {
+                                sel.push_back(t);
                             }
-                            return sel;
-                        }();
+                        }
+                        return sel;
+                    }();
                 for (const auto& t : candidates) {
                     if (t->name() == kAgentToolName) {
                         continue;  // 防递归：子 Agent 不携带 Agent 工具
                     }
-                    if (options.permission_mode == tool::PermissionMode::Plan && !t->is_read_only()) {
+                    if (options.permission_mode == tool::PermissionMode::Plan &&
+                        !t->is_read_only()) {
                         continue;  // Plan 只读：跳过写/执行工具
                     }
                     // H-1：子 Agent 定义 mcpServers 时，为其 MCP 工具绑定作用域 manager，
@@ -113,8 +110,7 @@ std::shared_ptr<agent::Task> launch_sub_agent(const SubAgentLaunchOptions& optio
             // #56 方案 C：按 skill 名预加载全文到初始 system 消息（找不到/非技能静默跳过）
             auto preload = AgentTool::build_skill_preload_messages(
                 options.skills, options.command_registry,
-                command::CommandContext{.cwd = options.cwd,
-                                        .session_id = options.session_id});
+                command::CommandContext{.cwd = options.cwd, .session_id = options.session_id});
             if (!preload.empty()) {
                 messages.insert(messages.end(), preload.begin(), preload.end());
             }
@@ -132,8 +128,8 @@ std::shared_ptr<agent::Task> launch_sub_agent(const SubAgentLaunchOptions& optio
             }
 
             auto task_ptr = options.task_manager->find_task(options.task_id);
-            ReActResult result = loop.run(messages, options.prompt, tools_schema,
-                should_cancel,
+            ReActResult result = loop.run(
+                messages, options.prompt, tools_schema, should_cancel,
                 [options, &task_ptr](const ReActStep& step) {
                     const std::string line = format_step_line(step);
                     if (task_ptr && !line.empty()) {
@@ -152,13 +148,11 @@ std::shared_ptr<agent::Task> launch_sub_agent(const SubAgentLaunchOptions& optio
                             // v1.3.0 结构化字段：第二层卡片渲染复用主会话 UI
                             .thought_text = step.thought_text,
                             .tool_name = step.tool_name,
-                            .tool_input = step.tool_input.is_null()
-                                              ? std::string{}
-                                              : step.tool_input.dump(),
+                            .tool_input =
+                                step.tool_input.is_null() ? std::string{} : step.tool_input.dump(),
                             .observation = step.observation,
                             .is_error = step.is_error,
-                            .duration_ms = step.duration_ms
-                        });
+                            .duration_ms = step.duration_ms});
                     }
                 });
 
@@ -195,8 +189,7 @@ std::shared_ptr<agent::Task> launch_sub_agent(const SubAgentLaunchOptions& optio
                     .task_id = options.task_id,
                     .final_answer = summary,
                     .was_error = result.was_error,
-                    .duration_ms = static_cast<double>(result.total_duration_ms)
-                });
+                    .duration_ms = static_cast<double>(result.total_duration_ms)});
             }
 
             // #56 方案 D：子 Agent 收尾清理 inline 私有 MCP client（引用复用 client 不在此列）
@@ -221,8 +214,7 @@ const std::string& AgentTool::description() const {
 const std::string& AgentTool::prompt() const {
     static const std::string p{
         "Launches a sub-agent with a specific prompt and tool set. "
-        "The sub-agent runs independently and returns its result."
-    };
+        "The sub-agent runs independently and returns its result."};
     return p;
 }
 
@@ -250,49 +242,53 @@ nlohmann::json AgentTool::input_schema() const {
         {"items", {{"type", "string"}}},
         {"description",
          "#56: Skills whose full text is preloaded into the sub-agent's "
-         "initial system messages"}
-    };
+         "initial system messages"}};
 
     return {
         {"type", "object"},
-        {"properties", {
-            {"prompt", {{"type", "string"}, {"description", "Single task prompt (used when 'tasks' is omitted)"}}},
-            {"tasks", {
-                {"type", "array"},
-                {"items", {
-                    {"type", "object"},
-                    {"properties", {
-                        {"prompt", {{"type", "string"}, {"description", "Task prompt for one sub-agent"}}},
-                        {"tools", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "Allowed tools for this task (whitelist; empty uses all registered tools)"}}},
-                        {"skills", skills_schema},
-                        {"mcpServers", mcp_server_schema}
-                    }},
-                    {"required", {"prompt"}},
-                    {"additionalProperties", false}
-                }},
-                {"description", "Batch of sub-agent tasks to launch in parallel (each gets its own task_id)"}
-            }},
-            {"tools", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "Allowed tools for the single sub-agent (whitelist; empty/omitted uses all registered tools)"}}},
-            {"skills", skills_schema},
-            {"mcpServers", mcp_server_schema},
-            {"run_in_background", {{"type", "boolean"}, {"description", "Run the sub-agent(s) in background (default true); false waits for completion"}}}
-        }},
-        {"anyOf", nlohmann::json::array({
-            {{"required", nlohmann::json::array({"prompt"})}},
-            {{"required", nlohmann::json::array({"tasks"})}}
-        })},
-        {"additionalProperties", false}
-    };
+        {"properties",
+         {{"prompt",
+           {{"type", "string"},
+            {"description", "Single task prompt (used when 'tasks' is omitted)"}}},
+          {"tasks",
+           {{"type", "array"},
+            {"items",
+             {{"type", "object"},
+              {"properties",
+               {{"prompt", {{"type", "string"}, {"description", "Task prompt for one sub-agent"}}},
+                {"tools",
+                 {{"type", "array"},
+                  {"items", {{"type", "string"}}},
+                  {"description",
+                   "Allowed tools for this task (whitelist; empty uses all registered tools)"}}},
+                {"skills", skills_schema},
+                {"mcpServers", mcp_server_schema}}},
+              {"required", {"prompt"}},
+              {"additionalProperties", false}}},
+            {"description",
+             "Batch of sub-agent tasks to launch in parallel (each gets its own task_id)"}}},
+          {"tools",
+           {{"type", "array"},
+            {"items", {{"type", "string"}}},
+            {"description",
+             "Allowed tools for the single sub-agent (whitelist; empty/omitted uses all registered "
+             "tools)"}}},
+          {"skills", skills_schema},
+          {"mcpServers", mcp_server_schema},
+          {"run_in_background",
+           {{"type", "boolean"},
+            {"description",
+             "Run the sub-agent(s) in background (default true); false waits for completion"}}}}},
+        {"anyOf", nlohmann::json::array({{{"required", nlohmann::json::array({"prompt"})}},
+                                         {{"required", nlohmann::json::array({"tasks"})}}})},
+        {"additionalProperties", false}};
 }
 
-ResultV2<ToolResult> AgentTool::call(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+ResultV2<ToolResult> AgentTool::call(const nlohmann::json& input, const ToolContext& ctx) const {
     // 1. 校验输入
     if (input.is_null() || !input.is_object()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput, "Agent: input must be an object");
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                         "Agent: input must be an object");
     }
     const bool run_in_background = input.value("run_in_background", true);
 
@@ -311,7 +307,7 @@ ResultV2<ToolResult> AgentTool::call(
         std::string prompt;
         std::vector<std::string> tools;
         std::vector<std::string> skills;  // #56 方案 C：子 Agent 预加载 skill 名
-        nlohmann::json mcp_servers;       // #56 方案 D：mcpServers（字符串引用 / inline 对象数组）
+        nlohmann::json mcp_servers;  // #56 方案 D：mcpServers（字符串引用 / inline 对象数组）
     };
 
     // #56 方案 C：解析 skills（string[]，单任务 & 批量任务共用）
@@ -361,16 +357,16 @@ ResultV2<ToolResult> AgentTool::call(
     }
 
     if (ctx.provider_ptr == nullptr) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::NotImplemented, "Agent: no LLM provider available");
+        return ResultV2<ToolResult>::err(Error::Code::NotImplemented,
+                                         "Agent: no LLM provider available");
     }
     if (ctx.task_manager_ptr == nullptr) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::NotImplemented, "Agent: no task manager available");
+        return ResultV2<ToolResult>::err(Error::Code::NotImplemented,
+                                         "Agent: no task manager available");
     }
     if (ctx.config_manager_ptr == nullptr) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::NotImplemented, "Agent: no config manager available");
+        return ResultV2<ToolResult>::err(Error::Code::NotImplemented,
+                                         "Agent: no config manager available");
     }
 
     // 捕获子 Agent 上下文（指针均由调用方保证存活于会话周期）
@@ -407,9 +403,10 @@ ResultV2<ToolResult> AgentTool::call(
             .cwd = cwd,
             .session_id = ctx.session_id,  // #30：父会话 ID 传递给子 Agent
             .permission_mode = permission_mode,
-            .hook_manager = hook_manager,  // #50：父作用域 HookManager
-            .mcp_servers = spec.mcp_servers,       // #56 方案 D：子 Agent MCP 作用域配置
-            .parent_mcp_manager = ctx.mcp_manager_ptr,  // #56 方案 D：父全局 manager（引用复用来源）
+            .hook_manager = hook_manager,     // #50：父作用域 HookManager
+            .mcp_servers = spec.mcp_servers,  // #56 方案 D：子 Agent MCP 作用域配置
+            .parent_mcp_manager =
+                ctx.mcp_manager_ptr,  // #56 方案 D：父全局 manager（引用复用来源）
         }));
     }
 
@@ -418,24 +415,24 @@ ResultV2<ToolResult> AgentTool::call(
     //    避免工具调用线程无限阻塞（评审 #3）
     if (!run_in_background) {
         task_manager->waitForTasks(tasks);
-        const bool all_finished = std::all_of(tasks.begin(), tasks.end(),
-            [](const auto& t) { return t->isFinished(); });
+        const bool all_finished =
+            std::all_of(tasks.begin(), tasks.end(), [](const auto& t) { return t->isFinished(); });
         if (!all_finished) {
             std::string partial;
             for (size_t i = 0; i < tasks.size(); ++i) {
                 partial += std::format("--- {} ---\n{}\n", ids[i], tasks[i]->output());
             }
-            return ResultV2<ToolResult>::ok(ToolResult::ok(std::format(
-                "Sub-agent(s) timed out waiting ({}): {}. They may still be running; "
-                "use TaskStop to cancel. Partial output:\n{}",
-                fmt_task_count(ids.size()), fmt_join_ids(ids), partial)));
+            return ResultV2<ToolResult>::ok(ToolResult::ok(
+                std::format("Sub-agent(s) timed out waiting ({}): {}. They may still be running; "
+                            "use TaskStop to cancel. Partial output:\n{}",
+                            fmt_task_count(ids.size()), fmt_join_ids(ids), partial)));
         }
         std::string out;
         for (size_t i = 0; i < tasks.size(); ++i) {
             out += std::format("--- {} ---\n{}\n", ids[i], tasks[i]->output());
         }
-        return ResultV2<ToolResult>::ok(ToolResult::ok(std::format(
-            "Sub-agents completed ({}).\n{}", fmt_task_count(ids.size()), out)));
+        return ResultV2<ToolResult>::ok(ToolResult::ok(
+            std::format("Sub-agents completed ({}).\n{}", fmt_task_count(ids.size()), out)));
     }
 
     // 后台模式：立即返回全部 task_id
@@ -443,14 +440,13 @@ ResultV2<ToolResult> AgentTool::call(
         return ResultV2<ToolResult>::ok(ToolResult::ok(std::format(
             "Sub-agent launched (task: {}). Use TaskOutput to read its progress.", ids[0])));
     }
-    return ResultV2<ToolResult>::ok(ToolResult::ok(std::format(
-        "Sub-agents launched ({}): {}. Use TaskOutput to read their progress.",
-        fmt_task_count(ids.size()), fmt_join_ids(ids))));
+    return ResultV2<ToolResult>::ok(ToolResult::ok(
+        std::format("Sub-agents launched ({}): {}. Use TaskOutput to read their progress.",
+                    fmt_task_count(ids.size()), fmt_join_ids(ids))));
 }
 
 std::vector<agent::ChatMessage> AgentTool::build_skill_preload_messages(
-    const std::vector<std::string>& skills,
-    const command::CommandRegistry* registry,
+    const std::vector<std::string>& skills, const command::CommandRegistry* registry,
     const command::CommandContext& cctx) {
     std::vector<agent::ChatMessage> out;
     if (!registry || skills.empty()) return out;
@@ -475,8 +471,8 @@ std::vector<agent::ChatMessage> AgentTool::build_skill_preload_messages(
     return out;
 }
 
-AgentTool::McpScopeBuildResult AgentTool::build_mcp_scope(
-    const nlohmann::json& servers, mcp::McpClientManager* parent) {
+AgentTool::McpScopeBuildResult AgentTool::build_mcp_scope(const nlohmann::json& servers,
+                                                          mcp::McpClientManager* parent) {
     AgentTool::McpScopeBuildResult r;
     // 空 / 非数组 / 空数组 → 空作用域（调用方以 empty() 判定可用性）
     if (!servers.is_array() || servers.empty()) return r;
@@ -520,4 +516,4 @@ AgentTool::McpScopeBuildResult AgentTool::build_mcp_scope(
     return r;
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

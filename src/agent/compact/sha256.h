@@ -41,4 +41,4 @@ std::string sha256(std::string_view data);
 ///          远低于会话规模。可由 bytes=32 取完整摘要。
 std::string sha256_hex(std::string_view data, size_t bytes = 8);
 
-} // namespace agent::compact
+}  // namespace agent::compact

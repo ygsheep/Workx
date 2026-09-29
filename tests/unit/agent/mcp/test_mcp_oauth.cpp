@@ -24,16 +24,15 @@ using namespace Catch::Matchers;
 namespace {
 
 std::string fake_oauth_server_path() {
-    return (std::filesystem::path(SOURCE_DIR) /
-            "tests" / "unit" / "agent" / "mcp" / "fake_oauth_server.py")
+    return (std::filesystem::path(SOURCE_DIR) / "tests" / "unit" / "agent" / "mcp" /
+            "fake_oauth_server.py")
         .string();
 }
 
 /// 启动假 OAuth server，返回 base URL（http://127.0.0.1:<port>）
 std::string start_fake_oauth(std::shared_ptr<McpStdioProcess>& proc_out) {
     auto proc = std::make_shared<McpStdioProcess>();
-    auto start = proc->start("python", {fake_oauth_server_path()},
-                             {{"PYTHONHASHSEED", "0"}});
+    auto start = proc->start("python", {fake_oauth_server_path()}, {{"PYTHONHASHSEED", "0"}});
     REQUIRE(start.is_ok());
 
     auto line = proc->read_line(10000);
@@ -46,7 +45,7 @@ std::string start_fake_oauth(std::shared_ptr<McpStdioProcess>& proc_out) {
     return "http://127.0.0.1:" + port;
 }
 
-} // namespace
+}  // namespace
 
 // ============================================================================
 // 配置校验
@@ -169,8 +168,8 @@ TEST_CASE("McpOAuthClient authorization_code 生成授权 URL 并换 token", "[m
     const auto sp = auth_url.find("state=");
     REQUIRE(sp != std::string::npos);
     const auto se = auth_url.find('&', sp + 6);
-    const std::string state = auth_url.substr(sp + 6, se == std::string::npos
-        ? std::string::npos : se - sp - 6);
+    const std::string state =
+        auth_url.substr(sp + 6, se == std::string::npos ? std::string::npos : se - sp - 6);
     REQUIRE_FALSE(state.empty());
 
     // 用授权码换 token（fake server 校验 code_verifier 非空）
@@ -211,8 +210,7 @@ TEST_CASE("McpOAuthClient refresh_token 自动刷新", "[mcp_oauth][refresh]") {
     // 短过期模式：expires_in=1，token 过期后 access_token() 走 refresh 流程
     auto proc = std::make_shared<McpStdioProcess>();
     auto start = proc->start("python", {fake_oauth_server_path()},
-                             {{"FAKE_OAUTH_SHORT_EXPIRY", "1"},
-                              {"PYTHONHASHSEED", "0"}});
+                             {{"FAKE_OAUTH_SHORT_EXPIRY", "1"}, {"PYTHONHASHSEED", "0"}});
     REQUIRE(start.is_ok());
     auto line = proc->read_line(10000);
     REQUIRE(line.is_ok());

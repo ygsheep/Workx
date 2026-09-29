@@ -25,7 +25,7 @@
 #include "agent/config/app_config.h"
 #include "agent/core/chat_session.h"
 #include "agent/factory.h"
-#include "agent/headless/headless.h"  // #77 非交互执行模式
+#include "agent/headless/headless.h"       // #77 非交互执行模式
 #include "agent/model/context_resolver.h"  // 上下文窗口解析（侧栏进度条分母）
 #include "agent/model/model_catalog.h"
 #include "agent/model/provider_preset.h"
@@ -61,7 +61,8 @@ void ensure_console_utf8() {
     const UINT prev_in = ::GetConsoleCP();
     if (prev_out != CP_UTF8) ::SetConsoleOutputCP(CP_UTF8);
     if (prev_in != CP_UTF8) ::SetConsoleCP(CP_UTF8);
-    (void)prev_out; (void)prev_in;
+    (void)prev_out;
+    (void)prev_in;
 }
 #endif
 
@@ -132,15 +133,14 @@ int main(int argc, char** argv) {
     // #77 headless：跳过首次运行向导 / TUI / 文件索引 / Island，直接同步执行
     if (headless_mode) {
         // 参数校验：非法值直接以退出码 2 拒绝，避免静默降级导致 CI 误判
-        if (output_format != "text" && output_format != "json" &&
-            output_format != "stream-json") {
+        if (output_format != "text" && output_format != "json" && output_format != "stream-json") {
             std::cerr << "workx: 未知的 --output-format '" << output_format
                       << "'（可选 text / json / stream-json）\n";
             return 2;
         }
         if (!permission_mode.empty() && permission_mode != "default" &&
-            permission_mode != "accept-edits" &&
-            permission_mode != "bypass-permissions" && permission_mode != "plan") {
+            permission_mode != "accept-edits" && permission_mode != "bypass-permissions" &&
+            permission_mode != "plan") {
             std::cerr << "workx: 未知的 --permission-mode '" << permission_mode
                       << "'（可选 default / accept-edits / bypass-permissions / plan）\n";
             return 2;
@@ -181,11 +181,16 @@ int main(int argc, char** argv) {
         // logging.level：字符串 → LogLevel（平缓回退到 info）
         const std::string level_str = cfg.get_or<std::string>(agent::keys::LOG_LEVEL, "info");
         agent::log::LogLevel level = agent::log::LogLevel::LOG_INFO;
-        if (level_str == "trace") level = agent::log::LogLevel::LOG_TRACE;
-        else if (level_str == "debug") level = agent::log::LogLevel::LOG_DEBUG;
-        else if (level_str == "warn") level = agent::log::LogLevel::LOG_WARN;
-        else if (level_str == "error") level = agent::log::LogLevel::LOG_ERROR;
-        else if (level_str == "fatal") level = agent::log::LogLevel::LOG_FATAL;
+        if (level_str == "trace")
+            level = agent::log::LogLevel::LOG_TRACE;
+        else if (level_str == "debug")
+            level = agent::log::LogLevel::LOG_DEBUG;
+        else if (level_str == "warn")
+            level = agent::log::LogLevel::LOG_WARN;
+        else if (level_str == "error")
+            level = agent::log::LogLevel::LOG_ERROR;
+        else if (level_str == "fatal")
+            level = agent::log::LogLevel::LOG_FATAL;
         agent::log::Logger::get_instance().set_level(level);
 
         // logging.file：空 = 默认单一固定文件 workx.log（按大小轮转）；
@@ -236,13 +241,14 @@ int main(int argc, char** argv) {
     // 上下文窗口（token）：启动时经 resolve_context_length 解析，注入侧栏进度条分母
     int32_t context_limit = 0;
     // models.dev 目录：堆上原子指针，后台 detach 线程按值捕获，前台 load() 并发安全
-    auto model_catalog = std::make_shared<std::atomic<std::shared_ptr<const agent::ModelCatalog>>>();
+    auto model_catalog =
+        std::make_shared<std::atomic<std::shared_ptr<const agent::ModelCatalog>>>();
 
     if (!mock_mode) {
         // B1：与 workx 主程序共用同一会话装配（全量工具集 + 系统提示词 + 持久化）
         const std::string provider = cfg.get_or<std::string>(agent::keys::PROVIDER, "");
-        const agent::ProviderPreset* preset = provider.empty() ? nullptr
-                                                               : agent::find_preset(provider);
+        const agent::ProviderPreset* preset =
+            provider.empty() ? nullptr : agent::find_preset(provider);
         auto result = agent::create_session(cfg, preset, tm, bus);
         session = std::move(result.session);
         model_name = result.model_name;
@@ -252,15 +258,17 @@ int main(int argc, char** argv) {
         // 会话持久化目录（/resume 列出历史用）
         if (session) {
             auto config_dir = agent::default_config_path().parent_path();
-            session_dir = agent::session::get_project_session_dir(
-                config_dir, fs::current_path().string()).string();
+            session_dir =
+                agent::session::get_project_session_dir(config_dir, fs::current_path().string())
+                    .string();
         }
 
         // 上下文窗口：统一通过 resolver 解析（provider→user cfg→catalog→capability→preset→default）
         // 启动初始化时无 selector 返回值，sel_context_length 传 0；对齐 src/app/main.cpp
         auto catalog_cache_path = agent::default_config_path().parent_path() / "models_cache.json";
         if (auto cached = agent::ModelCatalog::load_cache(catalog_cache_path); cached.is_ok()) {
-            model_catalog->store(std::make_shared<const agent::ModelCatalog>(std::move(cached.value())));
+            model_catalog->store(
+                std::make_shared<const agent::ModelCatalog>(std::move(cached.value())));
         }
         // 后台线程拉取（不阻塞启动）；24h 内已拉取过则跳过（离线命中）
         // detach 安全性：model_catalog（shared_ptr）按值捕获保证生命周期；
@@ -271,14 +279,16 @@ int main(int argc, char** argv) {
                 constexpr auto kCacheTtl = std::chrono::hours(24);
                 std::error_code ec;
                 auto mtime = std::filesystem::last_write_time(catalog_cache_path, ec);
-                if (!ec && std::filesystem::file_time_type::clock::now() - mtime < kCacheTtl) return;
+                if (!ec && std::filesystem::file_time_type::clock::now() - mtime < kCacheTtl)
+                    return;
                 agent::HttpClient http;
                 auto resp = http.get("https://models.dev/api.json", {}, /*timeout_ms=*/30000);
                 if (resp.is_err() || !resp.value().is_success()) return;
                 auto parsed = agent::ModelCatalog::from_api_json(resp.value().body);
                 if (parsed.is_err()) return;
                 parsed.value().save_cache(catalog_cache_path);
-                model_catalog->store(std::make_shared<const agent::ModelCatalog>(std::move(parsed.value())));
+                model_catalog->store(
+                    std::make_shared<const agent::ModelCatalog>(std::move(parsed.value())));
             } catch (const std::exception&) {
                 // 后台刷新失败不影响启动；下次启动会重试
             }
@@ -287,9 +297,7 @@ int main(int argc, char** argv) {
 
         auto resolution = agent::resolve_context_length(
             model_name,
-            /*sel_context_length=*/0,
-            cfg.get_or<int>(agent::keys::CONTEXT_LENGTH, 0),
-            preset,
+            /*sel_context_length=*/0, cfg.get_or<int>(agent::keys::CONTEXT_LENGTH, 0), preset,
             model_catalog->load());
         context_limit = resolution.value;
     }
@@ -328,19 +336,17 @@ int main(int argc, char** argv) {
             island::RegistryWriter::default_registry_path());
 
         // 单价表：DeepSeek 官方定价 fallback + 用户 ~/.workx/pricing.json 覆盖
-        island_pricing = std::make_unique<island::PricingTable>(
-            island::PricingTable::deepseek_default());
+        island_pricing =
+            std::make_unique<island::PricingTable>(island::PricingTable::deepseek_default());
         {
-            const auto pricing_path =
-                agent::default_config_path().parent_path() / "pricing.json";
+            const auto pricing_path = agent::default_config_path().parent_path() / "pricing.json";
             std::error_code ec;
             if (std::filesystem::exists(pricing_path, ec)) {
                 std::ifstream ifs(pricing_path);
                 if (ifs) {
                     std::string text((std::istreambuf_iterator<char>(ifs)),
                                      std::istreambuf_iterator<char>());
-                    if (auto loaded = island::PricingTable::load_from_json(text);
-                        loaded.is_ok()) {
+                    if (auto loaded = island::PricingTable::load_from_json(text); loaded.is_ok()) {
                         *island_pricing = std::move(loaded.value());
                     }
                 }
@@ -350,8 +356,8 @@ int main(int argc, char** argv) {
         island::IslandServerConfig isc;
         isc.project_root = fs::current_path().string();
         isc.model = model_name;
-        island_server = std::make_unique<island::IslandServer>(
-            std::move(isc), nullptr, island_registry.get());
+        island_server =
+            std::make_unique<island::IslandServer>(std::move(isc), nullptr, island_registry.get());
 
         // 余额拉取（DeepSeek /user/balance）：api_key 非空才启用低频定时拉取
         const std::string api_key = cfg.get_or<std::string>(agent::keys::API_KEY, "");
@@ -359,14 +365,12 @@ int main(int argc, char** argv) {
             std::string base_url = cfg.get_or<std::string>(agent::keys::REMOTE_URL, "");
             if (base_url.empty()) base_url = "https://api.deepseek.com";
             island_balance = std::make_unique<island::BalanceFetcher>(
-                bus, api_key, base_url,
-                cfg.get_or<double>(agent::keys::ISLAND_USD_CNY_RATE, 7.2));
+                bus, api_key, base_url, cfg.get_or<double>(agent::keys::ISLAND_USD_CNY_RATE, 7.2));
             island_balance->start();
         }
 
         // 费用累积（订阅 StreamDone/UserInput/AgentDone → CostUpdatedEvent）
-        island_cost = std::make_unique<island::CostAccumulator>(
-            bus, *island_pricing, model_name);
+        island_cost = std::make_unique<island::CostAccumulator>(bus, *island_pricing, model_name);
         if (island_balance) {
             island_cost->set_on_task_completed(
                 [b = island_balance.get()] { b->trigger_refresh(); });
@@ -421,9 +425,8 @@ int main(int argc, char** argv) {
     deps.project = fs::current_path().filename().string();
     // B3：侧栏 Agent 显示真实会话 ID（非硬编码 "default"），
     //     与审计日志 / 事件流的 session_id 一致，便于对照
-    deps.agent_name = (session && !session->session_id().empty())
-                          ? session->session_id()
-                          : "default";
+    deps.agent_name =
+        (session && !session->session_id().empty()) ? session->session_id() : "default";
     deps.on_submit = [&](const std::string& text, const std::vector<std::string>& images) {
         if (session) session->send_message(text, images);
     };

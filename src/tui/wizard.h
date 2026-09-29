@@ -27,15 +27,13 @@ struct WizardConfig {
 /// @details 写入 backend.provider / api_key / model_name（预设默认模型）/
 ///          context_length / remote_url（自定义预设），再 save_to_file。
 /// @return true = 配置写入成功
-bool apply_wizard_config(agent::ConfigManager& cfg,
-                         const std::filesystem::path& config_path,
+bool apply_wizard_config(agent::ConfigManager& cfg, const std::filesystem::path& config_path,
                          const WizardConfig& wc);
 
 /// @brief 运行首次运行设置向导（阻塞，独立 FTXUI 全屏界面）
 /// @param cfg 配置管理器（完成后经 apply_wizard_config 写入）
 /// @param config_path 配置文件路径
 /// @return true = 用户完成配置并写入；false = 用户跳过/取消
-bool run_first_run_wizard(agent::ConfigManager& cfg,
-                          const std::filesystem::path& config_path);
+bool run_first_run_wizard(agent::ConfigManager& cfg, const std::filesystem::path& config_path);
 
 }  // namespace ftxtui

@@ -16,9 +16,9 @@ namespace agent::tool {
 namespace {
 
 /// UTF-8 字节常量（弯引号）
-constexpr char kSmartSingleLeft[]  = "\xE2\x80\x98";  // U+2018 '
+constexpr char kSmartSingleLeft[] = "\xE2\x80\x98";   // U+2018 '
 constexpr char kSmartSingleRight[] = "\xE2\x80\x99";  // U+2019 '
-constexpr char kSmartDoubleLeft[]  = "\xE2\x80\x9C";  // U+201C "
+constexpr char kSmartDoubleLeft[] = "\xE2\x80\x9C";   // U+201C "
 constexpr char kSmartDoubleRight[] = "\xE2\x80\x9D";  // U+201D "
 
 /// 检查字节序列是否匹配指定前缀
@@ -197,7 +197,7 @@ bool has_curly_single_quotes(std::string_view s) {
     return false;
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 std::string normalize_quotes(std::string_view s) {
     std::string result;
@@ -223,10 +223,8 @@ std::string normalize_quotes(std::string_view s) {
     return result;
 }
 
-std::optional<std::string> find_actual_string(
-    std::string_view file_content,
-    std::string_view search_string
-) {
+std::optional<std::string> find_actual_string(std::string_view file_content,
+                                              std::string_view search_string) {
     // 1. 精确匹配优先
     if (file_content.find(search_string) != std::string::npos) {
         return std::string(search_string);
@@ -247,10 +245,7 @@ std::optional<std::string> find_actual_string(
     return std::string(file_content.substr(orig_start, orig_end - orig_start));
 }
 
-size_t count_actual_occurrences(
-    std::string_view file_content,
-    std::string_view search_string
-) {
+size_t count_actual_occurrences(std::string_view file_content, std::string_view search_string) {
     auto actual = find_actual_string(file_content, search_string);
     if (!actual.has_value()) return 0;
 
@@ -264,11 +259,8 @@ size_t count_actual_occurrences(
     return count;
 }
 
-std::string preserve_quote_style(
-    std::string_view old_string,
-    std::string_view actual_old_string,
-    std::string_view new_string
-) {
+std::string preserve_quote_style(std::string_view old_string, std::string_view actual_old_string,
+                                 std::string_view new_string) {
     // 1. 未发生规范化 → 原样返回
     if (old_string == actual_old_string) {
         return std::string(new_string);
@@ -294,4 +286,4 @@ std::string preserve_quote_style(
     return result;
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

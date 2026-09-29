@@ -26,12 +26,11 @@ namespace agent {
 ///          H-1：构造接收 IEventBus* 解除对 EventBus::instance() 的硬依赖；
 ///          为 nullptr 时不发布 BackendStatusEvent（保持向后兼容）。
 class RemoteBackend : public IBackend {
-public:
+   public:
     /// @brief 构造
     /// @param event_bus 事件总线（H-1 DI：nullptr 时不发布后端状态事件，
     ///                   由调用方显式注入；M-2：移除默认实参强制显式传参）
-    explicit RemoteBackend(IEventBus* event_bus)
-        : m_event_bus(event_bus) {}
+    explicit RemoteBackend(IEventBus* event_bus) : m_event_bus(event_bus) {}
     ~RemoteBackend() override;
 
     // IBackend 接口
@@ -50,7 +49,9 @@ public:
 
     /// @brief 获取当前后端状态（M-7：诊断 / 测试用）
     /// @details 替代原有的两个 bool 查询，单一原子读取保证状态一致快照
-    [[nodiscard]] BackendState state() const noexcept { return m_state.load(std::memory_order_acquire); }
+    [[nodiscard]] BackendState state() const noexcept {
+        return m_state.load(std::memory_order_acquire);
+    }
 
     /// @brief 测试注入：替换内部 HTTP 客户端（M-1，须在 initialize 前调用）
     /// @details 默认 initialize 内部创建真实 HttpClient；测试注入 Fake 实现
@@ -59,7 +60,7 @@ public:
         m_http_client = std::move(client);
     }
 
-private:
+   private:
     BackendConfig m_config;
     // M-7：合并 m_ready / m_generating 两个 atomic<bool> 为单一 atomic<BackendState>，
     //      消除"m_ready=false 但 m_generating=true"等非法组合，原子读写保证状态一致
@@ -67,7 +68,8 @@ private:
 
     /// @brief 中断全部在飞请求（调用方必须已持有 m_active_mutex）
     /// @details 拆出 interrupt_locked 以便 shutdown() 在持锁状态下复用清理逻辑，
-    ///          避免 interrupt() 内部再次加锁导致死锁，并消除 shutdown 与 interrupt 间的 TOCTOU 竞态。
+    ///          避免 interrupt() 内部再次加锁导致死锁，并消除 shutdown 与 interrupt 间的 TOCTOU
+    ///          竞态。
     void interrupt_locked();
 
     /// @brief Provider 特定协议适配器
@@ -88,4 +90,4 @@ private:
     IEventBus* m_event_bus = nullptr;
 };
 
-} // namespace agent
+}  // namespace agent

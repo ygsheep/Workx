@@ -22,9 +22,7 @@ namespace ftxtui {
 ///          直接委托 ftxui::string_width（wcwidth 完整全角表，含 emoji 等宽区间），
 ///          否则折行/表格列宽按一个宽度表计算、渲染按另一个度量，
 ///          会造成表格边框错位、正文行超宽而越过内容区"黑边"。
-inline int utf8_display_width(std::string_view s) {
-    return ftxui::string_width(s);
-}
+inline int utf8_display_width(std::string_view s) { return ftxui::string_width(s); }
 
 /// @brief 按显示列宽把一条逻辑行折行为若干物理行
 /// @param text  原始逻辑行（UTF-8）
@@ -32,8 +30,8 @@ inline int utf8_display_width(std::string_view s) {
 /// @return 每段为原 text 上的 [begin,end) 字节区间（互不重叠、顺序覆盖全文）
 /// @details 单词优先：尽量在空白处断行；空白段在行首/行尾丢弃，单词间统一 1 列
 ///          分隔；单单词超过 width 时按列宽硬切（仅在码点边界切分）。
-inline std::vector<std::pair<std::size_t, std::size_t>> wrap_text(
-    std::string_view text, int width) {
+inline std::vector<std::pair<std::size_t, std::size_t>> wrap_text(std::string_view text,
+                                                                  int width) {
     std::vector<std::pair<std::size_t, std::size_t>> rows;
     if (text.empty()) {
         rows.emplace_back(0u, 0u);
@@ -60,9 +58,12 @@ inline std::vector<std::pair<std::size_t, std::size_t>> wrap_text(
             int clen = 1;
             int extra = 0;
             if (c0 >= 0x80) {
-                if ((c0 >> 5) == 0b110) extra = 1;
-                else if ((c0 >> 4) == 0b1110) extra = 2;
-                else if ((c0 >> 3) == 0b11110) extra = 3;
+                if ((c0 >> 5) == 0b110)
+                    extra = 1;
+                else if ((c0 >> 4) == 0b1110)
+                    extra = 2;
+                else if ((c0 >> 3) == 0b11110)
+                    extra = 3;
                 clen = 1 + extra;
             }
             const std::size_t token_end = std::min(end, i + static_cast<std::size_t>(clen));
@@ -80,16 +81,15 @@ inline std::vector<std::pair<std::size_t, std::size_t>> wrap_text(
     };
 
     const std::size_t n = text.size();
-    std::size_t row_begin = n;   // 当前行起点（字节）
-    int row_w = 0;               // 当前行已用列（不含行尾空白）
+    std::size_t row_begin = n;  // 当前行起点（字节）
+    int row_w = 0;              // 当前行已用列（不含行尾空白）
     bool row_has_word = false;
 
     auto flush_row = [&](std::size_t end_excl) {
         if (row_has_word) {
             // 去掉行尾空白：放不下下一词时 end_excl 落在词首，会把词前空白
             // 一并收进段尾，使物理行比计宽（单词间按 1 列）多 1 列而溢出。
-            while (end_excl > row_begin &&
-                   is_ws(static_cast<unsigned char>(text[end_excl - 1])))
+            while (end_excl > row_begin && is_ws(static_cast<unsigned char>(text[end_excl - 1])))
                 --end_excl;
             if (end_excl > row_begin) rows.emplace_back(row_begin, end_excl);
         }
@@ -111,8 +111,7 @@ inline std::vector<std::pair<std::size_t, std::size_t>> wrap_text(
                 row_has_word = false;
                 row_begin = n;
                 row_w = 0;
-                for (auto [b, e] : hard_split(begin, end))
-                    rows.emplace_back(b, e);
+                for (auto [b, e] : hard_split(begin, end)) rows.emplace_back(b, e);
             } else if (!row_has_word) {
                 // 新行起始（此前空白被丢弃）
                 row_begin = begin;

@@ -17,27 +17,27 @@ namespace agent {
 
 /// @brief 目标验证整体状态（GoalGuarded 外层环的退出依据）
 enum class GoalStatus {
-    Unknown = 0,      ///< 未执行目标验证（普通对话）
-    Pending,          ///< 目标尚未达成，继续 ReAct
-    Achieved,         ///< 目标已达成（成功退出）
-    Failed,           ///< 达到最大尝试次数仍未达成（失败退出）
-    NotStarted,       ///< 本轮尚未执行过任何验证
+    Unknown = 0,  ///< 未执行目标验证（普通对话）
+    Pending,      ///< 目标尚未达成，继续 ReAct
+    Achieved,     ///< 目标已达成（成功退出）
+    Failed,       ///< 达到最大尝试次数仍未达成（失败退出）
+    NotStarted,   ///< 本轮尚未执行过任何验证
 };
 
 /// @brief 目标定义（用户通过消息/配置注入）
 struct AgentGoal {
     /// @brief 目标类型
     enum Type {
-        None = 0,         ///< 无目标守卫（普通对话）
-        TestsPass,        ///< 测试全绿
-        BuildClean,       ///< 编译零 error（warning 降级可配）
-        LintZero,         ///< lint 零告警
-        FileExists,       ///< 文件存在
-        CustomScript,     ///< 自定义脚本退出码 == 0
+        None = 0,      ///< 无目标守卫（普通对话）
+        TestsPass,     ///< 测试全绿
+        BuildClean,    ///< 编译零 error（warning 降级可配）
+        LintZero,      ///< lint 零告警
+        FileExists,    ///< 文件存在
+        CustomScript,  ///< 自定义脚本退出码 == 0
         /// #32 多模式 Agent（由对应 Loop 专属执行，不作为 GoalGuarded 的 Verdict）
-        Script,           ///< ScriptAgent：确定性命令执行一次（agent.active=script）
-        Batch,            ///< BatchAgent：glob 展开同构并行（agent.active=batch）
-        Watch,            ///< WatchAgent：路径/事件监控轮询（agent.active=watch）
+        Script,  ///< ScriptAgent：确定性命令执行一次（agent.active=script）
+        Batch,   ///< BatchAgent：glob 展开同构并行（agent.active=batch）
+        Watch,   ///< WatchAgent：路径/事件监控轮询（agent.active=watch）
     };
     Type type = None;
     /// FileExists/Watch：目标路径 / 监控目录；BuildClean/LintZero/TestsPass 留空用默认命令
@@ -65,4 +65,4 @@ struct AgentGoal {
 /// @param spec 配置值（可含首尾空白；file_exists:/cmd: 大小写不敏感前缀）
 AgentGoal parse_goal(std::string_view spec) noexcept;
 
-} // namespace agent
+}  // namespace agent

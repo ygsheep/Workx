@@ -33,20 +33,20 @@ inline constexpr int InvalidRequest = -32600;
 inline constexpr int MethodNotFound = -32601;
 inline constexpr int InvalidParams = -32602;
 inline constexpr int InternalError = -32603;
-} // namespace jsonrpc_error
+}  // namespace jsonrpc_error
 
 /// MCP 协议错误码
 namespace mcp_error {
 /// 协议版本不匹配（1.x initialize 返回该错误，客户端用返回版本重试）
 inline constexpr int UnsupportedProtocolVersion = -32602;
-} // namespace mcp_error
+}  // namespace mcp_error
 
 /// @brief 2.0 缓存元数据（响应 _meta.ttlMs / _meta.cacheScope）
 /// @details ttl_ms > 0 表示客户端可在该时长内缓存响应；cache_scope 取值
 ///          "session"（会话内共享）或 "shared"（跨会话共享）。
 struct McpCacheMeta {
-    int64_t ttl_ms = 0;        ///< 缓存有效期（毫秒，0=不缓存）
-    std::string cache_scope;   ///< 缓存作用域（"session" / "shared" / 空）
+    int64_t ttl_ms = 0;       ///< 缓存有效期（毫秒，0=不缓存）
+    std::string cache_scope;  ///< 缓存作用域（"session" / "shared" / 空）
 };
 
 /// @brief MCP server 暴露的工具信息（tools/list 响应项）
@@ -63,16 +63,16 @@ struct McpResourceInfo {
     std::string name;
     std::string mime_type;
     std::string description;
-    McpCacheMeta cache;           ///< 2.0 响应缓存元数据（无则 ttl_ms=0）
+    McpCacheMeta cache;  ///< 2.0 响应缓存元数据（无则 ttl_ms=0）
 };
 
 /// @brief 资源内容（resources/read 响应项）
 struct McpResourceContent {
     std::string uri;
     std::string mime_type;
-    std::string text;  ///< 文本内容
-    std::string blob;  ///< 二进制内容（base64 编码）
-    McpCacheMeta cache;           ///< 2.0 响应缓存元数据（无则 ttl_ms=0）
+    std::string text;    ///< 文本内容
+    std::string blob;    ///< 二进制内容（base64 编码）
+    McpCacheMeta cache;  ///< 2.0 响应缓存元数据（无则 ttl_ms=0）
 };
 
 /// @brief 资源模板信息（resources/templates/list 响应项，M4）
@@ -99,7 +99,7 @@ struct McpPromptInfo {
 
 /// @brief 提示词消息（prompts/get 响应 messages[] 项，M4）
 struct McpPromptMessage {
-    std::string role;      ///< user / assistant
+    std::string role;        ///< user / assistant
     nlohmann::json content;  ///< 内容块（text / image / resource）
 };
 
@@ -117,4 +117,4 @@ struct McpCallResult {
     bool is_error = false;
 };
 
-} // namespace agent::mcp
+}  // namespace agent::mcp

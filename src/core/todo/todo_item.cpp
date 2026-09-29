@@ -11,16 +11,19 @@ namespace core::todo {
 
 const char* TodoItem::status_str(TodoStatus s) {
     switch (s) {
-        case TodoStatus::Pending:    return "pending";
-        case TodoStatus::InProgress: return "in_progress";
-        case TodoStatus::Completed:  return "completed";
+        case TodoStatus::Pending:
+            return "pending";
+        case TodoStatus::InProgress:
+            return "in_progress";
+        case TodoStatus::Completed:
+            return "completed";
     }
     return "pending";
 }
 
 TodoStatus TodoItem::status_from(const std::string& s) {
     if (s == "in_progress") return TodoStatus::InProgress;
-    if (s == "completed")   return TodoStatus::Completed;
+    if (s == "completed") return TodoStatus::Completed;
     return TodoStatus::Pending;
 }
 
@@ -54,4 +57,4 @@ void from_json(const nlohmann::json& j, TodoItem& item) {
     }
 }
 
-} // namespace core::todo
+}  // namespace core::todo

@@ -58,11 +58,9 @@ TEST_CASE("register_builtin_tools 注册后可找到 WebSearch 工具", "[web_se
 TEST_CASE("parse_tavily_response 正常格式化为 [index] title · url + snippet 文本",
           "[web_search][parse]") {
     nlohmann::json resp = {
-        {"results", nlohmann::json::array({
-            {{"title", "A"}, {"url", "https://a.com/x"}, {"content", "body A"}},
-            {{"title", "B"}, {"url", "https://b.com/y"}, {"content", "body B"}}
-        })}
-    };
+        {"results", nlohmann::json::array(
+                        {{{"title", "A"}, {"url", "https://a.com/x"}, {"content", "body A"}},
+                         {{"title", "B"}, {"url", "https://b.com/y"}, {"content", "body B"}}})}};
     auto text = WebSearchTool::parse_tavily_response(resp);
     REQUIRE_THAT(text, ContainsSubstring("[1] A"));
     REQUIRE_THAT(text, ContainsSubstring("· https://a.com/x"));
@@ -75,31 +73,26 @@ TEST_CASE("parse_tavily_response 正常格式化为 [index] title · url + snipp
 TEST_CASE("parse_tavily_response answer 字段存在时置于顶端", "[web_search][parse]") {
     nlohmann::json resp = {
         {"answer", "Top answer summary"},
-        {"results", nlohmann::json::array({
-            {{"title", "A"}, {"url", "https://a.com"}, {"content", "b"}}
-        })}
-    };
+        {"results",
+         nlohmann::json::array({{{"title", "A"}, {"url", "https://a.com"}, {"content", "b"}}})}};
     auto text = WebSearchTool::parse_tavily_response(resp);
     REQUIRE(text.find("Top answer summary") == 0);
     REQUIRE_THAT(text, ContainsSubstring("\n\n[1]"));
 }
 
 TEST_CASE("parse_tavily_response 缺 results 或空数组时返回空结果提示", "[web_search][parse]") {
-    REQUIRE_THAT(WebSearchTool::parse_tavily_response({}),
-                 ContainsSubstring("未找到"));
+    REQUIRE_THAT(WebSearchTool::parse_tavily_response({}), ContainsSubstring("未找到"));
     REQUIRE_THAT(WebSearchTool::parse_tavily_response({{"results", nlohmann::json::array()}}),
                  ContainsSubstring("未找到"));
 }
 
 TEST_CASE("parse_tavily_response 跳过 title/url 缺失的脏条目", "[web_search][parse]") {
     nlohmann::json resp = {
-        {"results", nlohmann::json::array({
-            {{"title", nullptr}, {"url", "https://a.com"}, {"content", "a"}},
-            {{"title", "B"}, {"url", "https://b.com"}, {"content", "b"}}
-        })}
-    };
+        {"results",
+         nlohmann::json::array({{{"title", nullptr}, {"url", "https://a.com"}, {"content", "a"}},
+                                {{"title", "B"}, {"url", "https://b.com"}, {"content", "b"}}})}};
     auto text = WebSearchTool::parse_tavily_response(resp);
-    REQUIRE(text.find("[1]") != std::string::npos);       // 第一条被跳过，只留 B
+    REQUIRE(text.find("[1]") != std::string::npos);  // 第一条被跳过，只留 B
     REQUIRE_THAT(text, ContainsSubstring("B"));
     REQUIRE_FALSE(ContainsSubstring("https://a.com").match(text));
 }
@@ -122,9 +115,9 @@ TEST_CASE("build_tavily_request 包含 api_key/query/max_results/search_depth",
 
 TEST_CASE("build_tavily_request 覆盖默认 num_results 范围校验", "[web_search][build]") {
     auto body = WebSearchTool::build_tavily_request("k", "q", 0, "basic");
-    REQUIRE(body.at("max_results") == 1);        // 下限裁剪
+    REQUIRE(body.at("max_results") == 1);  // 下限裁剪
     body = WebSearchTool::build_tavily_request("k", "q", 999, "basic");
-    REQUIRE(body.at("max_results") == 20);       // 上限裁剪
+    REQUIRE(body.at("max_results") == 20);  // 上限裁剪
 }
 
 // ============================================================================
@@ -146,14 +139,14 @@ TEST_CASE("build_searxng_url 构造 JSON 查询 URL 并编码 query", "[web_sear
 }
 
 TEST_CASE("parse_searxng_response 格式化 results 数组", "[web_search][searxng]") {
-    nlohmann::json resp = {
-        {"results", nlohmann::json::array({
-            {{"title", "博客园文章"}, {"url", "https://www.cnblogs.com/x/p/1.html"},
-             {"content", "这是一篇 C++ 教程摘要"}},
-            {{"title", "掘金文章"}, {"url", "https://juejin.cn/post/123"},
-             {"content", "前端工程化实践"}},
-        })}
-    };
+    nlohmann::json resp = {{"results", nlohmann::json::array({
+                                           {{"title", "博客园文章"},
+                                            {"url", "https://www.cnblogs.com/x/p/1.html"},
+                                            {"content", "这是一篇 C++ 教程摘要"}},
+                                           {{"title", "掘金文章"},
+                                            {"url", "https://juejin.cn/post/123"},
+                                            {"content", "前端工程化实践"}},
+                                       })}};
     auto text = WebSearchTool::parse_searxng_response(resp);
     REQUIRE_THAT(text, Catch::Matchers::ContainsSubstring("[1] 博客园文章"));
     REQUIRE_THAT(text, Catch::Matchers::ContainsSubstring("https://www.cnblogs.com/x/p/1.html"));
@@ -164,8 +157,8 @@ TEST_CASE("parse_searxng_response 格式化 results 数组", "[web_search][searx
 TEST_CASE("parse_searxng_response 空结果返回占位提示", "[web_search][searxng]") {
     auto text = WebSearchTool::parse_searxng_response(nlohmann::json::object());
     REQUIRE_THAT(text, Catch::Matchers::ContainsSubstring("未找到"));
-    auto text2 = WebSearchTool::parse_searxng_response(
-        nlohmann::json{{"results", nlohmann::json::array()}});
+    auto text2 =
+        WebSearchTool::parse_searxng_response(nlohmann::json{{"results", nlohmann::json::array()}});
     REQUIRE_THAT(text2, Catch::Matchers::ContainsSubstring("未找到"));
 }
 
@@ -244,8 +237,8 @@ TEST_CASE("WebSearch check_permissions 敏感搜索词无确认通道时拒绝�
     WebSearchTool t;
     ToolContext ctx;  // 无 event_bus → ask_user_confirm 返回 false
     const char* kSensitive[] = {
-        "192.168.1.1", "10.0.0.1", "localhost", "127.0.0.1",
-        "password", "api_key", "private key", "密码", "内网",
+        "192.168.1.1", "10.0.0.1",    "localhost", "127.0.0.1", "password",
+        "api_key",     "private key", "密码",      "内网",
     };
     for (const char* q : kSensitive) {
         auto r = t.check_permissions({{"query", q}}, ctx);
@@ -272,7 +265,8 @@ TEST_CASE("register_config_defaults 注册 web.search 配置键", "[web_search][
     REQUIRE(std::get<std::string>(s3.value().default_value) == "https://searx.be");
     // set/get 往返（工具侧用 get_or 显式兜底默认值）
     ConfigManager::instance().set(keys::WEB_SEARCH_TAVILY_KEY, std::string("tvly-test"));
-    REQUIRE(ConfigManager::instance().get_or<std::string>(keys::WEB_SEARCH_TAVILY_KEY, "") == "tvly-test");
+    REQUIRE(ConfigManager::instance().get_or<std::string>(keys::WEB_SEARCH_TAVILY_KEY, "") ==
+            "tvly-test");
     ConfigManager::instance().clear();
 }
 

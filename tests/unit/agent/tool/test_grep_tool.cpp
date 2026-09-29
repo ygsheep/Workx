@@ -33,8 +33,8 @@ namespace {
 /// 创建测试临时目录
 std::filesystem::path make_temp_dir() {
     auto tmp = std::filesystem::temp_directory_path();
-    auto dir = tmp / ("workx_grep_test_" + std::to_string(
-        std::chrono::system_clock::now().time_since_epoch().count()));
+    auto dir = tmp / ("workx_grep_test_" +
+                      std::to_string(std::chrono::system_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(dir);
     return dir;
 }
@@ -52,7 +52,7 @@ void fill_ctx(ToolContext& ctx, const std::string& cwd) {
     ctx.config_manager_ptr = &ConfigManager::instance();
 }
 
-} // namespace
+}  // namespace
 
 // ============================================================
 // 元信息
@@ -111,10 +111,7 @@ TEST_CASE("GrepTool rejects nonexistent path", "[tool][grep][validation]") {
     ToolContext ctx;
     fill_ctx(ctx, std::filesystem::current_path().string());
 
-    auto r = tool.call(nlohmann::json{
-        {"pattern", "test"},
-        {"path", "/nonexistent_dir_xyz"}
-    }, ctx);
+    auto r = tool.call(nlohmann::json{{"pattern", "test"}, {"path", "/nonexistent_dir_xyz"}}, ctx);
     REQUIRE(r.is_err());
     REQUIRE(r.error().code == Error::Code::ResourceNotFound);
 }
@@ -132,10 +129,7 @@ TEST_CASE("GrepTool regex search finds matches", "[tool][grep][search]") {
     ToolContext ctx;
     fill_ctx(ctx, dir.string());
 
-    auto r = tool.call(nlohmann::json{
-        {"pattern", "return"},
-        {"path", file.string()}
-    }, ctx);
+    auto r = tool.call(nlohmann::json{{"pattern", "return"}, {"path", file.string()}}, ctx);
     REQUIRE(r.is_ok());
     const auto text = r.value().text;
     REQUIRE(text.find("return") != std::string::npos);
@@ -153,10 +147,8 @@ TEST_CASE("GrepTool no match returns friendly message", "[tool][grep][search]") 
     ToolContext ctx;
     fill_ctx(ctx, dir.string());
 
-    auto r = tool.call(nlohmann::json{
-        {"pattern", "nonexistent_pattern_xyz"},
-        {"path", file.string()}
-    }, ctx);
+    auto r = tool.call(
+        nlohmann::json{{"pattern", "nonexistent_pattern_xyz"}, {"path", file.string()}}, ctx);
     REQUIRE(r.is_ok());
     REQUIRE(r.value().text.find("No matches found") != std::string::npos);
 
@@ -173,11 +165,8 @@ TEST_CASE("GrepTool literal search with regex metacharacters", "[tool][grep][sea
     fill_ctx(ctx, dir.string());
 
     // regex=false：按字面量匹配 "a+b*c"，正则语义下 + 和 * 是元字符
-    auto r = tool.call(nlohmann::json{
-        {"pattern", "a+b*c"},
-        {"path", file.string()},
-        {"regex", false}
-    }, ctx);
+    auto r = tool.call(
+        nlohmann::json{{"pattern", "a+b*c"}, {"path", file.string()}, {"regex", false}}, ctx);
     REQUIRE(r.is_ok());
     REQUIRE(r.value().text.find("a+b*c") != std::string::npos);
 
@@ -194,16 +183,13 @@ TEST_CASE("GrepTool glob filter narrows search", "[tool][grep][search]") {
     ToolContext ctx;
     fill_ctx(ctx, dir.string());
 
-    auto r = tool.call(nlohmann::json{
-        {"pattern", "needle"},
-        {"path", dir.string()},
-        {"glob", "*.cpp"}
-    }, ctx);
+    auto r = tool.call(
+        nlohmann::json{{"pattern", "needle"}, {"path", dir.string()}, {"glob", "*.cpp"}}, ctx);
     REQUIRE(r.is_ok());
     const auto text = r.value().text;
     REQUIRE(text.find("a.cpp") != std::string::npos);
-    REQUIRE(text.find("b.h") == std::string::npos);     // 被 glob 排除
-    REQUIRE(text.find("c.txt") == std::string::npos);   // 被 glob 排除
+    REQUIRE(text.find("b.h") == std::string::npos);    // 被 glob 排除
+    REQUIRE(text.find("c.txt") == std::string::npos);  // 被 glob 排除
 
     std::filesystem::remove_all(dir);
 }
@@ -218,19 +204,14 @@ TEST_CASE("GrepTool case insensitive search", "[tool][grep][search]") {
     fill_ctx(ctx, dir.string());
 
     // 默认大小写敏感：HELLO 不应匹配 hello
-    auto sensitive = tool.call(nlohmann::json{
-        {"pattern", "HELLO"},
-        {"path", file.string()}
-    }, ctx);
+    auto sensitive = tool.call(nlohmann::json{{"pattern", "HELLO"}, {"path", file.string()}}, ctx);
     REQUIRE(sensitive.is_ok());
     REQUIRE(sensitive.value().text.find("No matches") != std::string::npos);
 
     // case_insensitive=true：HELLO 匹配 hello
-    auto insensitive = tool.call(nlohmann::json{
-        {"pattern", "HELLO"},
-        {"path", file.string()},
-        {"case_insensitive", true}
-    }, ctx);
+    auto insensitive = tool.call(
+        nlohmann::json{{"pattern", "HELLO"}, {"path", file.string()}, {"case_insensitive", true}},
+        ctx);
     REQUIRE(insensitive.is_ok());
     REQUIRE(insensitive.value().text.find("Hello") != std::string::npos);
 

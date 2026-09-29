@@ -122,8 +122,8 @@ TEST_CASE("parse_goal: script 提取命令", "[agent][goal]") {
 }
 
 TEST_CASE("parse_goal: batch 解析模板/glob/并发度", "[agent][goal]") {
-    AgentGoal g = parse_goal(
-        "batch:cmd=npm test -- {item}&glob=packages/**/*.test.js&concurrency=4");
+    AgentGoal g =
+        parse_goal("batch:cmd=npm test -- {item}&glob=packages/**/*.test.js&concurrency=4");
     REQUIRE(g.type == AgentGoal::Batch);
     REQUIRE(g.command == "npm test -- {item}");
     REQUIRE(g.glob == "packages/**/*.test.js");
@@ -134,13 +134,12 @@ TEST_CASE("parse_goal: batch 缺省字段用默认值", "[agent][goal]") {
     AgentGoal g = parse_goal("batch:cmd=ctest -- {item}");
     REQUIRE(g.type == AgentGoal::Batch);
     REQUIRE(g.command == "ctest -- {item}");
-    REQUIRE(g.glob.empty());          // 默认 glob 见 mode_agent_common
+    REQUIRE(g.glob.empty());  // 默认 glob 见 mode_agent_common
     REQUIRE(g.concurrency == 1);
 }
 
 TEST_CASE("parse_goal: watch 解析 path/cmd/polls/interval", "[agent][goal]") {
-    AgentGoal g = parse_goal(
-        "watch:path=src&cmd=cmake --build .&polls=5&interval=200&glob=*.cpp");
+    AgentGoal g = parse_goal("watch:path=src&cmd=cmake --build .&polls=5&interval=200&glob=*.cpp");
     REQUIRE(g.type == AgentGoal::Watch);
     REQUIRE(g.path == "src");
     REQUIRE(g.command == "cmake --build .");
@@ -156,12 +155,13 @@ TEST_CASE("parse_goal: watch 解析 path/cmd/polls/interval", "[agent][goal]") {
 namespace {
 
 inline std::string test_dir() {
-    return (fs::temp_directory_path() / ("workx_verdict_test_" +
-        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())))
+    return (fs::temp_directory_path() /
+            ("workx_verdict_test_" +
+             std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())))
         .string();
 }
 
-} // namespace
+}  // namespace
 
 TEST_CASE("verdict: FileExists 达成/未达成", "[agent][verify]") {
     const std::string dir = test_dir();
@@ -259,7 +259,7 @@ TEST_CASE("P1-1: 白名单内命令仍可执行", "[agent][verify][security]") {
     const std::string dir = test_dir();
     fs::create_directories(dir);
 #ifdef _WIN32
-    const std::string ok_cmd = "cmd /C exit 0";   // 包装 shell 褪去后落点 exit ∈ whitelist
+    const std::string ok_cmd = "cmd /C exit 0";  // 包装 shell 褪去后落点 exit ∈ whitelist
 #else
     const std::string ok_cmd = "true";
 #endif
@@ -276,7 +276,7 @@ TEST_CASE("P2-1: file_exists 路径逃逸目录被拒绝", "[agent][verify][secu
     // 逃逸 cwd 的路径（不管文件是否存在）→ 一律 Failed，防任意文件探测
     AgentGoal escape;
     escape.type = AgentGoal::FileExists;
-    escape.path = "../../.ssh/id_rsa";   // 相对逃逸
+    escape.path = "../../.ssh/id_rsa";  // 相对逃逸
     REQUIRE(check_goal(escape, dir).status == GoalStatus::Failed);
     // 绝对路径但指向 cwd 外
     AgentGoal abs_escape;

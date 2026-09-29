@@ -24,15 +24,15 @@ namespace agent::tool {
 
 /// @brief 文件版本记录
 struct FileVersion {
-    std::string version_id;                            ///< 版本 ID（时间戳 + 序号）
-    std::chrono::system_clock::time_point timestamp;   ///< 保存时间
-    std::string content;                               ///< UTF-8 内容（LF 规范化）
-    std::string operation;                             ///< 操作描述
+    std::string version_id;                           ///< 版本 ID（时间戳 + 序号）
+    std::chrono::system_clock::time_point timestamp;  ///< 保存时间
+    std::string content;                              ///< UTF-8 内容（LF 规范化）
+    std::string operation;                            ///< 操作描述
 };
 
 /// @brief 文件历史管理器（单例，会话内多版本备份）
 class FileHistory {
-public:
+   public:
     /// @brief 获取单例
     static FileHistory& instance();
 
@@ -41,20 +41,15 @@ public:
     /// @param content 当前 UTF-8 内容
     /// @param operation 操作描述（如 "before_edit", "before_create"）
     /// @return 版本 ID（可用于后续查询/回滚）
-    std::string save_version(
-        const std::string& file_path,
-        const std::string& content,
-        const std::string& operation = "before_edit"
-    );
+    std::string save_version(const std::string& file_path, const std::string& content,
+                             const std::string& operation = "before_edit");
 
     /// @brief 获取文件的所有版本（按时间倒序，最新在前）
     std::vector<FileVersion> get_versions(const std::string& file_path) const;
 
     /// @brief 获取特定版本
-    std::optional<FileVersion> get_version(
-        const std::string& file_path,
-        const std::string& version_id
-    ) const;
+    std::optional<FileVersion> get_version(const std::string& file_path,
+                                           const std::string& version_id) const;
 
     /// @brief 获取最新版本（用于 undo）
     std::optional<FileVersion> get_latest_version(const std::string& file_path) const;
@@ -71,7 +66,7 @@ public:
     /// @brief 清除所有历史（用于测试）
     void clear_for_test();
 
-private:
+   private:
     FileHistory();
     FileHistory(const FileHistory&) = delete;
     FileHistory& operator=(const FileHistory&) = delete;
@@ -85,4 +80,4 @@ private:
     size_t next_id_ = 0;
 };
 
-} // namespace agent::tool
+}  // namespace agent::tool

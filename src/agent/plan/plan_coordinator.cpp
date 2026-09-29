@@ -11,7 +11,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <format>
-#include <regex>        // #54：M-1 从 explore 结果提取关键文件
+#include <regex>  // #54：M-1 从 explore 结果提取关键文件
 #include <unordered_set>
 #include "agent/config/app_config.h"
 
@@ -25,8 +25,8 @@ std::vector<std::string> split_areas(const std::string& s) {
     size_t start = 0;
     while (start <= s.size()) {
         const size_t comma = s.find(',', start);
-        std::string seg = s.substr(start, comma == std::string::npos ? std::string::npos
-                                                                     : comma - start);
+        std::string seg =
+            s.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
         // 去首尾空白
         auto n = [](unsigned char c) { return !std::isspace(c); };
         auto b = std::find_if(seg.begin(), seg.end(), n);
@@ -65,13 +65,11 @@ std::vector<std::string> extract_file_refs(const std::string& text) {
     return files;
 }
 
-} // namespace
+}  // namespace
 
 PlanCoordinator::PlanCoordinator(IConfigManager& cfg) : m_cfg(cfg) {}
 
-bool PlanCoordinator::auto_enabled() const {
-    return m_cfg.get_or<bool>(keys::PLAN_AUTO, true);
-}
+bool PlanCoordinator::auto_enabled() const { return m_cfg.get_or<bool>(keys::PLAN_AUTO, true); }
 
 bool PlanCoordinator::interview_enabled() const {
     return m_cfg.get_or<bool>(keys::PLAN_INTERVIEW_ENABLED, true);
@@ -111,28 +109,32 @@ void PlanCoordinator::set_interview_notes(const std::string& notes) {
     }
 }
 
-std::vector<std::pair<std::string, std::string>>
-PlanCoordinator::build_explore_prompts(const std::string& reason) const {
+std::vector<std::pair<std::string, std::string>> PlanCoordinator::build_explore_prompts(
+    const std::string& reason) const {
     std::vector<std::pair<std::string, std::string>> out;
     const int count = explore_agent_count();
     const std::vector<std::string> areas = split_areas(explore_areas());
     // 优先使用显式子域列表；不足数量补齐通用探索；超量截断到 count
     for (const std::string& a : areas) {
         if (out.size() >= static_cast<std::size_t>(count)) break;
-        out.emplace_back(a, std::format(
-            "You are an exploration agent for a plan-mode survey. "
-            "Focus on the subdomain: {}.\nContext (interview): {}\nPlan reason: {}\n"
-            "Explore the codebase read-only, identify the relevant files and summarize "
-            "what would need to change. Return a concise finding.", a, m_context, reason));
+        out.emplace_back(
+            a,
+            std::format("You are an exploration agent for a plan-mode survey. "
+                        "Focus on the subdomain: {}.\nContext (interview): {}\nPlan reason: {}\n"
+                        "Explore the codebase read-only, identify the relevant files and summarize "
+                        "what would need to change. Return a concise finding.",
+                        a, m_context, reason));
     }
     for (int i = static_cast<int>(out.size()); i < count; ++i) {
         const std::string area = std::format("subdomain-{}", i + 1);
-        out.emplace_back(area, std::format(
-            "You are an exploration agent #{} in a plan-mode survey. "
-            "Explore the codebase read-only from a broad perspective and identify "
-            "the critical files and blind spots relevant to the requested work.\n"
-            "Context (interview): {}\nPlan reason: {}\n"
-            "Return a concise finding.", i + 1, m_context, reason));
+        out.emplace_back(
+            area,
+            std::format("You are an exploration agent #{} in a plan-mode survey. "
+                        "Explore the codebase read-only from a broad perspective and identify "
+                        "the critical files and blind spots relevant to the requested work.\n"
+                        "Context (interview): {}\nPlan reason: {}\n"
+                        "Return a concise finding.",
+                        i + 1, m_context, reason));
     }
     return out;
 }
@@ -152,8 +154,7 @@ void PlanCoordinator::start_explore() {
     for (const auto& [area, prompt] : specs) {
         m_explore_areas.push_back(area);
         // 编号细化：#54 task_id = pa-<cycle>-<n>，跨轮全局唯一（n 为轮内序号，供回投映射子域）
-        const std::string task_id = std::format("pa-{}-{}", m_plan_cycle,
-                                                m_explore_areas.size());
+        const std::string task_id = std::format("pa-{}-{}", m_plan_cycle, m_explore_areas.size());
         // 即便 runner 为空也登记进 active，便于无 runner（机械聚测）场景统一推进；
         // 无 runner 时不产生真实任务，active 会在 host 主动收尾或机械完成时清空。
         m_active_tasks.push_back(task_id);
@@ -169,8 +170,7 @@ void PlanCoordinator::start_explore() {
     }
 }
 
-void PlanCoordinator::on_explore_task_done(const std::string& task_id,
-                                           const std::string& result,
+void PlanCoordinator::on_explore_task_done(const std::string& task_id, const std::string& result,
                                            bool was_error) {
     // #54 编号细化：task_id = pa-<cycle>-<n>，解析末段序号 n 映射回本轮启动的子域
     std::string area;
@@ -193,9 +193,8 @@ void PlanCoordinator::on_explore_task_done(const std::string& task_id,
             .critical_files = extract_file_refs(result)  // #54 M-1：从探索结论提取关键文件
         });
     }
-    m_active_tasks.erase(
-        std::remove(m_active_tasks.begin(), m_active_tasks.end(), task_id),
-        m_active_tasks.end());
+    m_active_tasks.erase(std::remove(m_active_tasks.begin(), m_active_tasks.end(), task_id),
+                         m_active_tasks.end());
     complete_explore_if_all_done();
 }
 
@@ -220,8 +219,8 @@ void PlanCoordinator::submit_plan(PlanArtifact artifact) {
 void PlanCoordinator::set_critical_files(std::vector<std::string> files) {
     // 事件提供了结构化文件且产物缺省 → 并入产物（去重保留），供执行阶段消费
     for (auto& f : files) {
-        if (std::find(m_artifact.critical_files.begin(), m_artifact.critical_files.end(), f)
-            == m_artifact.critical_files.end()) {
+        if (std::find(m_artifact.critical_files.begin(), m_artifact.critical_files.end(), f) ==
+            m_artifact.critical_files.end()) {
             m_artifact.critical_files.push_back(std::move(f));
         }
     }
@@ -302,31 +301,26 @@ std::string PlanCoordinator::render_markdown(const PlanArtifact& a) const {
 nlohmann::json PlanCoordinator::serialize() const {
     nlohmann::json findings = nlohmann::json::array();
     for (const auto& f : m_findings) {
-        findings.push_back({
-            {"task_id", f.task_id},
-            {"area", f.area},
-            {"summary", f.summary},
-            {"critical_files", f.critical_files}
-        });
+        findings.push_back({{"task_id", f.task_id},
+                            {"area", f.area},
+                            {"summary", f.summary},
+                            {"critical_files", f.critical_files}});
     }
     nlohmann::json files = m_artifact.critical_files;
-    return {
-        {"stage", std::string(to_string(m_stage))},
-        {"reason", m_reason},
-        {"context", m_context},
-        {"findings", findings},
-        {"explore_launched", m_explore_launched},
-        {"plan_cycle", m_plan_cycle},  // #54：跨轮编号唯一性在恢复后延续
-        {"artifact", {
-            {"summary", m_artifact.summary},
-            {"critical_files", files},
+    return {{"stage", std::string(to_string(m_stage))},
+            {"reason", m_reason},
+            {"context", m_context},
             {"findings", findings},
-            {"steps", m_artifact.steps},
-            {"risks", m_artifact.risks},
-            {"interview_notes", m_artifact.interview_notes},
-            {"markdown", m_artifact.markdown}
-        }}
-    };
+            {"explore_launched", m_explore_launched},
+            {"plan_cycle", m_plan_cycle},  // #54：跨轮编号唯一性在恢复后延续
+            {"artifact",
+             {{"summary", m_artifact.summary},
+              {"critical_files", files},
+              {"findings", findings},
+              {"steps", m_artifact.steps},
+              {"risks", m_artifact.risks},
+              {"interview_notes", m_artifact.interview_notes},
+              {"markdown", m_artifact.markdown}}}};
 }
 
 void PlanCoordinator::deserialize(const nlohmann::json& j) {
@@ -368,4 +362,4 @@ void PlanCoordinator::deserialize(const nlohmann::json& j) {
     }
 }
 
-} // namespace agent::plan
+}  // namespace agent::plan

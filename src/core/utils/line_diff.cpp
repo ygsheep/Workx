@@ -69,8 +69,7 @@ std::vector<RawLine> raw_diff(const std::vector<std::string>& old_lines,
     if (n == 0) {
         std::vector<RawLine> out;
         out.reserve(m);
-        for (std::size_t i = 0; i < m; ++i)
-            out.push_back({RawOp::Remove, 0, old_lines[i]});
+        for (std::size_t i = 0; i < m; ++i) out.push_back({RawOp::Remove, 0, old_lines[i]});
         return out;
     }
     if (m > kLcsMaxLines || n > kLcsMaxLines) {
@@ -126,8 +125,7 @@ std::vector<RawLine> raw_diff(const std::vector<std::string>& old_lines,
 }  // namespace
 
 std::vector<DiffLine> line_diff(const std::vector<std::string>& old_lines,
-                                const std::vector<std::string>& new_lines,
-                                int new_start) {
+                                const std::vector<std::string>& new_lines, int new_start) {
     const auto raw = raw_diff(old_lines, new_lines);
 
     std::vector<DiffLine> out;

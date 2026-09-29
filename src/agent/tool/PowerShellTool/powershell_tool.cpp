@@ -49,7 +49,7 @@ std::atomic<size_t> s_task_id_counter{0};
 /// @brief 后台任务输出注册表（PowerShell 专属）
 /// @details 与 BashOutputRegistry 结构一致，task_name 前缀用 "ps:" 区分
 class PSOutputRegistry {
-public:
+   public:
     static PSOutputRegistry& instance() {
         static PSOutputRegistry inst;
         return inst;
@@ -75,7 +75,7 @@ public:
         m_outputs.clear();
     }
 
-private:
+   private:
     PSOutputRegistry() = default;
     mutable std::mutex m_mutex;
     std::map<std::string, process::ExecOutput> m_outputs;
@@ -90,7 +90,7 @@ constexpr const char* kNoProfileFlag = "-NoProfile";
 constexpr const char* kNonInteractiveFlag = "-NonInteractive";
 constexpr const char* kCommandFlag = "-Command";
 
-} // namespace
+}  // namespace
 
 // ============================================================
 // 元信息
@@ -104,8 +104,7 @@ const std::string& PowerShellTool::name() const {
 const std::string& PowerShellTool::description() const {
     static const std::string d{
         "Executes a PowerShell command on Windows and returns stdout, stderr, and exit code. "
-        "Supports timeout, working directory, and optional background execution."
-    };
+        "Supports timeout, working directory, and optional background execution."};
     return d;
 }
 
@@ -126,13 +125,17 @@ const std::string& PowerShellTool::prompt() const {
         "This tool uses Windows PowerShell 5.1 (powershell.exe) by default.\n"
         "- Pipeline chain operators `&&` and `||` are NOT available — they cause a parser error.\n"
         "  To run B only if A succeeds: `A; if ($?) { B }`. To chain unconditionally: `A; B`.\n"
-        "- Ternary (`?:`), null-coalescing (`??`), and null-conditional (`?.`) operators are NOT available.\n"
+        "- Ternary (`?:`), null-coalescing (`??`), and null-conditional (`?.`) operators are NOT "
+        "available.\n"
         "  Use `if/else` and explicit `$null -eq` checks instead.\n"
-        "- Avoid `2>&1` on native executables (wraps each line in ErrorRecord, sets `$?` to false).\n"
+        "- Avoid `2>&1` on native executables (wraps each line in ErrorRecord, sets `$?` to "
+        "false).\n"
         "  stderr is already captured separately — don't redirect it.\n"
-        "- Default file encoding is UTF-16 LE (with BOM). When writing files other tools will read,\n"
+        "- Default file encoding is UTF-16 LE (with BOM). When writing files other tools will "
+        "read,\n"
         "  pass `-Encoding utf8` to `Out-File` / `Set-Content`.\n"
-        "- `ConvertFrom-Json` returns a PSCustomObject, not a hashtable. `-AsHashtable` is not available.\n\n"
+        "- `ConvertFrom-Json` returns a PSCustomObject, not a hashtable. `-AsHashtable` is not "
+        "available.\n\n"
         "## Guidelines\n"
         "- Prefer specialized tools (FileRead/FileEdit/FileWrite/Grep/Glob) when applicable\n"
         "- Use `description` to briefly explain what the command does (5-10 words)\n"
@@ -151,66 +154,53 @@ const std::string& PowerShellTool::prompt() const {
         "- stdout is wrapped in <stdout>...</stdout> tags\n"
         "- stderr is wrapped in <stderr>...</stderr> tags\n"
         "- Non-zero exit codes are reported in <error>...</error> tags\n"
-        "- Output exceeding 8000 characters is truncated\n"
-    };
+        "- Output exceeding 8000 characters is truncated\n"};
     return p;
 }
 
 nlohmann::json PowerShellTool::input_schema() const {
     return {
         {"type", "object"},
-        {"properties", {
-            {"command", {
-                {"type", "string"},
-                {"description", "The PowerShell command to execute"}
-            }},
-            {"description", {
-                {"type", "string"},
-                {"description", "Brief description of what the command does (5-10 words)"}
-            }},
-            {"timeout", {
-                {"type", "integer"},
-                {"description", "Timeout in milliseconds (max 600000)"},
-                {"default", 120000}
-            }},
-            {"cwd", {
-                {"type", "string"},
-                {"description", "Working directory for the command (defaults to ctx.cwd). Use absolute paths."}
-            }},
-            {"run_in_background", {
-                {"type", "boolean"},
-                {"description", "Run command in background, return immediately with task id"},
-                {"default", false}
-            }},
-            {"dangerously_disable_sandbox", {
-                {"type", "boolean"},
-                {"description", "Disable sandbox restrictions for this command"},
-                {"default", false}
-            }}
-        }},
+        {"properties",
+         {{"command", {{"type", "string"}, {"description", "The PowerShell command to execute"}}},
+          {"description",
+           {{"type", "string"},
+            {"description", "Brief description of what the command does (5-10 words)"}}},
+          {"timeout",
+           {{"type", "integer"},
+            {"description", "Timeout in milliseconds (max 600000)"},
+            {"default", 120000}}},
+          {"cwd",
+           {{"type", "string"},
+            {"description",
+             "Working directory for the command (defaults to ctx.cwd). Use absolute paths."}}},
+          {"run_in_background",
+           {{"type", "boolean"},
+            {"description", "Run command in background, return immediately with task id"},
+            {"default", false}}},
+          {"dangerously_disable_sandbox",
+           {{"type", "boolean"},
+            {"description", "Disable sandbox restrictions for this command"},
+            {"default", false}}}}},
         {"required", {"command"}},
-        {"additionalProperties", false}
-    };
+        {"additionalProperties", false}};
 }
 
 // ============================================================
 // 权限检查
 // ============================================================
 
-PermissionResult PowerShellTool::check_permissions(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+PermissionResult PowerShellTool::check_permissions(const nlohmann::json& input,
+                                                   const ToolContext& ctx) const {
     // #36：Bypass 模式完全放行
     if (is_bypass_mode(ctx.permission_mode)) {
         return PermissionResult::ok();
     }
     // #36：Plan 模式禁止执行命令
     if (deny_execute_by_mode(ctx.permission_mode)) {
-        return PermissionResult::err(
-            Error::Code::PermissionDenied,
-            "Command execution is not allowed in plan mode. "
-            "Switch to default mode to run commands.");
+        return PermissionResult::err(Error::Code::PermissionDenied,
+                                     "Command execution is not allowed in plan mode. "
+                                     "Switch to default mode to run commands.");
     }
     // #36：Default 模式危险命令需用户确认
     if (input.contains("command") && input["command"].is_string()) {
@@ -218,7 +208,8 @@ PermissionResult PowerShellTool::check_permissions(
         if (is_dangerous_command(command)) {
             const std::string question = std::format(
                 "The command contains destructive patterns and requires your approval:\n\n"
-                "```\n{}\n```\n\nAllow running this command?", command);
+                "```\n{}\n```\n\nAllow running this command?",
+                command);
             if (!ask_user_confirm(ctx, question)) {
                 return PermissionResult::err(
                     Error::Code::PermissionDenied,
@@ -233,19 +224,17 @@ PermissionResult PowerShellTool::check_permissions(
 // call() — 入口分发
 // ============================================================
 
-ResultV2<ToolResult> PowerShellTool::call(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+ResultV2<ToolResult> PowerShellTool::call(const nlohmann::json& input,
+                                          const ToolContext& ctx) const {
     // 解析参数
     if (!input.contains("command") || !input["command"].is_string()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::MissingArgument, "PowerShellTool: 'command' is required");
+        return ResultV2<ToolResult>::err(Error::Code::MissingArgument,
+                                         "PowerShellTool: 'command' is required");
     }
     const std::string command = input["command"].get<std::string>();
     if (command.empty()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput, "PowerShellTool: 'command' must not be empty");
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                         "PowerShellTool: 'command' must not be empty");
     }
 
     int timeout_ms = kDefaultTimeoutMs;
@@ -274,37 +263,40 @@ ResultV2<ToolResult> PowerShellTool::call(
         auto guard_event = [&](EventType t) {
             audit::AuditLogger::instance().log_security(t, reason, ctx.session_id, name());
         };
-        if ((risk & ShellRisk::Destructive) != ShellRisk::None) guard_event(EventType::SecurityDangerousCommand);
-        if ((risk & ShellRisk::SSRF) != ShellRisk::None) guard_event(EventType::SecuritySSRFAttempt);
-        if ((risk & ShellRisk::EnvLeak) != ShellRisk::None) guard_event(EventType::SecurityEnvVarLeak);
+        if ((risk & ShellRisk::Destructive) != ShellRisk::None)
+            guard_event(EventType::SecurityDangerousCommand);
+        if ((risk & ShellRisk::SSRF) != ShellRisk::None)
+            guard_event(EventType::SecuritySSRFAttempt);
+        if ((risk & ShellRisk::EnvLeak) != ShellRisk::None)
+            guard_event(EventType::SecurityEnvVarLeak);
         if (!is_bypass_mode(ctx.permission_mode) && !is_plan_mode(ctx.permission_mode)) {
             const std::string question = std::format(
                 "The command is blocked by the security guard ({}):\n\n```\n{}\n```\n\n"
-                "Allow running this command?", reason, command);
+                "Allow running this command?",
+                reason, command);
             if (ask_user_confirm(ctx, question)) {
                 disable_sandbox = true;
             } else {
-                return ResultV2<ToolResult>::err(
-                    Error::Code::PermissionDenied,
-                    "Command execution denied by user: " + reason);
+                return ResultV2<ToolResult>::err(Error::Code::PermissionDenied,
+                                                 "Command execution denied by user: " + reason);
             }
         } else {
-            return ResultV2<ToolResult>::err(
-                Error::Code::PermissionDenied,
-                "Command blocked by security guard: " + reason);
+            return ResultV2<ToolResult>::err(Error::Code::PermissionDenied,
+                                             "Command blocked by security guard: " + reason);
         }
     }
 
     // cwd：优先用参数，否则用 ctx.cwd
     std::string cwd = ctx.cwd;
-    if (input.contains("cwd") && input["cwd"].is_string() && !input["cwd"].get<std::string>().empty()) {
+    if (input.contains("cwd") && input["cwd"].is_string() &&
+        !input["cwd"].get<std::string>().empty()) {
         cwd = input["cwd"].get<std::string>();
     }
 
     // 取消检查
     if (ctx.is_cancelled()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::Cancelled, "PowerShellTool: cancelled before execution");
+        return ResultV2<ToolResult>::err(Error::Code::Cancelled,
+                                         "PowerShellTool: cancelled before execution");
     }
 
     if (run_in_background) {
@@ -317,19 +309,16 @@ ResultV2<ToolResult> PowerShellTool::call(
 // execute_sync — 同步执行路径
 // ============================================================
 
-ResultV2<ToolResult> PowerShellTool::execute_sync(
-    const std::string& command,
-    const std::string& cwd,
-    int timeout_ms,
-    bool disable_sandbox,
-    const ToolContext& ctx
-) const {
+ResultV2<ToolResult> PowerShellTool::execute_sync(const std::string& command,
+                                                  const std::string& cwd, int timeout_ms,
+                                                  bool disable_sandbox,
+                                                  const ToolContext& ctx) const {
     ctx.report_progress(std::format("Executing (PowerShell): {}", command));
 
     // 构建沙盒配置
-    process::sandbox::SandboxConfig sb_config = disable_sandbox
-        ? process::sandbox::SandboxConfig::permissive()
-        : process::sandbox::SandboxConfig::restrictive(cwd);
+    process::sandbox::SandboxConfig sb_config =
+        disable_sandbox ? process::sandbox::SandboxConfig::permissive()
+                        : process::sandbox::SandboxConfig::restrictive(cwd);
 
     // 包装命令：powershell.exe -NoProfile -NonInteractive -Command <command>
     auto wrapped = process::sandbox::SandboxAdapter::wrap_command(
@@ -348,9 +337,7 @@ ResultV2<ToolResult> PowerShellTool::execute_sync(
     }
     if (ctx.cancel_flag != nullptr) {
         const std::atomic<bool>* flag = ctx.cancel_flag;
-        opts.is_cancelled = [flag]() {
-            return flag->load(std::memory_order_acquire);
-        };
+        opts.is_cancelled = [flag]() { return flag->load(std::memory_order_acquire); };
     }
 
     auto exec_result = process::exec(wrapped.cmd, opts);
@@ -383,13 +370,10 @@ ResultV2<ToolResult> PowerShellTool::execute_sync(
 // execute_background — 后台执行路径
 // ============================================================
 
-ResultV2<ToolResult> PowerShellTool::execute_background(
-    const std::string& command,
-    const std::string& cwd,
-    int timeout_ms,
-    bool disable_sandbox,
-    const ToolContext& ctx
-) const {
+ResultV2<ToolResult> PowerShellTool::execute_background(const std::string& command,
+                                                        const std::string& cwd, int timeout_ms,
+                                                        bool disable_sandbox,
+                                                        const ToolContext& ctx) const {
     if (ctx.task_manager_ptr == nullptr) {
         return ResultV2<ToolResult>::err(
             Error::Code::ConfigInvalid,
@@ -397,9 +381,9 @@ ResultV2<ToolResult> PowerShellTool::execute_background(
             "(ctx.task_manager_ptr is null)");
     }
 
-    process::sandbox::SandboxConfig sb_config = disable_sandbox
-        ? process::sandbox::SandboxConfig::permissive()
-        : process::sandbox::SandboxConfig::restrictive(cwd);
+    process::sandbox::SandboxConfig sb_config =
+        disable_sandbox ? process::sandbox::SandboxConfig::permissive()
+                        : process::sandbox::SandboxConfig::restrictive(cwd);
     auto wrapped = process::sandbox::SandboxAdapter::wrap_command(
         kShell, {kNoProfileFlag, kNonInteractiveFlag, kCommandFlag, command}, sb_config);
 
@@ -407,7 +391,8 @@ ResultV2<ToolResult> PowerShellTool::execute_background(
     std::string task_name = "ps:" + std::to_string(task_id) + ":" + command.substr(0, 40);
 
     auto& tm = ctx.task_manager();
-    auto task = tm.launch(task_name,
+    auto task = tm.launch(
+        task_name,
         [command, cwd, timeout_ms, wrapped, task_name](const std::atomic<bool>& should_cancel) {
             process::ExecOptions opts;
             opts.cwd = cwd;
@@ -422,27 +407,25 @@ ResultV2<ToolResult> PowerShellTool::execute_background(
             auto exec_result = process::exec(wrapped.cmd, opts);
             if (exec_result.is_err()) {
                 const auto& err = exec_result.error();
-                throw std::runtime_error(
-                    "Failed to execute PowerShell command: " + err.message);
+                throw std::runtime_error("Failed to execute PowerShell command: " + err.message);
             }
             PSOutputRegistry::instance().store(task_name, exec_result.value());
         },
         TaskType::Background);
 
     if (!task) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InternalError,
-            "PowerShellTool: failed to launch background task");
+        return ResultV2<ToolResult>::err(Error::Code::InternalError,
+                                         "PowerShellTool: failed to launch background task");
     }
 
     std::string task_name_str = task->getName();
     std::string result = "PowerShell command running in background with ID: " + task_name_str +
-        "\nCommand: " + command +
-        "\nOutput will be available when the task completes.";
+                         "\nCommand: " + command +
+                         "\nOutput will be available when the task completes.";
 
     ctx.report_progress("Background task started: " + task_name_str);
 
     return ResultV2<ToolResult>::ok(ToolResult::ok(std::move(result)));
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

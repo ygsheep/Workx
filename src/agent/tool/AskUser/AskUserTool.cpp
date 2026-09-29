@@ -46,7 +46,7 @@ const std::string kToolPrompt =
     "and add \"(Recommended)\" at the end of the label\n"
     "- The tool blocks until the user responds or timeout (default 5 minutes) is reached";
 
-} // namespace
+}  // namespace
 
 // ============================================================
 // 元信息
@@ -127,20 +127,16 @@ nlohmann::json AskUserTool::input_schema() const {
 // call
 // ============================================================
 
-ResultV2<ToolResult> AskUserTool::call(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
-    LOG_INFO("[AskUserTool] call() entered, has_questions={}",
-             input.contains("questions"));
+ResultV2<ToolResult> AskUserTool::call(const nlohmann::json& input, const ToolContext& ctx) const {
+    LOG_INFO("[AskUserTool] call() entered, has_questions={}", input.contains("questions"));
     // 1. 校验输入基本结构
     if (!input.contains("questions") || !input["questions"].is_array()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput, "AskUser: missing 'questions' array");
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                         "AskUser: missing 'questions' array");
     }
     if (input["questions"].empty()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput, "AskUser: 'questions' must not be empty");
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                         "AskUser: 'questions' must not be empty");
     }
 
     // 2. 解析超时（默认 5 分钟）
@@ -148,8 +144,8 @@ ResultV2<ToolResult> AskUserTool::call(
 
     // 3. 校验 questions 结构（宿主无关校验，TUI 渲染时自行二次解析）
     if (!validate_ask_user_json(input)) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput, "AskUser: failed to parse 'questions' as choice config");
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                         "AskUser: failed to parse 'questions' as choice config");
     }
 
     // 4. 创建 promise/future 通道 + 取消标志
@@ -169,10 +165,10 @@ ResultV2<ToolResult> AskUserTool::call(
         .questions = input,  // 完整 input 对象（含 questions 键），与 parse_choice_config 契约一致
         .timeout_ms = timeout_ms,
         .result_promise = promise,
-        .cancel_flag = cancel_flag
-    };
+        .cancel_flag = cancel_flag};
     bus.publish_async(evt);
-    LOG_INFO("[AskUserTool] published AskUserRequestEvent, timeout_ms={}, waiting for TUI response", timeout_ms);
+    LOG_INFO("[AskUserTool] published AskUserRequestEvent, timeout_ms={}, waiting for TUI response",
+             timeout_ms);
 
     // 6. 阻塞等待结果（支持超时）
     AskUserResult result;
@@ -190,9 +186,7 @@ ResultV2<ToolResult> AskUserTool::call(
             if (cancel_flag) {
                 cancel_flag->store(true, std::memory_order_release);
             }
-            bus.publish_async(AskUserTimeoutEvent{
-                .session_id = ctx.session_id
-            });
+            bus.publish_async(AskUserTimeoutEvent{.session_id = ctx.session_id});
         }
         // ready 或 timeout 都尝试 get（timeout 时若 TUI 恰好回填也能取到）
         // 注意：若已 timeout 且 promise 未 set_value，get() 会抛异常，需保护
@@ -239,4 +233,4 @@ ResultV2<ToolResult> AskUserTool::call(
     return ResultV2<ToolResult>::ok(ToolResult::ok(out));
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

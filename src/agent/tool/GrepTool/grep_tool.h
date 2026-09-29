@@ -23,7 +23,7 @@ namespace agent::tool {
 /// - 支持 glob 过滤文件（如 *.cpp）
 /// - 返回匹配的文件名、行号、行内容
 class GrepTool : public ITool {
-public:
+   public:
     const std::string& name() const override;
     const std::string& description() const override;
     const std::string& prompt() const override;
@@ -32,15 +32,10 @@ public:
     bool is_read_only() const override { return true; }
 
     /// @brief 权限检查（#60：路径边界校验，与 Read 工具一致）
-    PermissionResult check_permissions(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    PermissionResult check_permissions(const nlohmann::json& input,
+                                       const ToolContext& ctx) const override;
 
-    ResultV2<ToolResult> call(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    ResultV2<ToolResult> call(const nlohmann::json& input, const ToolContext& ctx) const override;
 };
 
-} // namespace agent::tool
+}  // namespace agent::tool

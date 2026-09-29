@@ -22,31 +22,28 @@ using namespace Catch::Matchers;
 namespace {
 
 std::string fake_server_path() {
-    return (std::filesystem::path(SOURCE_DIR) /
-            "tests" / "unit" / "agent" / "mcp" / "fake_mcp_server.py")
+    return (std::filesystem::path(SOURCE_DIR) / "tests" / "unit" / "agent" / "mcp" /
+            "fake_mcp_server.py")
         .string();
 }
 
 /// 写一个仅含假 server 的 .mcp.json 到临时目录
 std::filesystem::path make_project_config(const std::string& mode) {
-    auto dir = std::filesystem::temp_directory_path() /
-               ("workx_mcp_mgr_" + std::to_string(::rand()));
+    auto dir =
+        std::filesystem::temp_directory_path() / ("workx_mcp_mgr_" + std::to_string(::rand()));
     std::filesystem::create_directories(dir);
     // JSON 字符串中反斜杠需转义，改用正斜杠（Windows 路径兼容）
     std::string script = fake_server_path();
     std::replace(script.begin(), script.end(), '\\', '/');
     std::ofstream ofs(dir / ".mcp.json");
-    ofs << R"({"mcpServers":{"fake":{"command":"python","args":[")"
-        << script
-        << R"("],"env":{"FAKE_MCP_MODE":")" << mode
-        << R"(","PYTHONHASHSEED":"0"}}}})";
+    ofs << R"({"mcpServers":{"fake":{"command":"python","args":[")" << script
+        << R"("],"env":{"FAKE_MCP_MODE":")" << mode << R"(","PYTHONHASHSEED":"0"}}}})";
     return dir;
 }
 
 /// 后台连接是异步的：轮询等待全部 server 进入终态（已连接/失败），避免竞态
 void wait_until_settled(McpClientManager& manager, int timeout_ms = 5000) {
-    const auto deadline = std::chrono::steady_clock::now()
-                          + std::chrono::milliseconds(timeout_ms);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     while (std::chrono::steady_clock::now() < deadline) {
         bool all_terminal = true;
         for (const auto& st : manager.server_status()) {
@@ -60,7 +57,7 @@ void wait_until_settled(McpClientManager& manager, int timeout_ms = 5000) {
     }
 }
 
-} // namespace
+}  // namespace
 
 TEST_CASE("McpClientManager 空配置加载后为空", "[mcp_manager][empty]") {
     auto dir = std::filesystem::temp_directory_path() /
@@ -128,8 +125,8 @@ TEST_CASE("McpClientManager server_status 返回协议与工具数", "[mcp_manag
 }
 
 TEST_CASE("McpClientManager 连接失败记录状态与错误信息", "[mcp_manager][failed]") {
-    auto dir = std::filesystem::temp_directory_path() /
-               ("workx_mcp_mgr_fail_" + std::to_string(::rand()));
+    auto dir =
+        std::filesystem::temp_directory_path() / ("workx_mcp_mgr_fail_" + std::to_string(::rand()));
     std::filesystem::create_directories(dir);
     // 命令不存在 → 连接必然失败
     std::ofstream ofs(dir / ".mcp.json");

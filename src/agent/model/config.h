@@ -50,4 +50,4 @@ int32_t get_context_window_for_model(std::string_view model_name);
 /// @details 优先级：find_model_capability → MAX_OUTPUT_TOKENS_DEFAULT
 int32_t get_max_output_tokens_for_model(std::string_view model_name);
 
-} // namespace agent
+}  // namespace agent

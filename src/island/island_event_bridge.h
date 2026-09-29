@@ -46,13 +46,13 @@ struct AgentDoneEvent;
 struct StreamErrorEvent;
 struct CompactionPausedEvent;
 struct CacheDiagnosticsEvent;
-} // namespace agent
+}  // namespace agent
 
 namespace island {
 
 /// @brief 事件桥
 class IslandEventBridge {
-public:
+   public:
     /// @param bus 事件总线（订阅源）
     /// @param server 事件输出端
     IslandEventBridge(agent::IEventBus& bus, IslandServer& server);
@@ -69,7 +69,7 @@ public:
     /// @brief 最近 tool_call 的 call_id → tool_name 映射条数（测试用）
     [[nodiscard]] size_t tool_name_cache_size() const { return m_tool_names.size(); }
 
-private:
+   private:
     void on_user_input(const agent::UserInputEvent& e);
     void on_stream_token(const agent::StreamTokenEvent& e);
     void on_tool_call(const agent::ToolCallEvent& e);
@@ -91,4 +91,4 @@ private:
     static constexpr size_t kToolNameCacheMax = 256;
 };
 
-} // namespace island
+}  // namespace island

@@ -26,32 +26,30 @@ namespace agent::hook {
 ///          - 多个子句以 ` || ` 分隔 → 任一命中即通过
 ///          - `*` 通配（glob，含 `*` 前缀/后缀）
 class HookMatcher {
-public:
+   public:
     /// @brief 编译 match 表达式（空 → 全命中）
     explicit HookMatcher(std::string expr);
 
     /// @brief 是否命中当前事件（事件名 + 工具名 + 工具输入）
     /// @details event_name：hook 触发时的事件字符串（"PreToolUse" 等）；
     ///          tool_name / tool_input 仅 PreToolUse/PostToolUse/PermissionRequest 有值。
-    bool matches(const std::string& event_name,
-                 const std::string& tool_name,
+    bool matches(const std::string& event_name, const std::string& tool_name,
                  const nlohmann::json& tool_input) const noexcept;
 
     /// @brief 是否为"全命中"占位（空 match）
     bool matches_all() const noexcept { return all_; }
 
-private:
+   private:
     struct Rule {
-        std::string event;   // 事件名，空 = 不限
-        std::string tool;    // 工具名，含 * 通配
-        std::string arg;     // 参数 glob，空 = 不限
+        std::string event;  // 事件名，空 = 不限
+        std::string tool;   // 工具名，含 * 通配
+        std::string arg;    // 参数 glob，空 = 不限
     };
     std::vector<Rule> rules_;
     bool all_ = false;  // 空表达式全命中
 
-    static bool glob_match(const std::string& pattern,
-                           const std::string& text) noexcept;
+    static bool glob_match(const std::string& pattern, const std::string& text) noexcept;
     void parse_rules(const std::string& expr);
 };
 
-} // namespace agent::hook
+}  // namespace agent::hook

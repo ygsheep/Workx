@@ -41,8 +41,7 @@ std::vector<std::shared_ptr<command::PromptCommand>> load_skills_from_dirs(
 /// @param skill_dir 含 SKILL.md 的目录
 /// @return 注册的命令数（含别名）；无 SKILL.md 或解析失败返回 0
 /// @note 命令标记 LoadSource::Bundled；若传入非空 seen_names，同名（含别名）跳过（首个注册优先）
-size_t register_bundled_skill(command::CommandRegistry& registry,
-                              const std::string& skill_dir,
+size_t register_bundled_skill(command::CommandRegistry& registry, const std::string& skill_dir,
                               std::unordered_set<std::string>* seen_names = nullptr);
 
 /// @brief 返回 bundled skills 根目录（<exe_dir>/skills/bundled）
@@ -57,7 +56,6 @@ std::string find_bundled_skills_dir();
 /// @return 注册的命令总数（含别名）；无子目录或全空返回 0
 /// @note 逐项复用 register_bundled_skill，跨技能用 seen_names 去重（首个注册优先，
 ///       与 load_skills_from_dirs 语义一致）
-size_t register_bundled_skills(command::CommandRegistry& registry,
-                               const std::string& root);
+size_t register_bundled_skills(command::CommandRegistry& registry, const std::string& root);
 
-} // namespace agent::skill
+}  // namespace agent::skill

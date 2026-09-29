@@ -85,7 +85,8 @@ TEST_CASE("OpenAIAdapter build_request_body", "[provider][openai]") {
     REQUIRE(body.find("\"role\":\"assistant\"") != std::string::npos);
 }
 
-TEST_CASE("OpenAIAdapter reasoning_content roundtrip (DS_CACHE P2)", "[provider][openai][ds_cache]") {
+TEST_CASE("OpenAIAdapter reasoning_content roundtrip (DS_CACHE P2)",
+          "[provider][openai][ds_cache]") {
     SECTION("default: reasoning_content NOT sent") {
         OpenAIAdapter adapter;
         REQUIRE_FALSE(adapter.send_reasoning_content());
@@ -170,7 +171,9 @@ TEST_CASE("OpenAIAdapter multimodal image content", "[provider][openai][vision]"
     REQUIRE(body.find("\"content\":[{") != std::string::npos);
     // 文本块
     REQUIRE(body.find("\"type\":\"text\"") != std::string::npos);
-    REQUIRE(body.find("\"text\":\"\xe5\x9b\xbe\xe9\x87\x8c\xe6\x9c\x89\xe4\xbb\x80\xe4\xb9\x88?\"") != std::string::npos);
+    REQUIRE(
+        body.find("\"text\":\"\xe5\x9b\xbe\xe9\x87\x8c\xe6\x9c\x89\xe4\xbb\x80\xe4\xb9\x88?\"") !=
+        std::string::npos);
     // 图片块：base64 data URI（"hello" → aGVsbG8=）
     REQUIRE(body.find("\"type\":\"image_url\"") != std::string::npos);
     REQUIRE(body.find("\"url\":\"data:image/png;base64,aGVsbG8=\"") != std::string::npos);
@@ -183,7 +186,8 @@ TEST_CASE("OpenAIAdapter multimodal skips missing image file", "[provider][opena
 
     CompletionRequest request;
     request.stream = false;
-    request.messages.push_back(ChatMessage::user("图里有什么?",
+    request.messages.push_back(ChatMessage::user(
+        "图里有什么?",
         {std::filesystem::temp_directory_path().string() + "/workx_missing_img.png"}));
 
     auto body = adapter.build_request_body(request, "qwen2.5-vl-72b-instruct");
@@ -210,8 +214,8 @@ TEST_CASE("OpenAIAdapter parse_sse_event", "[provider][openai]") {
 
     SECTION("content delta") {
         StreamChunk chunk;
-        bool result = adapter.parse_sse_event("",
-            R"({"choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]})",
+        bool result = adapter.parse_sse_event(
+            "", R"({"choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]})",
             chunk);
         REQUIRE(result);
         REQUIRE(chunk.content_delta == "Hello");
@@ -220,7 +224,8 @@ TEST_CASE("OpenAIAdapter parse_sse_event", "[provider][openai]") {
 
     SECTION("finish reason") {
         StreamChunk chunk;
-        bool result = adapter.parse_sse_event("",
+        bool result = adapter.parse_sse_event(
+            "",
             R"({"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":20}})",
             chunk);
         REQUIRE(result);
@@ -230,7 +235,8 @@ TEST_CASE("OpenAIAdapter parse_sse_event", "[provider][openai]") {
     SECTION("usage chunk with OpenAI cached_tokens") {
         // OpenAI 标准缓存字段：usage.prompt_tokens_details.cached_tokens
         StreamChunk chunk;
-        bool result = adapter.parse_sse_event("",
+        bool result = adapter.parse_sse_event(
+            "",
             R"({"choices":[],"usage":{"prompt_tokens":1000,"completion_tokens":50,
                 "prompt_tokens_details":{"cached_tokens":900}}})",
             chunk);
@@ -244,7 +250,8 @@ TEST_CASE("OpenAIAdapter parse_sse_event", "[provider][openai]") {
     SECTION("usage chunk with deepseek private cache fields") {
         // DeepSeek 官方私有字段优先
         StreamChunk chunk;
-        bool result = adapter.parse_sse_event("",
+        bool result = adapter.parse_sse_event(
+            "",
             R"({"choices":[],"usage":{"prompt_tokens":1000,"completion_tokens":50,
                 "prompt_cache_hit_tokens":700,"prompt_cache_miss_tokens":300}})",
             chunk);
@@ -255,9 +262,8 @@ TEST_CASE("OpenAIAdapter parse_sse_event", "[provider][openai]") {
 
     SECTION("usage chunk without cache fields") {
         StreamChunk chunk;
-        bool result = adapter.parse_sse_event("",
-            R"({"choices":[],"usage":{"prompt_tokens":1000,"completion_tokens":50}})",
-            chunk);
+        bool result = adapter.parse_sse_event(
+            "", R"({"choices":[],"usage":{"prompt_tokens":1000,"completion_tokens":50}})", chunk);
         REQUIRE(result);
         REQUIRE(chunk.prompt_cache_hit_tokens == 0);
         REQUIRE(chunk.prompt_cache_miss_tokens == 0);
@@ -272,7 +278,8 @@ TEST_CASE("OpenAIAdapter parse_sse_event", "[provider][openai]") {
 
     SECTION("reasoning content (deepseek format)") {
         StreamChunk chunk;
-        bool result = adapter.parse_sse_event("",
+        bool result = adapter.parse_sse_event(
+            "",
             R"({"choices":[{"index":0,"delta":{"reasoning_content":"thinking..."},"finish_reason":null}]})",
             chunk);
         REQUIRE(result);
@@ -281,9 +288,8 @@ TEST_CASE("OpenAIAdapter parse_sse_event", "[provider][openai]") {
 
     SECTION("empty delta returns false") {
         StreamChunk chunk;
-        bool result = adapter.parse_sse_event("",
-            R"({"choices":[{"index":0,"delta":{},"finish_reason":null}]})",
-            chunk);
+        bool result = adapter.parse_sse_event(
+            "", R"({"choices":[{"index":0,"delta":{},"finish_reason":null}]})", chunk);
         REQUIRE_FALSE(result);
     }
 

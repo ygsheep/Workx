@@ -13,8 +13,7 @@
 
 namespace agent::tool {
 
-ListMcpResourcesTool::ListMcpResourcesTool(
-    std::shared_ptr<mcp::McpClientManager> manager)
+ListMcpResourcesTool::ListMcpResourcesTool(std::shared_ptr<mcp::McpClientManager> manager)
     : m_manager(std::move(manager)) {}
 
 const std::string& ListMcpResourcesTool::name() const {
@@ -38,37 +37,32 @@ const std::string& ListMcpResourcesTool::prompt() const {
 }
 
 nlohmann::json ListMcpResourcesTool::input_schema() const {
-    return {
-        {"type", "object"},
-        {"properties", {
-            {"server", {{"type", "string"},
-                        {"description", "可选：按 server 名过滤（省略则列出所有 server）"}}}
-        }},
-        {"required", nlohmann::json::array()},
-        {"additionalProperties", false}
-    };
+    return {{"type", "object"},
+            {"properties",
+             {{"server",
+               {{"type", "string"},
+                {"description", "可选：按 server 名过滤（省略则列出所有 server）"}}}}},
+            {"required", nlohmann::json::array()},
+            {"additionalProperties", false}};
 }
 
-ResultV2<ToolResult> ListMcpResourcesTool::call(
-    const nlohmann::json& input,
-    const ToolContext& /*ctx*/
+ResultV2<ToolResult> ListMcpResourcesTool::call(const nlohmann::json& input,
+                                                const ToolContext& /*ctx*/
 ) const {
     if (!m_manager) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InternalError, "MCP 连接管理器未初始化");
+        return ResultV2<ToolResult>::err(Error::Code::InternalError, "MCP 连接管理器未初始化");
     }
 
-    const std::string target =
-        input.contains("server") && input.at("server").is_string()
-            ? input.at("server").get<std::string>() : "";
+    const std::string target = input.contains("server") && input.at("server").is_string()
+                                   ? input.at("server").get<std::string>()
+                                   : "";
 
     std::vector<std::shared_ptr<mcp::McpClient>> clients;
     if (!target.empty()) {
         auto client = m_manager->get_client(target);
         if (!client) {
-            return ResultV2<ToolResult>::err(
-                Error::Code::ResourceNotFound,
-                "MCP server 不存在或未连接: " + target);
+            return ResultV2<ToolResult>::err(Error::Code::ResourceNotFound,
+                                             "MCP server 不存在或未连接: " + target);
         }
         clients.push_back(std::move(client));
     } else {
@@ -104,4 +98,4 @@ ResultV2<ToolResult> ListMcpResourcesTool::call(
     return ResultV2<ToolResult>::ok(ToolResult::ok(out.str()));
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

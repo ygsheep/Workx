@@ -29,7 +29,7 @@ struct SSEEvent {
 };
 
 class SSEParser {
-public:
+   public:
     using EventCallback = std::function<void(const SSEEvent&)>;
 
     explicit SSEParser(EventCallback callback);
@@ -41,7 +41,7 @@ public:
     const std::string& get_buffer() const { return m_buffer; }
     size_t get_event_count() const { return m_event_count; }
 
-private:
+   private:
     EventCallback m_callback;
     std::string m_buffer;
     size_t m_event_count = 0;
@@ -51,18 +51,18 @@ private:
 };
 
 class NDJSONParser {
-public:
+   public:
     using LineCallback = std::function<void(const std::string&)>;
 
     explicit NDJSONParser(LineCallback callback);
     void parse(std::string_view chunk);
     void reset();
 
-private:
+   private:
     LineCallback m_callback;
     std::string m_buffer;
 
     void process_lines();
 };
 
-} // namespace agent
+}  // namespace agent

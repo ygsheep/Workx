@@ -33,4 +33,4 @@ namespace agent::tool {
 ///       仅做词法规范化（fs::absolute + fs::normalize 语义）。
 std::string expand_path(std::string_view path, std::string_view base_dir = {});
 
-} // namespace agent::tool
+}  // namespace agent::tool

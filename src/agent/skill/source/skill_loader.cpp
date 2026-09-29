@@ -60,7 +60,7 @@ std::string get_home_dir() {
     return {};
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 std::vector<std::string> find_user_skill_dirs() {
     const auto home = get_home_dir();
@@ -91,14 +91,12 @@ std::optional<std::string> read_file_text(const fs::path& path) {
 }
 
 /// @brief 由解析结果构建 PromptCommand（含别名命令）
-std::vector<std::shared_ptr<command::PromptCommand>> build_commands(
-    const ParsedSkill& parsed,
-    const fs::path& skill_dir) {
+std::vector<std::shared_ptr<command::PromptCommand>> build_commands(const ParsedSkill& parsed,
+                                                                    const fs::path& skill_dir) {
     const auto& fm = parsed.frontmatter;
 
-    const auto gen = [body = parsed.body,
-                      base = skill_dir.string()](const std::string& /*args*/,
-                                                 const command::CommandContext& /*ctx*/) {
+    const auto gen = [body = parsed.body, base = skill_dir.string()](
+                         const std::string& /*args*/, const command::CommandContext& /*ctx*/) {
         command::PromptBlock block;
         block.type = command::PromptBlockType::Text;
         block.text = "Base directory for this skill: " + base + "\n\n" + body;
@@ -129,13 +127,13 @@ std::vector<std::shared_ptr<command::PromptCommand>> build_commands(
     return cmds;
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 std::vector<std::shared_ptr<command::PromptCommand>> load_skills_from_dirs(
     const std::vector<std::string>& base_dirs) {
     std::vector<std::shared_ptr<command::PromptCommand>> result;
-    std::unordered_map<std::string, bool> seen;       // canonical 路径去重
-    std::unordered_set<std::string> seen_names;       // 命令名去重（近目录优先）
+    std::unordered_map<std::string, bool> seen;  // canonical 路径去重
+    std::unordered_set<std::string> seen_names;  // 命令名去重（近目录优先）
 
     std::error_code ec;
     for (const auto& base_dir : base_dirs) {
@@ -167,8 +165,7 @@ std::vector<std::shared_ptr<command::PromptCommand>> load_skills_from_dirs(
     return result;
 }
 
-size_t register_bundled_skill(command::CommandRegistry& registry,
-                              const std::string& skill_dir,
+size_t register_bundled_skill(command::CommandRegistry& registry, const std::string& skill_dir,
                               std::unordered_set<std::string>* seen_names) {
     const auto content = read_file_text(fs::path(skill_dir) / "SKILL.md");
     if (!content) return 0;
@@ -178,7 +175,8 @@ size_t register_bundled_skill(command::CommandRegistry& registry,
     size_t n = 0;
     for (auto& cmd : cmds) {
         cmd->set_loaded_from(command::LoadSource::Bundled);
-        if (seen_names && !seen_names->insert(cmd->name()).second) continue;  // #56 M-1：同名跳过（首个注册优先）
+        if (seen_names && !seen_names->insert(cmd->name()).second)
+            continue;  // #56 M-1：同名跳过（首个注册优先）
         registry.register_command(cmd);
         ++n;
     }
@@ -194,8 +192,7 @@ std::string find_bundled_skills_dir() {
     return root.string();
 }
 
-size_t register_bundled_skills(command::CommandRegistry& registry,
-                               const std::string& root) {
+size_t register_bundled_skills(command::CommandRegistry& registry, const std::string& root) {
     if (root.empty()) return 0;
     std::error_code ec;
     fs::directory_iterator it(root, fs::directory_options::skip_permission_denied, ec);
@@ -211,4 +208,4 @@ size_t register_bundled_skills(command::CommandRegistry& registry,
     return total;
 }
 
-} // namespace agent::skill
+}  // namespace agent::skill

@@ -15,14 +15,17 @@
 
 #include "agent/core/goal_verdict.h"
 
-namespace tool { struct ToolContext; }  // 前向：验证器将来可读取 cwd 等上下文
+namespace tool {
+struct ToolContext;
+}  // namespace tool
 
 namespace agent {
 
 /// @brief 单次验证结果
 struct Verdict {
-    GoalStatus status = GoalStatus::Pending; ///< Achieved（达成）/ Pending（未达成）/ Failed（硬错误）
-    std::string detail;                     ///< 人可读的说明（例如测试失败数、文件缺失路径）
+    GoalStatus status =
+        GoalStatus::Pending;  ///< Achieved（达成）/ Pending（未达成）/ Failed（硬错误）
+    std::string detail;  ///< 人可读的说明（例如测试失败数、文件缺失路径）
 };
 
 /// @brief 验证器函数：判定目标是否达成
@@ -49,6 +52,6 @@ std::string guard_command(const std::string& cmd);
 namespace detail {
 /// @brief 解析 stdout 中 enum 值（供大文件/失败子串判定用），供内置 checker 复用
 int exit_code_of(const std::string& cmd, const std::string& cwd);
-} // namespace detail
+}  // namespace detail
 
-} // namespace agent
+}  // namespace agent

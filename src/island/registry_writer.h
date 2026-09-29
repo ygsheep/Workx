@@ -25,17 +25,17 @@ namespace island {
 
 /// @brief 注册文件中的单条会话记录
 struct RegistryEntry {
-    uint32_t pid = 0;                ///< TUI 进程 id（存活检测）
-    std::string endpoint;            ///< IPC 端点路径（\\.\pipe\... / unix socket）
-    std::string project_root;        ///< TUI 工作目录
-    int64_t started_at = 0;          ///< 启动时间（Unix 秒）
-    std::string model;               ///< 当前模型名
-    int64_t last_heartbeat = 0;      ///< 最近心跳时间（Unix 秒，GUI 每 5s ping 刷新）
+    uint32_t pid = 0;            ///< TUI 进程 id（存活检测）
+    std::string endpoint;        ///< IPC 端点路径（\\.\pipe\... / unix socket）
+    std::string project_root;    ///< TUI 工作目录
+    int64_t started_at = 0;      ///< 启动时间（Unix 秒）
+    std::string model;           ///< 当前模型名
+    int64_t last_heartbeat = 0;  ///< 最近心跳时间（Unix 秒，GUI 每 5s ping 刷新）
 };
 
 /// @brief 注册文件读写器
 class RegistryWriter {
-public:
+   public:
     /// @param path 注册文件路径（默认 default_registry_path()）
     explicit RegistryWriter(std::filesystem::path path);
 
@@ -58,11 +58,10 @@ public:
     [[nodiscard]] static nlohmann::json to_json(const std::vector<RegistryEntry>& entries);
 
     /// @brief 解析文件内容；损坏/格式错误返回 Error（ConfigParseFailed）
-    [[nodiscard]] static agent::ResultV2<std::vector<RegistryEntry>> parse(
-        const std::string& text);
+    [[nodiscard]] static agent::ResultV2<std::vector<RegistryEntry>> parse(const std::string& text);
 
-private:
+   private:
     std::filesystem::path m_path;
 };
 
-} // namespace island
+}  // namespace island

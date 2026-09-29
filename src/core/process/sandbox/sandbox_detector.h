@@ -26,7 +26,7 @@ namespace agent::process::sandbox {
 /// @brief 平台沙盒后端探测器
 /// @details 单例模式，探测并缓存当前系统可用的沙盒后端
 class SandboxDetector {
-public:
+   public:
     /// @brief 沙盒后端类型
     enum class Backend {
         None,        ///< 无可用后端（Windows 或工具未安装）
@@ -57,7 +57,7 @@ public:
     /// @brief 清除缓存（主要用于测试）
     void clear_cache();
 
-private:
+   private:
     SandboxDetector() = default;
 
     /// 执行实际探测（平台条件编译）
@@ -69,4 +69,4 @@ private:
     bool m_detected = false;  ///< 是否已探测过
 };
 
-} // namespace agent::process::sandbox
+}  // namespace agent::process::sandbox

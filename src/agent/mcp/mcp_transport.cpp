@@ -15,12 +15,9 @@
 
 namespace agent::mcp {
 
-StdioMcpTransport::StdioMcpTransport(McpServerConfig cfg)
-    : m_cfg(std::move(cfg)) {}
+StdioMcpTransport::StdioMcpTransport(McpServerConfig cfg) : m_cfg(std::move(cfg)) {}
 
-StdioMcpTransport::~StdioMcpTransport() {
-    stop();
-}
+StdioMcpTransport::~StdioMcpTransport() { stop(); }
 
 ResultV2<void> StdioMcpTransport::start() {
     if (m_started) return ResultV2<void>::ok();
@@ -36,19 +33,18 @@ void StdioMcpTransport::stop() {
     m_started = false;
 }
 
-ResultV2<nlohmann::json> StdioMcpTransport::send_request(
-    const nlohmann::json& msg, int timeout_ms) {
+ResultV2<nlohmann::json> StdioMcpTransport::send_request(const nlohmann::json& msg,
+                                                         int timeout_ms) {
     if (!msg.contains("id")) {
-        return ResultV2<nlohmann::json>::err(Error::Code::InvalidInput,
-            "JSON-RPC 请求缺少 id", "StdioMcpTransport::send_request");
+        return ResultV2<nlohmann::json>::err(Error::Code::InvalidInput, "JSON-RPC 请求缺少 id",
+                                             "StdioMcpTransport::send_request");
     }
     const auto id = msg.at("id");
 
     auto write = m_proc.write_line(msg.dump());
     if (write.is_err()) return write.error();
 
-    const auto deadline = std::chrono::steady_clock::now()
-        + std::chrono::milliseconds(timeout_ms);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
 
     // 忽略非 JSON 行上限，防止 server 异常输出刷爆队列
     int ignored_lines = 0;
@@ -57,12 +53,12 @@ ResultV2<nlohmann::json> StdioMcpTransport::send_request(
     while (true) {
         const auto now = std::chrono::steady_clock::now();
         if (now >= deadline) {
-            return ResultV2<nlohmann::json>::err(Error::Code::NetworkTimeout,
-                "MCP 请求超时 (" + std::to_string(timeout_ms) + "ms)",
+            return ResultV2<nlohmann::json>::err(
+                Error::Code::NetworkTimeout, "MCP 请求超时 (" + std::to_string(timeout_ms) + "ms)",
                 "method=" + msg.value("method", ""));
         }
-        const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-            deadline - now).count();
+        const auto remaining =
+            std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count();
 
         auto line = m_proc.read_line(static_cast<int>(remaining));
         if (line.is_err()) return line.error();
@@ -74,7 +70,8 @@ ResultV2<nlohmann::json> StdioMcpTransport::send_request(
             // 非 JSON 行（server 日志）：忽略
             if (++ignored_lines > kMaxIgnoredLines) {
                 return ResultV2<nlohmann::json>::err(Error::Code::StreamError,
-                    "MCP server 输出过多非 JSON 数据", "StdioMcpTransport::send_request");
+                                                     "MCP server 输出过多非 JSON 数据",
+                                                     "StdioMcpTransport::send_request");
             }
             continue;
         }
@@ -94,24 +91,21 @@ ResultV2<void> StdioMcpTransport::send_notification(const nlohmann::json& msg) {
 // HttpMcpTransport（Streamable HTTP，M3）
 // ============================================================
 
-HttpMcpTransport::HttpMcpTransport(McpServerConfig cfg)
-    : m_cfg(std::move(cfg)) {
+HttpMcpTransport::HttpMcpTransport(McpServerConfig cfg) : m_cfg(std::move(cfg)) {
     // SSRF 防护：URL 来自用户配置（可能来自克隆项目的 .mcp.json），默认拦截
     // 内网/回环地址；本地 MCP server 通过 allowPrivate=true 显式放行。
     m_http.set_block_private_ips(!m_cfg.allow_private);
 }
 
-HttpMcpTransport::~HttpMcpTransport() {
-    stop();
-}
+HttpMcpTransport::~HttpMcpTransport() { stop(); }
 
 ResultV2<void> HttpMcpTransport::start() {
     if (m_started) return ResultV2<void>::ok();
     const auto& url = m_cfg.url;
     if (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0) {
         return ResultV2<void>::err(Error::Code::InvalidInput,
-            "MCP HTTP server URL 必须是 http/https: " + url,
-            "HttpMcpTransport::start");
+                                   "MCP HTTP server URL 必须是 http/https: " + url,
+                                   "HttpMcpTransport::start");
     }
     m_started = true;
     return ResultV2<void>::ok();
@@ -124,9 +118,7 @@ void HttpMcpTransport::stop() {
 
 std::vector<std::pair<std::string, std::string>> HttpMcpTransport::build_headers() const {
     std::vector<std::pair<std::string, std::string>> headers = {
-        {"Content-Type", "application/json"},
-        {"Accept", "application/json, text/event-stream"}
-    };
+        {"Content-Type", "application/json"}, {"Accept", "application/json, text/event-stream"}};
     if (!m_session_id.empty()) {
         headers.emplace_back("Mcp-Session-Id", m_session_id);
     }
@@ -136,15 +128,15 @@ std::vector<std::pair<std::string, std::string>> HttpMcpTransport::build_headers
     return headers;
 }
 
-ResultV2<nlohmann::json> HttpMcpTransport::send_request(
-    const nlohmann::json& msg, int timeout_ms) {
+ResultV2<nlohmann::json> HttpMcpTransport::send_request(const nlohmann::json& msg, int timeout_ms) {
     if (!m_started) {
         return ResultV2<nlohmann::json>::err(Error::Code::NetworkDisconnected,
-            "MCP HTTP 传输未启动", "HttpMcpTransport::send_request");
+                                             "MCP HTTP 传输未启动",
+                                             "HttpMcpTransport::send_request");
     }
     if (!msg.contains("id")) {
-        return ResultV2<nlohmann::json>::err(Error::Code::InvalidInput,
-            "JSON-RPC 请求缺少 id", "HttpMcpTransport::send_request");
+        return ResultV2<nlohmann::json>::err(Error::Code::InvalidInput, "JSON-RPC 请求缺少 id",
+                                             "HttpMcpTransport::send_request");
     }
 
     auto resp = m_http.post(m_cfg.url, build_headers(), msg.dump(), timeout_ms);
@@ -152,9 +144,9 @@ ResultV2<nlohmann::json> HttpMcpTransport::send_request(
 
     const auto& r = resp.value();
     if (!r.is_success()) {
-        return ResultV2<nlohmann::json>::err(Error::Code::NetworkDisconnected,
-            "MCP HTTP 请求失败: HTTP " + std::to_string(r.status_code),
-            "url=" + m_cfg.url);
+        return ResultV2<nlohmann::json>::err(
+            Error::Code::NetworkDisconnected,
+            "MCP HTTP 请求失败: HTTP " + std::to_string(r.status_code), "url=" + m_cfg.url);
     }
 
     // 捕获 1.x 会话头（Mcp-Session-Id），后续请求回传
@@ -163,7 +155,10 @@ ResultV2<nlohmann::json> HttpMcpTransport::send_request(
         if (k == "mcp-session-id") {
             bool safe = !v.empty();
             for (unsigned char c : v) {
-                if (c < 0x20 || c == 0x7F) { safe = false; break; }
+                if (c < 0x20 || c == 0x7F) {
+                    safe = false;
+                    break;
+                }
             }
             m_session_id = safe ? v : std::string();
         }
@@ -171,35 +166,39 @@ ResultV2<nlohmann::json> HttpMcpTransport::send_request(
 
     std::string content_type;
     for (const auto& [k, v] : r.headers) {
-        if (k == "content-type") { content_type = v; break; }
+        if (k == "content-type") {
+            content_type = v;
+            break;
+        }
     }
 
     auto parsed = parse_response_body(r.body, content_type);
     // 校验返回的响应 id 与请求一致（SSE 流可能含多条消息）
     if (parsed.is_object() && parsed.contains("id") && parsed.at("id") != msg.at("id")) {
-        return ResultV2<nlohmann::json>::err(Error::Code::StreamError,
-            "MCP HTTP 响应 id 不匹配", "HttpMcpTransport::send_request");
+        return ResultV2<nlohmann::json>::err(Error::Code::StreamError, "MCP HTTP 响应 id 不匹配",
+                                             "HttpMcpTransport::send_request");
     }
     return ResultV2<nlohmann::json>::ok(std::move(parsed));
 }
 
 ResultV2<void> HttpMcpTransport::send_notification(const nlohmann::json& msg) {
     if (!m_started) {
-        return ResultV2<void>::err(Error::Code::NetworkDisconnected,
-            "MCP HTTP 传输未启动", "HttpMcpTransport::send_notification");
+        return ResultV2<void>::err(Error::Code::NetworkDisconnected, "MCP HTTP 传输未启动",
+                                   "HttpMcpTransport::send_notification");
     }
     auto resp = m_http.post(m_cfg.url, build_headers(), msg.dump(), 15000);
     if (resp.is_err()) return resp.error();
     if (!resp.value().is_success()) {
-        return ResultV2<void>::err(Error::Code::NetworkDisconnected,
+        return ResultV2<void>::err(
+            Error::Code::NetworkDisconnected,
             "MCP HTTP 通知失败: HTTP " + std::to_string(resp.value().status_code),
             "url=" + m_cfg.url);
     }
     return ResultV2<void>::ok();
 }
 
-nlohmann::json HttpMcpTransport::parse_response_body(
-    const std::string& body, const std::string& content_type) {
+nlohmann::json HttpMcpTransport::parse_response_body(const std::string& body,
+                                                     const std::string& content_type) {
     // SSE 响应：逐事件解析，返回第一个含 id 的 JSON-RPC 消息
     if (content_type.find("text/event-stream") != std::string::npos) {
         for (const auto& ev : parse_sse(body)) {
@@ -254,4 +253,4 @@ std::unique_ptr<McpTransport> create_transport(const McpServerConfig& cfg) {
     return std::make_unique<StdioMcpTransport>(cfg);
 }
 
-} // namespace agent::mcp
+}  // namespace agent::mcp

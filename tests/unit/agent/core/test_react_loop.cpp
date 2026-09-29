@@ -20,7 +20,7 @@
 #include "agent/api/i_completion_provider.h"
 #include "agent/api/i_stream_reader.h"
 #include "agent/api/chat_types.h"
-#include "agent/hook/hook_manager.h"       // Issue #50：通用 Hook 事件系统
+#include "agent/hook/hook_manager.h"  // Issue #50：通用 Hook 事件系统
 #include "agent/tool/registry.h"
 #include "agent/tool/itool.h"
 #include "agent/tool/context.h"
@@ -30,7 +30,7 @@
 #include "core/config/config_manager.h"
 #include "core/events/agent_events.h"  // AskUserRequestEvent（ExitPlanModeV2 批准确认流）
 #include "helpers/mock_provider.h"
-#include "helpers/mock_event_bus.h"    // H-1：ExitPlanModeV2 批准确认通道
+#include "helpers/mock_event_bus.h"  // H-1：ExitPlanModeV2 批准确认通道
 
 using namespace agent;
 using namespace agent::tool;
@@ -44,7 +44,7 @@ namespace {
 // ============================================================
 
 class EchoTool : public ITool {
-public:
+   public:
     mutable int call_count = 0;
     mutable std::string last_input;
 
@@ -61,15 +61,12 @@ public:
         return p;
     }
     nlohmann::json input_schema() const override {
-        return {
-            {"type", "object"},
-            {"properties", {
-                {"text", {{"type", "string"}}}
-            }},
-            {"required", {"text"}}
-        };
+        return {{"type", "object"},
+                {"properties", {{"text", {{"type", "string"}}}}},
+                {"required", {"text"}}};
     }
-    ResultV2<ToolResult> call(const nlohmann::json& input, const ToolContext& /*ctx*/) const override {
+    ResultV2<ToolResult> call(const nlohmann::json& input,
+                              const ToolContext& /*ctx*/) const override {
         call_count++;
         last_input = input.value("text", "");
         return ResultV2<ToolResult>::ok(ToolResult::ok(std::string("echo: ") + last_input));
@@ -81,7 +78,7 @@ public:
 // ============================================================
 
 class FailingTool : public ITool {
-public:
+   public:
     const std::string& name() const override {
         static const std::string n = "Failing";
         return n;
@@ -107,7 +104,7 @@ public:
 // ============================================================
 
 class DeniedTool : public ITool {
-public:
+   public:
     const std::string& name() const override {
         static const std::string n = "Denied";
         return n;
@@ -147,9 +144,8 @@ struct CapturedContext {
 
 /// @brief 接收工具的 ToolContext 并写入外部共享结构
 class ContextCaptureTool : public ITool {
-public:
-    explicit ContextCaptureTool(std::shared_ptr<CapturedContext> out)
-        : m_out(std::move(out)) {}
+   public:
+    explicit ContextCaptureTool(std::shared_ptr<CapturedContext> out) : m_out(std::move(out)) {}
 
     const std::string& name() const override {
         static const std::string n = "Capture";
@@ -175,7 +171,7 @@ public:
         return ResultV2<ToolResult>::ok(ToolResult::ok(std::string("captured")));
     }
 
-private:
+   private:
     std::shared_ptr<CapturedContext> m_out;
 };
 
@@ -184,7 +180,7 @@ private:
 // ============================================================
 
 class CooperativeSlowTool : public ITool {
-public:
+   public:
     const std::string& name() const override {
         static const std::string n = "Slow";
         return n;
@@ -205,8 +201,7 @@ public:
         constexpr int kTicks = 20;
         for (int i = 0; i < kTicks; ++i) {
             if (ctx.is_cancelled()) {
-                return ResultV2<ToolResult>::err(
-                    Error::Code::Cancelled, "Slow tool cancelled");
+                return ResultV2<ToolResult>::err(Error::Code::Cancelled, "Slow tool cancelled");
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
@@ -247,11 +242,9 @@ struct ReActLoopFixture {
     }
 
     /// @brief 创建一个返回工具调用的 reader
-    std::shared_ptr<MockStreamReader> make_tool_call_reader(
-        const std::string& tool_id,
-        const std::string& tool_name,
-        const std::string& input_json)
-    {
+    std::shared_ptr<MockStreamReader> make_tool_call_reader(const std::string& tool_id,
+                                                            const std::string& tool_name,
+                                                            const std::string& input_json) {
         auto reader = std::make_shared<MockStreamReader>();
         reader->add_content_chunk("Let me use the tool.");
         reader->add_tool_use_start(tool_id, tool_name);
@@ -271,13 +264,14 @@ struct ReActLoopFixture {
     }
 };
 
-} // namespace
+}  // namespace
 
 // ============================================================================
 // Thought 阶段 — FinalAnswer 终止
 // ============================================================================
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop returns FinalAnswer when no tool_use", "[react_loop][thought]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop returns FinalAnswer when no tool_use",
+                 "[react_loop][thought]") {
     auto reader = make_text_reader("Hello, world!");
 
     std::vector<ChatMessage> messages = {ChatMessage::user("hi")};
@@ -294,7 +288,8 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop returns FinalAnswer when no tool_u
     REQUIRE(messages[1].content == "Hello, world!");
 }
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop captures reasoning content", "[react_loop][thought]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop captures reasoning content",
+                 "[react_loop][thought]") {
     auto reader = std::make_shared<MockStreamReader>();
     reader->add_reasoning_chunk("thinking...");
     reader->add_content_chunk("answer");
@@ -330,7 +325,8 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop captures token statistics", "[reac
 // Action + Observation 阶段 — 工具调用
 // ============================================================================
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop executes tool and feeds result back", "[react_loop][action]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop executes tool and feeds result back",
+                 "[react_loop][action]") {
     // 第一次：tool_use
     make_tool_call_reader("tu_01", "Echo", R"({"text":"hello"})");
 
@@ -371,11 +367,11 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop PreToolUse hook blocks Echo", "[re
     def.prompt = "gate echo to prove blocking path";
     hooks->register_hook(def);
 
-    make_tool_call_reader("tu_01", "Echo", R"({"text":"hello"})"); // reader[0]：循环请求 Echo
+    make_tool_call_reader("tu_01", "Echo", R"({"text":"hello"})");  // reader[0]：循环请求 Echo
     auto hook_reader = std::make_shared<MockStreamReader>();
     hook_reader->add_content_chunk(R"({"blockingError":"blocked-by-hook"})");
-    provider->set_next_reader(hook_reader);                       // reader[1]：hook 判定阻断
-    make_text_reader("Done after blocked");                       // reader[2]：收尾
+    provider->set_next_reader(hook_reader);  // reader[1]：hook 判定阻断
+    make_text_reader("Done after blocked");  // reader[2]：收尾
 
     ReActLoop::Config config;
     config.hooks = hooks;
@@ -400,7 +396,8 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop PreToolUse hook blocks Echo", "[re
     REQUIRE(found_blocked);
 }
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop tool not found returns error result", "[react_loop][action]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop tool not found returns error result",
+                 "[react_loop][action]") {
     // 调用不存在的工具
     auto reader = std::make_shared<MockStreamReader>();
     reader->add_content_chunk("calling unknown tool");
@@ -420,7 +417,8 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop tool not found returns error resul
     REQUIRE(messages[2].content.find("Tool not found") != std::string::npos);
 }
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop tool exception is caught and reported", "[react_loop][action]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop tool exception is caught and reported",
+                 "[react_loop][action]") {
     auto failing_tool = std::make_shared<FailingTool>();
     registry->register_tool(failing_tool);
 
@@ -436,7 +434,8 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop tool exception is caught and repor
     REQUIRE(messages[2].content.find("intentional tool failure") != std::string::npos);
 }
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop tool permission denied is reported", "[react_loop][action]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop tool permission denied is reported",
+                 "[react_loop][action]") {
     auto denied_tool = std::make_shared<DeniedTool>();
     registry->register_tool(denied_tool);
 
@@ -480,7 +479,8 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop stops at max_iterations", "[react_
 // should_cancel 中断
 // ============================================================================
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop cancels during Thought phase", "[react_loop][cancel]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop cancels during Thought phase",
+                 "[react_loop][cancel]") {
     auto reader = std::make_shared<MockStreamReader>();
     reader->add_content_chunk("partial");
     reader->set_cancel_after(1);  // 消费第一个 chunk 后返回 Cancelled
@@ -496,7 +496,9 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop cancels during Thought phase", "[r
     REQUIRE(result.partial_content == "partial");
 }
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop cooperative cancel during tool execution preserves tool messages", "[react_loop][cancel]") {
+TEST_CASE_METHOD(ReActLoopFixture,
+                 "ReActLoop cooperative cancel during tool execution preserves tool messages",
+                 "[react_loop][cancel]") {
     // #23 P1：工具执行期间置位 should_cancel（等价于用户 Ctrl+C），
     // ReActLoop 应等待工具协作退出后仍生成 Observation（消息不丢），
     // 再在下一轮 Thought 走 was_interrupted 分支。
@@ -534,7 +536,8 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop cooperative cancel during tool exe
 // #30 环境感知注入
 // ============================================================================
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop injects environment fields into ToolContext (#30)", "[react_loop][env]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop injects environment fields into ToolContext (#30)",
+                 "[react_loop][env]") {
     // #30：工具执行时应能读到 request_id / session_id / history_summary / git 环境。
     //      git 字段依赖 cwd 是否在 git 仓库，本测试不担保其值，仅校验注入通道存在
     //      （能读到 request_id、历史摘要、模型名即可）。
@@ -544,7 +547,8 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop injects environment fields into To
     make_tool_call_reader("tu_01", "Capture", R"({})");
     make_text_reader("done");  // 第二轮无工具调用 → FinalAnswer 结束
 
-    std::vector<ChatMessage> messages = {ChatMessage::user("记住：本项目用 nlohmann/json，不要用 rapidjson")};
+    std::vector<ChatMessage> messages = {
+        ChatMessage::user("记住：本项目用 nlohmann/json，不要用 rapidjson")};
     auto loop = make_loop();
     auto result = loop->run(messages, "", registry->get_all_schemas(), should_cancel);
 
@@ -590,14 +594,13 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop handles null reader", "[react_loop
 // 回调
 // ============================================================================
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop invokes on_step callback for each phase", "[react_loop][callback]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop invokes on_step callback for each phase",
+                 "[react_loop][callback]") {
     make_tool_call_reader("tu_01", "Echo", R"({"text":"x"})");
     make_text_reader("final");
 
     std::vector<ReActStep> steps;
-    auto on_step = [&steps](const ReActStep& step) {
-        steps.push_back(step);
-    };
+    auto on_step = [&steps](const ReActStep& step) { steps.push_back(step); };
 
     std::vector<ChatMessage> messages = {ChatMessage::user("q")};
     auto loop = make_loop();
@@ -616,7 +619,8 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop invokes on_step callback for each 
     REQUIRE(steps.back().type == ReActStepType::FinalAnswer);
 }
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop invokes on_token callback for content deltas", "[react_loop][callback]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop invokes on_token callback for content deltas",
+                 "[react_loop][callback]") {
     auto reader = std::make_shared<MockStreamReader>();
     reader->add_content_chunk("Hello ");
     reader->add_content_chunk("world!");
@@ -625,19 +629,21 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop invokes on_token callback for cont
 
     std::string collected_content;
     auto on_token = [&collected_content](const std::string& content_delta,
-                                          const std::string& /*reasoning_delta*/) {
+                                         const std::string& /*reasoning_delta*/) {
         collected_content += content_delta;
     };
 
     std::vector<ChatMessage> messages = {ChatMessage::user("q")};
     auto loop = make_loop();
-    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel, nullptr, on_token);
+    auto result =
+        loop->run(messages, "", nlohmann::json::array(), should_cancel, nullptr, on_token);
 
     REQUIRE(collected_content == "Hello world!");
     REQUIRE(result.final_answer == "Hello world!");
 }
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop invokes on_token for reasoning deltas", "[react_loop][callback]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop invokes on_token for reasoning deltas",
+                 "[react_loop][callback]") {
     auto reader = std::make_shared<MockStreamReader>();
     reader->add_reasoning_chunk("step1 ");
     reader->add_reasoning_chunk("step2");
@@ -647,13 +653,14 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop invokes on_token for reasoning del
 
     std::string collected_reasoning;
     auto on_token = [&collected_reasoning](const std::string& /*content_delta*/,
-                                            const std::string& reasoning_delta) {
+                                           const std::string& reasoning_delta) {
         collected_reasoning += reasoning_delta;
     };
 
     std::vector<ChatMessage> messages = {ChatMessage::user("q")};
     auto loop = make_loop();
-    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel, nullptr, on_token);
+    auto result =
+        loop->run(messages, "", nlohmann::json::array(), should_cancel, nullptr, on_token);
 
     REQUIRE(collected_reasoning == "step1 step2");
 }
@@ -662,7 +669,8 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop invokes on_token for reasoning del
 // 无工具注册表
 // ============================================================================
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop works without registry (no tools)", "[react_loop][no_tools]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop works without registry (no tools)",
+                 "[react_loop][no_tools]") {
     auto reader = make_text_reader("plain answer");
 
     std::vector<ChatMessage> messages = {ChatMessage::user("q")};
@@ -703,19 +711,17 @@ struct PermissionHost {
     }
 };
 
-} // namespace
+}  // namespace
 
 TEST_CASE_METHOD(ReActLoopFixture,
-    "H-1 EnterPlanMode tool writeback lets Plan persist across turns (scenario B)",
-    "[react_loop][permission][45][h1]") {
+                 "H-1 EnterPlanMode tool writeback lets Plan persist across turns (scenario B)",
+                 "[react_loop][permission][45][h1]") {
     registry->register_tool(std::make_shared<EnterPlanModeTool>());
 
     PermissionHost host;
     auto loop = make_loop();
     loop->set_permission_state_changed_callback(
-        [&host](tool::PermissionMode m, tool::PermissionMode b, bool p) {
-            host.notify(m, b, p);
-        });
+        [&host](tool::PermissionMode m, tool::PermissionMode b, bool p) { host.notify(m, b, p); });
 
     // 第一轮：模型调用 EnterPlanMode → 工具经 on_enter_plan_mode 切 Plan 并回写宿主
     make_tool_call_reader("call_1", "EnterPlanMode", R"({"reason":"research"})");
@@ -738,21 +744,20 @@ TEST_CASE_METHOD(ReActLoopFixture,
 }
 
 TEST_CASE_METHOD(ReActLoopFixture,
-    "H-1 ExitPlanModeV2 approved writeback restores mode (scenario A)",
-    "[react_loop][permission][45][h1]") {
+                 "H-1 ExitPlanModeV2 approved writeback restores mode (scenario A)",
+                 "[react_loop][permission][45][h1]") {
     registry->register_tool(std::make_shared<ExitPlanModeV2Tool>());
 
     // MockEventBus：自动批准 ExitPlanModeV2 的 AskUser 确认
     agent::test::MockEventBus bus;
     bus.set_dispatch_enabled(true);
     bus.set_async_auto_flush(true);
-    bus.subscribe<AskUserRequestEvent>(
-        [](const AskUserRequestEvent& e) {
-            AskUserResult result;
-            result.submitted = true;
-            result.answers.emplace_back("permission", "Yes");
-            e.result_promise->set_value(result);
-        });
+    bus.subscribe<AskUserRequestEvent>([](const AskUserRequestEvent& e) {
+        AskUserResult result;
+        result.submitted = true;
+        result.answers.emplace_back("permission", "Yes");
+        e.result_promise->set_value(result);
+    });
 
     PermissionHost host;
     // 模拟 Shift+Tab 已切 Plan（ChatSession=Plan）+ 本轮注入
@@ -760,12 +765,9 @@ TEST_CASE_METHOD(ReActLoopFixture,
         provider.get(), registry, ReActLoop::Config{}, &ConfigManager::instance(),
         /*task_manager=*/nullptr, /*cwd=*/"", /*external_compactor=*/nullptr,
         /*event_bus=*/&bus);
-    loop->apply_permission_state(tool::PermissionMode::Plan,
-                                 tool::PermissionMode::Default, true);
+    loop->apply_permission_state(tool::PermissionMode::Plan, tool::PermissionMode::Default, true);
     loop->set_permission_state_changed_callback(
-        [&host](tool::PermissionMode m, tool::PermissionMode b, bool p) {
-            host.notify(m, b, p);
-        });
+        [&host](tool::PermissionMode m, tool::PermissionMode b, bool p) { host.notify(m, b, p); });
 
     // 第一轮：模型调用 ExitPlanModeV2（自动批准）→ on_exit_plan_mode 恢复原模式并回写宿主
     make_tool_call_reader("call_1", "ExitPlanModeV2", R"({"plan":"refactor x.cpp"})");

@@ -25,9 +25,9 @@ namespace {
 struct TempConfig {
     std::filesystem::path path;
     TempConfig() {
-        path = std::filesystem::temp_directory_path() /
-               ("workx_wizard_" + std::to_string(::rand()) + "_" +
-                std::to_string(::clock()) + ".json");
+        path =
+            std::filesystem::temp_directory_path() / ("workx_wizard_" + std::to_string(::rand()) +
+                                                      "_" + std::to_string(::clock()) + ".json");
     }
     ~TempConfig() {
         std::error_code ec;

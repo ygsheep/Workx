@@ -20,8 +20,8 @@
 #include <string>
 #include <vector>
 
-#include "agent/core/react_loop.h"        // IReActObserver / ReActResult / CacheAwareCompactor
-#include "agent/core/goal_verdict.h"      // AgentGoal
+#include "agent/core/react_loop.h"    // IReActObserver / ReActResult / CacheAwareCompactor
+#include "agent/core/goal_verdict.h"  // AgentGoal
 #include "agent/api/i_completion_provider.h"
 #include "agent/tool/registry.h"
 #include "core/events/event_bus.h"
@@ -31,10 +31,16 @@ namespace agent {
 // 前向声明（与 react_loop.h 一致，D-5：避免头文件强依赖）
 class IConfigManager;
 class ITaskManager;
-namespace skill { class TouchCollector; }
+namespace skill {
+class TouchCollector;
+}
 // #56 方案 C：命令注册表（子 Agent skill 预加载来源）
-namespace command { class CommandRegistry; }
-namespace mcp { class McpClientManager; }   // #56 方案 D：MCP 连接管理器
+namespace command {
+class CommandRegistry;
+}
+namespace mcp {
+class McpClientManager;
+}  // namespace mcp
 
 /// @brief GoalGuardedAgent 依赖注入（对齐 ReActLoop 构造参数，避免重复参数列表）
 /// @details ReActLoop 每轮由本 Agent 新建（Config{max_iterations=1}），故所有
@@ -59,7 +65,8 @@ struct GoalAgentDeps {
     tool::SessionMode session_mode{tool::SessionMode::Standard};
     /// 权限模式变更回调（空则不挂，宿主用来自查鼠标路径统一状态源）
     std::function<void(tool::PermissionMode /*mode*/, tool::PermissionMode /*before_plan*/,
-                       bool /*in_plan*/)> permission_state_changed_cb;
+                       bool /*in_plan*/)>
+        permission_state_changed_cb;
     /// 0.6.x：查询追踪器（可选）。非空时每轮 Verdict 结果写入 tracker 的
     /// 当前记录（verdict_history），供 QueryEngine→queryTracking 调用链溯源。
     class QueryTracker* tracker = nullptr;
@@ -89,10 +96,9 @@ struct ReActLoopFactory {
     /// @param deps    依赖（permission 三态与变更回调会注入到 loop）
     /// @param registry 工具注册表（角色 Agent 可传入过滤后的子 registry）
     /// @param cfg     循环配置（默认全量 max_iterations；GoalGuarded 用 max_iterations=1）
-    static std::unique_ptr<ReActLoop> make(
-        const GoalAgentDeps& deps,
-        std::shared_ptr<tool::ToolRegistry> registry,
-        ReActLoop::Config cfg);
+    static std::unique_ptr<ReActLoop> make(const GoalAgentDeps& deps,
+                                           std::shared_ptr<tool::ToolRegistry> registry,
+                                           ReActLoop::Config cfg);
 
     /// 单步 ReActLoop（GoalGuarded 每轮一次），等价 make(deps, deps.registry, {1})
     static std::unique_ptr<ReActLoop> make_one_step(const GoalAgentDeps& deps);
@@ -100,7 +106,7 @@ struct ReActLoopFactory {
 
 /// @brief 目标导向 Agent
 class WORKX_API GoalGuardedAgent {
-public:
+   public:
     explicit GoalGuardedAgent(GoalAgentDeps deps);
 
     /// @brief 以目标达成（或超限）为终止条件运行
@@ -112,16 +118,13 @@ public:
     /// @param goal_spec agent.goal 原文（AgentVerdictEvent 透传/展示用，可空）
     /// @param observer 事件观察者（可选）
     /// @return 结果（含 goal_status 与最终 final_answer）
-    ReActResult run(std::vector<ChatMessage>& messages,
-                    const std::string& system_prompt,
-                    const nlohmann::json& tools_schema,
-                    const std::atomic<bool>& should_cancel,
-                    const AgentGoal& goal,
-                    const std::string& goal_spec,
+    ReActResult run(std::vector<ChatMessage>& messages, const std::string& system_prompt,
+                    const nlohmann::json& tools_schema, const std::atomic<bool>& should_cancel,
+                    const AgentGoal& goal, const std::string& goal_spec,
                     IReActObserver* observer = nullptr);
 
-private:
+   private:
     GoalAgentDeps m_deps;
 };
 
-} // namespace agent
+}  // namespace agent
