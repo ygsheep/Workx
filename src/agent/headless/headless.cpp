@@ -9,6 +9,7 @@
 #include <chrono>
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <sstream>
 
@@ -99,68 +100,106 @@ nlohmann::json step_json(const ReActStep& s) {
 
 } // namespace
 
+/// @brief 解析 provider 配置并创建后端
+/// @details 先按 preset 创建；失败则回退到自定义 provider 条目（与 create_session 对齐）
+BackendCreateResult resolve_backend(IConfigManager& cfg, IEventBus& event_bus) {
+    const std::string provider = cfg.get_or<std::string>(keys::PROVIDER, "");
+    const ProviderPreset* preset = provider.empty() ? nullptr : find_preset(provider);
+    auto backend = create_backend(cfg, preset, event_bus);
+    if (backend.provider) return backend;
+
+    for (const auto& e : load_provider_configs(cfg)) {
+        if (e.id != provider && e.name != provider) continue;
+        auto entry_result = create_backend_for_entry(cfg, e, event_bus);
+        if (entry_result.provider) return entry_result;
+        break;
+    }
+    return backend;
+}
+
+/// @brief 构造 headless 专用的 ReActLoop
+/// @note 不注入 event_bus：AskUserTool 调用 ctx.event_bus() 抛错 → 自动拒绝提问，
+///       避免无人值守时阻塞等待应答超时。
+std::unique_ptr<ReActLoop> build_loop(IConfigManager& cfg,
+                                      ITaskManager& task_manager,
+                                      BackendCreateResult& backend,
+                                      std::shared_ptr<tool::ToolRegistry> tool_registry,
+                                      const std::string& session_id) {
+    ReActLoop::Config loop_config;
+    loop_config.max_iterations = cfg.get_or<int>(keys::AGENT_MAX_ITERATIONS, 40);
+
+    return std::make_unique<ReActLoop>(
+        backend.provider.get(),
+        tool_registry,
+        loop_config,
+        &cfg,
+        &task_manager,
+        std::filesystem::current_path().string(),
+        /*external_compactor=*/nullptr,
+        /*event_bus=*/nullptr,
+        /*touch_collector=*/nullptr,
+        /*file_index_invalidator=*/nullptr,
+        session_id);
+}
+
+/// @brief 按输出格式序列化 ReActResult
+/// @param streamed stream-json 模式下已累积的逐步输出，需在其后追加最终结果
+void render_output(const HeadlessOptions& opts, const ReActResult& react_result,
+                   const std::string& session_id, std::string streamed,
+                   std::string& out) {
+    if (opts.output_format == "json") {
+        out = result_json(react_result, session_id).dump(2) + "\n";
+    } else if (opts.output_format == "stream-json") {
+        out = std::move(streamed) + result_json(react_result, session_id).dump() + "\n";
+    } else {
+        out = result_text(react_result);
+        if (out.empty()) out = react_result.error_message;
+        out += "\n";
+    }
+}
+
+/// @brief 退出码语义：0 成功 / 1 任务失败或被中断
+int derive_exit_code(const ReActResult& r) {
+    return (r.was_error || r.was_interrupted) ? 1 : 0;
+}
+
+/// @brief 同步执行一轮 ReAct 循环
+/// @param streamed 输出参数：stream-json 模式下累积的逐步 NDJSON
+ReActResult execute_task(ReActLoop& loop, const std::string& task,
+                         const nlohmann::json& tools_schema,
+                         const std::string& sys_prompt,
+                         const std::string& output_format,
+                         std::string& streamed) {
+    std::vector<ChatMessage> messages;
+    messages.push_back(ChatMessage::user(task));
+    std::atomic<bool> should_cancel{false};
+
+    // 步骤回调：stream-json 模式需要逐 step 输出
+    ReActLoop::StepCallback on_step = nullptr;
+    if (output_format == "stream-json") {
+        on_step = [&streamed](const ReActStep& step) {
+            streamed += step_json(step).dump() + "\n";
+        };
+    }
+    return loop.run(messages, sys_prompt, tools_schema, should_cancel,
+                    std::move(on_step), /*on_token=*/nullptr);
+}
+
 HeadlessResult run_headless(IConfigManager& cfg,
                             ITaskManager& task_manager,
                             IEventBus& event_bus,
                             const HeadlessOptions& opts) {
     HeadlessResult result;
 
-    // ---- 1. 解析 provider → 创建后端 ----
-    const std::string provider = cfg.get_or<std::string>(keys::PROVIDER, "");
-    const ProviderPreset* preset = provider.empty() ? nullptr : find_preset(provider);
-    auto backend_result = create_backend(cfg, preset, event_bus);
-
-    // 兜底：自定义条目（无 preset 默认 URL）——与 create_session 对齐
-    if (!backend_result.provider) {
-        const std::string active = cfg.get_or<std::string>(keys::PROVIDER, "");
-        if (!active.empty()) {
-            for (const auto& e : load_provider_configs(cfg)) {
-                if (e.id == active || e.name == active) {
-                    auto entry_result = create_backend_for_entry(cfg, e, event_bus);
-                    if (entry_result.provider) backend_result = std::move(entry_result);
-                    break;
-                }
-            }
-        }
-    }
-
+    // ---- 1. 创建后端 ----
+    auto backend_result = resolve_backend(cfg, event_bus);
     if (backend_result.remote_url.empty() || !backend_result.provider) {
         result.exit_code = 2;  // 参数/配置错误
         result.output = "error: 无法创建后端（缺少 remote_url / provider 配置）\n";
         return result;
     }
 
-    // ---- 2. 注册内置工具 ----
-    auto tool_registry = std::make_shared<tool::ToolRegistry>();
-    // MCP：headless 下也尝试连接（与 create_session 一致；空 manager 则 MCP 工具返回"未连接"）
-    std::shared_ptr<mcp::McpClientManager> mcp_manager;
-    register_builtin_tools(*tool_registry, mcp_manager);
-
-    // ---- 3. 系统提示词 ----
-    const std::string user_prompt = cfg.get_or<std::string>(keys::SYSTEM_PROMPT, "");
-    const std::string sys_prompt = build_system_prompt(user_prompt, *tool_registry);
-
-    // ---- 4. 构造 ReActLoop（同步 run）----
-    std::string session_id = core::util::generate_uuid();
-    ReActLoop::Config loop_config;
-    loop_config.max_iterations = cfg.get_or<int>(keys::AGENT_MAX_ITERATIONS, 40);
-
-    std::string cwd = std::filesystem::current_path().string();
-
-    ReActLoop loop(backend_result.provider.get(),
-                   tool_registry,
-                   loop_config,
-                   &cfg,
-                   &task_manager,
-                   cwd,
-                   /*external_compactor=*/nullptr,
-                   /*event_bus=*/nullptr,   // #77 headless：不注入 event_bus，AskUserTool
-                                            // 调用 ctx.event_bus() 抛错 → 自动拒绝提问
-                   /*touch_collector=*/nullptr,
-                   /*file_index_invalidator=*/nullptr,
-                   session_id);
-
-    // 权限模式（headless 无人值守档）
+    // ---- 2. 权限模式（headless 无人值守档）----
     auto pm = parse_permission_mode(opts.permission_mode);
     if (!pm) {
         result.exit_code = 2;
@@ -168,57 +207,28 @@ HeadlessResult run_headless(IConfigManager& cfg,
                         "'（可选 default / accept-edits / bypass-permissions）\n";
         return result;
     }
-    loop.set_permission_mode(*pm);
 
-    // ---- 5. 组装消息 + tools_schema + 取消信号 ----
-    std::vector<ChatMessage> messages;
-    messages.push_back(ChatMessage::user(opts.task));
+    // ---- 3. 注册内置工具 + 系统提示词 ----
+    auto tool_registry = std::make_shared<tool::ToolRegistry>();
+    // MCP：headless 下也尝试连接（与 create_session 一致；空 manager 则 MCP 工具返回"未连接"）
+    std::shared_ptr<mcp::McpClientManager> mcp_manager;
+    register_builtin_tools(*tool_registry, mcp_manager);
 
-    nlohmann::json tools_schema = tool_registry->get_all_schemas();
-    std::atomic<bool> should_cancel{false};
+    const std::string user_prompt = cfg.get_or<std::string>(keys::SYSTEM_PROMPT, "");
+    const std::string sys_prompt = build_system_prompt(user_prompt, *tool_registry);
 
-    // 步骤回调：stream-json 模式需要逐 step 输出
-    ReActLoop::StepCallback on_step = nullptr;
-    if (opts.output_format == "stream-json") {
-        on_step = [&result](const ReActStep& step) {
-            result.output += step_json(step).dump() + "\n";
-        };
-    }
+    // ---- 4. 构造循环并执行 ----
+    const std::string session_id = core::util::generate_uuid();
+    auto loop = build_loop(cfg, task_manager, backend_result, tool_registry, session_id);
+    loop->set_permission_mode(*pm);
 
-    // ---- 6. 同步执行 ----
-    ReActResult react_result;
-    if (opts.output_format == "stream-json") {
-        react_result = loop.run(messages, sys_prompt, tools_schema, should_cancel,
-                                std::move(on_step), /*on_token=*/nullptr);
-    } else {
-        react_result = loop.run(messages, sys_prompt, tools_schema, should_cancel,
-                                /*on_step=*/nullptr, /*on_token=*/nullptr);
-    }
+    // ---- 5. 同步执行 + 输出 + 退出码 ----
+    std::string streamed;
+    auto react_result = execute_task(*loop, opts.task, tool_registry->get_all_schemas(),
+                                     sys_prompt, opts.output_format, streamed);
 
-    // ---- 7. 序列化输出 + 退出码 ----
-    if (opts.output_format == "json") {
-        result.output = result_json(react_result, session_id).dump(2) + "\n";
-    } else if (opts.output_format == "stream-json") {
-        // 已逐 step 累积在 result.output，末尾补最终结果一行
-        result.output += result_json(react_result, session_id).dump() + "\n";
-    } else {
-        // text
-        result.output = result_text(react_result);
-        if (result.output.empty()) {
-            result.output = react_result.error_message;
-        }
-        result.output += "\n";
-    }
-
-    // 退出码语义：0 成功 / 1 任务失败 / 3 预算中断
-    if (react_result.was_error) {
-        result.exit_code = 1;
-    } else if (react_result.was_interrupted) {
-        result.exit_code = 1;
-    } else {
-        result.exit_code = 0;
-    }
-
+    render_output(opts, react_result, session_id, std::move(streamed), result.output);
+    result.exit_code = derive_exit_code(react_result);
     return result;
 }
 
