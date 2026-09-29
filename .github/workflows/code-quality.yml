@@ -22,11 +22,14 @@ on:
 #   实际结果只会是团队关掉整个 workflow —— 比现状更糟。
 #
 # 因此采用分层策略：
-#   - 硬门禁（阻塞）：只针对本次 PR **新增**的 C++ 文件做复杂度检查。
+#   - 硬门禁（阻塞）：只针对本次 PR **新增**的 C++ 文件做复杂度与格式检查。
 #     新代码不允许继续欠债。
 #   - 软报告（不阻塞）：全量扫描，结果上传 artifact 供查看与逐步偿还技术债。
 #     用 continue-on-error 明确表达"报告性质"，而非 `|| true` 的静默假绿。
-#   - 待补充 .clang-format 并完成一次全量格式化后，format 可提升为硬门禁。
+#
+# 已补充 .clang-format（Google 风格 + IndentWidth 4 + ColumnLimit 100）。
+# 存量代码尚未全量格式化——实测会重排 ~438 个文件、约 2.6 万行，几乎是
+# 机械重写，代价远大于收益，故格式门禁同样只针对新增文件。
 # =============================================================================
 
 jobs:
@@ -47,8 +50,11 @@ jobs:
         id: list
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE="origin/${{ github.base_ref }}"
-            git fetch --no-tags --depth=1 origin "${{ github.base_ref }}" 2>/dev/null || true
+            # 用 PR 创建时的 base 提交，而非 fetch 到的最新 base 分支。
+            # 否则若 develop 在 PR 生命周期内推进，base 侧新增的高复杂度
+            # C++ 文件会被误算为本 PR 的"新增文件"，导致门禁误伤。
+            BASE="${{ github.event.pull_request.base.sha }}"
+            git fetch --no-tags origin "${{ github.event.pull_request.base.sha }}" 2>/dev/null || true
           else
             BASE="${{ github.event.before }}"
           fi
@@ -127,31 +133,59 @@ jobs:
           retention-days: 30
 
   # ---------------------------------------------------------------------------
-  # 格式检查（报告性质）
-  # 仓库尚无 .clang-format，clang-format 会回退默认 LLVM 风格，与现有代码
-  # 风格不符 → 全量检查必然大面积报错。故优先检查本次改动文件，结果仅作报告。
-  # 待补充 .clang-format 并全量格式化后，可将新增文件提升为硬门禁。
+  # 格式硬门禁（阻塞）：新增文件必须符合 .clang-format
+  # 仓库已补充 .clang-format（基于 Google 风格 + IndentWidth 4 + ColumnLimit 100，
+  # 匹配存量代码的 4 空格缩进）。存量代码尚未全量格式化（会引入 ~2.6 万行无关
+  # diff），故门禁只针对本次新增(A)文件，与 complexity-gate 对称：新代码不得欠债。
   # ---------------------------------------------------------------------------
-  format:
+  format-gate:
     runs-on: ubuntu-latest
     needs: changed-files
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: |
+          # 固定用 pip 的 18.x（apt 装的是系统版，会随 ubuntu 镜像漂移，
+          # 不同版本的尾注释对齐等行为不一致，导致本地/CI 判定分歧）。
+          pip3 install clang-format==18.1.8 --break-system-packages
+
+      - name: Check formatting of newly added files
+        run: |
+          FILES="${{ needs.changed-files.outputs.added }}"
+          if [ -z "$(echo "$FILES" | tr -d ' ')" ]; then
+            echo "本次变更没有新增 C++ 文件，跳过格式门禁"
+            exit 0
+          fi
+          echo "检查新增文件: $FILES"
+          # --dry-run --Werror 输出标准 diff（---/+++ 块）到 stdout，不符合时退出码非 0。
+          # 直接依赖退出码判定，不再统计 "warning:"（diff 不含该前缀，统计恒为 0）。
+          clang-format --dry-run --Werror $FILES
+          if [ $? -ne 0 ]; then
+            echo "::error::新增代码不符合 .clang-format，请运行 clang-format -i 后重新提交"
+            exit 1
+          fi
+          echo "新增代码格式达标"
+
+  # ---------------------------------------------------------------------------
+  # 格式报告（不阻塞）：全量扫描，量化存量格式债务
+  # 统计每个不符合文件的 +++ 头行数（diff 不含 "warning:" 前缀）。
+  # ---------------------------------------------------------------------------
+  format-report:
+    runs-on: ubuntu-latest
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
       - name: Install clang-format
-        run: sudo apt-get update && sudo apt-get install -y clang-format
+        run: pip3 install clang-format==18.1.8 --break-system-packages
 
-      - name: Check C++ formatting
+      - name: Full format scan
         run: |
-          FILES="${{ needs.changed-files.outputs.changed }}"
-          if [ -z "$(echo "$FILES" | tr -d ' ')" ]; then
-            FILES=$(find src lib tests -name '*.cpp' -o -name '*.h' | tr '\n' ' ')
-          fi
-          echo "检查文件: $FILES"
+          FILES=$(find src lib tests -name '*.cpp' -o -name '*.h' | tr '\n' ' ')
           clang-format --dry-run --Werror $FILES 2>&1 | tee format-report.txt || true
-          echo "=== 不符合格式提示数 ==="
-          grep -c "warning:" format-report.txt || echo 0
+          echo "=== 不符合格式的文件数 ==="
+          grep -c "^+++" format-report.txt || echo 0
 
       - name: Upload format report
         uses: actions/upload-artifact@v4
