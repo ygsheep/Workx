@@ -153,6 +153,26 @@ void register_config_defaults(ConfigManager& cfg) {
                          .type = ConfigSchema::Type::Int,
                          .int_range = std::make_pair<int64_t, int64_t>(1, 2000)});
 
+    // #79：子 Agent 派生护栏。防递归已由"子 Agent 工具集不含 Agent 工具"保证，
+    // 剩余风险是规模失控（一次传入上百个 tasks，或多轮累计派生），故设两级上限：
+    // 单次批量规模 + 单次 run 累计总量。超限时 AgentTool 整批拒绝并回灌可读错误，
+    // 由模型自行拆分/缩减/改为自己完成。0 或负 = 不限（不推荐）。
+    cfg.register_schema({.key = keys::AGENT_SUB_AGENT_MAX_BATCH,
+                         .description =
+                             "Max sub-agents launched by a single Agent tool call "
+                             "(0 = unlimited). Exceeding it rejects the whole batch with a "
+                             "model-readable error so the agent can split or shrink the work.",
+                         .default_value = 10,
+                         .type = ConfigSchema::Type::Int,
+                         .int_range = std::make_pair<int64_t, int64_t>(0, 1000)});
+    cfg.register_schema({.key = keys::AGENT_SUB_AGENT_MAX_TOTAL,
+                         .description =
+                             "Max sub-agents cumulatively launched within one ReAct run "
+                             "(0 = unlimited). Guards against unbounded fan-out across turns.",
+                         .default_value = 50,
+                         .type = ConfigSchema::Type::Int,
+                         .int_range = std::make_pair<int64_t, int64_t>(0, 10000)});
+
     // === Plan Mode V2（#54：五阶段多 Agent 规划流程）===
     cfg.register_schema({.key = keys::PLAN_AUTO,
                          .description =

@@ -43,6 +43,29 @@ std::string fmt_join_ids(const std::vector<std::string>& ids) {
 /// @brief 格式化任务数量描述（单复数："1 task" / "3 tasks"）
 std::string fmt_task_count(size_t n) { return std::format("{} {}", n, n == 1 ? "task" : "tasks"); }
 
+/// @brief #79：校验本次批量派生是否在预算内（超限则给出模型可读的拒绝原因）
+/// @details 两级护栏：单次批量规模（max_batch）与 run 累计总量（max_total）。
+///          成功时计数已扣除；失败时计数不变，返回非空原因交由 call() 作为工具错误
+///          回灌模型——保留模型自我纠正能力（拆分任务/缩减规模/自行完成）。
+/// @param budget run 级子 Agent 派生预算
+/// @param count 本次拟派生的子 Agent 数量
+/// @return 空串表示允许；非空为拒绝原因文案
+std::string check_sub_agent_budget(SubAgentBudget& budget, int count) {
+    SubAgentReject reject = SubAgentReject::None;
+    if (budget.try_reserve(count, reject)) return {};
+
+    if (reject == SubAgentReject::BatchLimit) {
+        return std::format(
+            "Agent: 单次派生的子 Agent 数量 {} 超过上限 {}。"
+            "请将任务拆分为更小的批次（每批不超过 {} 个）或减少并行数量后重试。",
+            count, budget.max_batch(), budget.max_batch());
+    }
+    return std::format(
+        "Agent: 本次运行累计派生的子 Agent 已达上限 {}（已派生 {}，剩余额度 {}），"
+        "无法再派生 {} 个。请自行完成剩余工作，或合并、精简子任务后重试。",
+        budget.max_total(), budget.launched(), budget.remaining(), count);
+}
+
 }  // namespace
 
 /// @brief 启动单个子 Agent 任务
@@ -380,6 +403,18 @@ ResultV2<ToolResult> AgentTool::call(const nlohmann::json& input, const ToolCont
     const tool::PermissionMode permission_mode = ctx.permission_mode;
     // #50：父循环 HookManager（子 Agent 作用域 SubagentStart/Stop 派发）
     std::shared_ptr<agent::hook::HookManager> hook_manager = ctx.hook_manager_ptr;
+
+    // #79：子 Agent 派生预算——单次批量规模 + run 累计总量。
+    //      防递归已堵死嵌套（子 Agent 不含 Agent 工具），剩余风险是规模失控：
+    //      一次传入上百个 tasks 或多轮累计派生。超限时整批拒绝并回灌可读错误，
+    //      由模型自行拆分/缩减/改为自己完成，而非静默截断导致结果不完整。
+    if (ctx.sub_agent_budget) {
+        const std::string reject_msg =
+            check_sub_agent_budget(*ctx.sub_agent_budget, static_cast<int>(specs.size()));
+        if (!reject_msg.empty()) {
+            return ResultV2<ToolResult>::err(Error::Code::InvalidInput, reject_msg);
+        }
+    }
 
     // 2. 并行启动所有子 Agent（各自独立 task_id，线程池并发执行）
     std::vector<std::shared_ptr<agent::Task>> tasks;

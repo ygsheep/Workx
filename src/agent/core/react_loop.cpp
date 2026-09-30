@@ -605,6 +605,17 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
     tool::ToolContext turn_env_probe;
     bool turn_git_probed = false;
 
+    // #79：run 级子 Agent 派生预算——跨本 run 内所有 AgentTool 调用累计计数。
+    //      防递归已堵死无限嵌套（子 Agent 拿不到 Agent 工具），故风险集中在"规模"：
+    //      单次批量数与全程累计数。每次 run() 独立计数，子 Agent 自身不携带 AgentTool
+    //      故无需向下传递。
+    const int sub_agent_max_batch =
+        m_config_manager->get_or<int>(agent::keys::AGENT_SUB_AGENT_MAX_BATCH, 10);
+    const int sub_agent_max_total =
+        m_config_manager->get_or<int>(agent::keys::AGENT_SUB_AGENT_MAX_TOTAL, 50);
+    auto run_sub_agent_budget =
+        std::make_shared<tool::SubAgentBudget>(sub_agent_max_batch, sub_agent_max_total);
+
     // 0.6.x：停滞检测 + 内部评审器。budget 为当前剩余预算（base 在"达上限评审→继续"时可追加）。
     // 用 while+budget 而非 for(m<=max) 表达，使"超限评审→追加预算"无需 goto 即可续跑同一循环体。
     int budget = std::max(1, m_config.max_iterations);
@@ -908,6 +919,8 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
         // #26：注入推理提供者 + 工具注册表（AgentTool 启动子 Agent 用）
         ctx.provider_ptr = m_provider;
         ctx.tool_registry = m_registry;
+        // #79：注入 run 级子 Agent 派生预算（AgentTool 派生前预约额度，超限则拒绝）
+        ctx.sub_agent_budget = run_sub_agent_budget;
         // #50：注入循环级 HookManager，工具线程可触发 PermissionRequest / Subagent* 事件
         ctx.hook_manager_ptr = m_config.hooks;
         // #56 方案 C：注入命令注册表（AgentTool 子 Agent skill 预加载；可选）
