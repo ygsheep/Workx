@@ -13,9 +13,13 @@
  *          - system_prompt：系统提示词快照（append-only，reason 区分 initial/changed/resume，
  *            含 hash 便于前端检测变更，调试会话轨迹用）
  *          - session_end：会话结束标记
+ *          - todo：待办清单快照（append-only，取最后一条）
+ *          - sub_agent：子 Agent 事件（progress/completed）
+ *          - skill：手动调用技能事件
+ *          - permission：权限模式快照（#87，append-only，取最后一条）
  *
  *          存储路径：~/.workx/projects/<编码路径>/<sessionId>.jsonl
- * @version 1.0.0
+ * @version 1.1.0
  * @date 2026-07
  */
 
@@ -79,6 +83,30 @@ void to_json(nlohmann::json& j, const SkillEvent& ev);
 
 /// @brief 从 JSON 反序列化（缺省字段用默认值）
 void from_json(const nlohmann::json& j, SkillEvent& ev);
+
+/// @brief 权限模式持久化事件（#87）
+/// @details append-only：每次模式变更追加一条，/resume 时取**最后一条**恢复。
+///
+///          修复前 PermissionMode / SessionMode 只存在于内存（ChatSession 与 ReActLoop 成员），
+///          resume 后一律重置为 Default —— 用户在 Plan 模式批准方案后中断会话再恢复，
+///          agent 会变成普通模式「可以写入和执行」，而用户以为还在只读阶段。
+///          这是安全边界的静默降级，比功能 bug 更危险。
+///
+///          枚举以**字符串**落盘（对齐 system_prompt.reason 的 initial/changed/resume 风格），
+///          读取时由调用方映射回枚举，映射失败即视为非法值。此处刻意不 include
+///          tool/context.h，避免持久化层依赖工具层。
+struct PermissionEvent {
+    std::string permission_mode;  ///< "default"/"accept-edits"/"plan"/"bypass-permissions"
+    std::string session_mode;     ///< "standard"/"plan"/"minimal"
+    std::string permission_mode_before_plan;  ///< 进入 Plan 前的模式（退出 Plan 时恢复用）
+    bool in_plan = false;                     ///< ReActLoop::m_in_plan_mode
+};
+
+/// @brief 序列化到 JSON（外层 type 恒为 "permission"）
+void to_json(nlohmann::json& j, const PermissionEvent& ev);
+
+/// @brief 从 JSON 反序列化（缺省字段用默认值）
+void from_json(const nlohmann::json& j, PermissionEvent& ev);
 
 /// @brief 会话元信息（用于列表展示）
 struct SessionMeta {
@@ -161,6 +189,12 @@ class WORKX_API SessionStore {
     /// @details append-only：按发生顺序逐条追加，/resume 重建转录区时按 query 匹配恢复。
     bool append_skill(const SkillEvent& ev);
 
+    /// @brief 追加权限模式事件（#87：PermissionMode / SessionMode 变更时调用）
+    /// @details append-only：每次变更追加一条，读取时取最后一条。
+    ///          只在**主会话**的模式变更出口写入；headless 与子 Agent 路径不做 resume，
+    ///          故不写入（写进去反而会让恢复时读到与当前上下文不符的模式）。
+    bool append_permission(const PermissionEvent& ev);
+
     // ============================================================
     // 静态工具方法
     // ============================================================
@@ -191,6 +225,10 @@ class WORKX_API SessionStore {
     /// @brief 从 JSONL 文件加载手动调用技能事件（按写入顺序）
     /// @return 技能事件列表（无则空）
     static std::vector<SkillEvent> load_skills(const std::string& file_path);
+
+    /// @brief 从 JSONL 文件加载权限模式（#87：取最后一条 permission 事件）
+    /// @return 无 permission 事件时返回 nullopt（调用方据此走 fail-safe）
+    static std::optional<PermissionEvent> load_permission(const std::string& file_path);
 
    private:
     std::string m_file_path;

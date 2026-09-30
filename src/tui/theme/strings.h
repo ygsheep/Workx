@@ -219,6 +219,11 @@ inline constexpr std::string_view kResumeFailedPrefix = "（会话切换失败�
 inline constexpr std::string_view kCloseParenNl = "）\n";
 inline constexpr std::string_view kProcessorUnavailable = "（命令处理器不可用）\n";
 inline constexpr std::string_view kResumedPrefix = "已恢复会话：**";
+// ---- #87：resume 后权限模式恢复提示（仅回退时提示，正常恢复静默）----
+inline constexpr std::string_view kPermRestoreNoRecord =
+    "⚠️ 该会话未记录权限模式，已回退为 **default**（写操作仍需确认）。\n";
+inline constexpr std::string_view kPermRestoreInvalid =
+    "⚠️ 该会话记录的权限模式无效，已从严回退为 **plan**（只读）。\n";
 inline constexpr std::string_view kRenameUsage = "用法：`/rename <新标题>`\n";
 inline constexpr std::string_view kRenamedPrefix = "会话标题已更新：**";
 inline constexpr std::string_view kMdBoldEnd = "**\n";

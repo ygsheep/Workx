@@ -311,6 +311,22 @@ class WORKX_API ChatSession {
     ///          线程安全（受 m_state_mutex 保护）。
     void toggle_session_mode();
 
+    /// @brief #87：resume 时权限模式的恢复结果
+    /// @details 由 switch_session 单点产出，TUI 只负责呈现——fail-safe 的三分支判定
+    ///          属于 agent 层语义，若 TUI 再判一遍必然出现两处逻辑漂移。
+    struct PermissionRestoreResult {
+        bool restored = false;  ///< 是否从会话记录成功恢复
+        /// @brief 未恢复的原因：""（已恢复）/ "no_record"（无 permission 事件）/
+        ///        "invalid_value"（事件值非法或映射失败）
+        std::string reason;
+        tool::PermissionMode mode{tool::PermissionMode::Default};  ///< 恢复/回退后的实际模式
+    };
+
+    /// @brief #87：获取最近一次 switch_session 的权限恢复结果（线程安全）
+    /// @details 供 TUI 在 resume 后决定是否提示用户。无人调用过 switch_session 时
+    ///          返回 restored=false 且 reason 为空（表示「无需提示」）。
+    PermissionRestoreResult last_permission_restore() const;
+
     /// @brief 是否正在生成
     bool is_generating() const { return m_generating.load(); }
 
@@ -496,6 +512,20 @@ class WORKX_API ChatSession {
     /// @return 非空表示需要锁外调用 persist_system_prompt 落盘
     std::string rebuild_system_prompt_locked();
 
+    /// @brief #87：把当前权限/工作模式三态追加为 permission 事件落盘
+    /// @details 必须在**持有 m_state_mutex** 时调用（名字后缀 _locked 即此约定）。
+    ///          无 SessionStore（未开会话 / 内存会话）时静默跳过——持久化是能力增强，
+    ///          不是主流程，不能因写盘失败影响模式切换本身。
+    void persist_permission_state_locked();
+
+    /// @brief #87：从 permission 事件恢复三态，并产出恢复结果（供 TUI 提示）
+    /// @details 必须在**持有 m_state_mutex** 时调用。fail-safe 策略（D5）：
+    ///          - 无事件（ev 为空）→ 保持 Default，reason="no_record"，**必须显式告知**
+    ///          - 值非法 → 回退 Plan（从严），reason="invalid_value"
+    ///          - 正常 → 恢复全部三态，restored=true
+    PermissionRestoreResult restore_permission_locked(
+        const std::optional<agent::session::PermissionEvent>& ev);
+
     std::unique_ptr<ICompletionProvider> m_provider;
     std::vector<ChatMessage> m_messages;
     std::string m_system_prompt;
@@ -512,6 +542,14 @@ class WORKX_API ChatSession {
 
     // 会话工作模式（标准 / 计划 / 极简），由 m_state_mutex 保护
     tool::SessionMode m_session_mode{tool::SessionMode::Standard};
+
+    /// @brief #87：是否在 Plan 模式中（ReActLoop::m_in_plan_mode 的会话级镜像）
+    /// @details 由 ReActLoop 回写（EnterPlanMode/ExitPlanMode 工具回调）与 set_session_mode
+    ///          维护，随 permission 事件一起持久化。
+    bool m_in_plan_mode{false};
+
+    /// @brief #87：最近一次 switch_session 的权限恢复结果（由 m_state_mutex 保护）
+    PermissionRestoreResult m_last_permission_restore;
     std::atomic<bool> m_generating{false};
 
     // DS_CACHE M-3：移除 m_cache_hit_total/m_cache_miss_total 死代码
