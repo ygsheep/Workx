@@ -65,6 +65,17 @@ WrappedCommand passthrough_cmd() {
     return w;
 }
 
+/// Windows 严格档：无 FS/网络后端（degraded），但带进程级隔离（#84 方案 B）
+WrappedCommand isolated_cmd() {
+    WrappedCommand w;
+    w.cmd = "cmd.exe";
+    w.was_wrapped = false;
+    w.degraded = true;
+    w.backend_name = "none";
+    w.isolation = process::ProcessIsolationSpec{};
+    return w;
+}
+
 /// @brief 临时审计文件 + 进度收集 fixture
 class VisibilityFixture {
    public:
@@ -208,6 +219,50 @@ TEST_CASE("沙箱真正生效时不写任何降级审计", "[sandbox_visibility]
     REQUIRE(fix.progress.size() == 2);
     REQUIRE(fix.events_of("security.sandbox_degraded").empty());
     REQUIRE(fix.events_of("security.sandbox_disabled").empty());
+}
+
+TEST_CASE("有进程级隔离时文案收窄为无 FS/网络隔离", "[sandbox_visibility][issue84]") {
+    // #84 方案 B 之后，Windows 严格档不再是"完全没有任何隔离"——
+    // 再这么说就与事实矛盾，会削弱这条安全提示的可信度。
+    const auto msg = sandbox_progress_message(SandboxState::Degraded, isolated_cmd());
+    REQUIRE(msg.rfind("Sandbox: degraded (backend: none)", 0) == 0);
+    REQUIRE(msg.find("no FS/network isolation") != std::string::npos);
+    REQUIRE(msg.find("job-object") != std::string::npos);
+    REQUIRE(msg.find("WITHOUT OS-level isolation") == std::string::npos);
+}
+
+// ============================================================
+// 上报器：进程级隔离结果（#84 方案 B）
+// ============================================================
+
+TEST_CASE("隔离施加失败时留痕且不吞并无后端那条降级审计", "[sandbox_visibility][issue84]") {
+    VisibilityFixture fix;
+    ToolContext ctx;
+    fix.fill_ctx(ctx);
+    SandboxVisibility vis;
+
+    vis.report(degraded_cmd(), false, "Bash", ctx);
+    vis.report_isolation(process::IsolationOutcome::Failed, "Bash", ctx);
+    vis.report_isolation(process::IsolationOutcome::Failed, "Bash", ctx);
+
+    // "无 FS/网络后端"与"job object 施加失败"是两件独立的事，各留一条、互不吞并
+    const auto events = fix.events_of("security.sandbox_degraded");
+    REQUIRE(events.size() == 2);
+    REQUIRE(events.back()["input"]["detail"].get<std::string>().find(
+                "reason=job_object_unavailable") != std::string::npos);
+}
+
+TEST_CASE("隔离成功或未请求时不产生任何告警", "[sandbox_visibility][issue84]") {
+    VisibilityFixture fix;
+    ToolContext ctx;
+    fix.fill_ctx(ctx);
+    SandboxVisibility vis;
+
+    vis.report_isolation(process::IsolationOutcome::Applied, "Bash", ctx);
+    vis.report_isolation(process::IsolationOutcome::NotApplicable, "Bash", ctx);
+
+    REQUIRE(fix.progress.empty());
+    REQUIRE(fix.events_of("security.sandbox_degraded").empty());
 }
 
 // ============================================================

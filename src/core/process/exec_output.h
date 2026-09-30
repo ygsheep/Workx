@@ -11,6 +11,8 @@
 
 #include <string>
 
+#include "core/process/process_isolation.h"
+
 namespace agent::process {
 
 /// @brief 外部命令执行结果
@@ -27,6 +29,11 @@ struct ExecOutput {
     bool cancelled = false;   ///< 是否因取消被终止
     bool stdout_truncated = false;  ///< stdout 是否因超过 max_output_bytes 被截断
     bool stderr_truncated = false;  ///< stderr 是否因超过 max_output_bytes 被截断
+
+    /// @brief 进程级隔离（Job Object）的应用结果（#84 方案 B）
+    /// @details 调用方要求了隔离（ExecOptions::isolation）却拿到 Failed 时，
+    ///          说明命令在没有进程树/资源约束的情况下裸跑，应当上报而不是静默。
+    IsolationOutcome isolation = IsolationOutcome::NotApplicable;
 
     /// @brief 是否成功执行（exit_code == 0 且未超时/取消）
     [[nodiscard]] bool is_success() const noexcept {

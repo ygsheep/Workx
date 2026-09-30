@@ -2,7 +2,7 @@
 
 > 代码基线：develop `edd2608` · 编写日期：2026-10-01
 > 标签：`bug` / `P1`
-> 状态：**方案 A 已落地**（PR1，实现与验证见 §2.A.6）；B/C 待排期
+> 状态：**方案 A / B 已落地**（PR1 见 §2.A.6、PR2 见 §2.B.6）；C 待排期
 
 ---
 
@@ -181,6 +181,87 @@ actual_backend=none reason=backend_unavailable`。这与 #88 那次"只存在于
 **风险**：父进程若已在某个 Job 内且系统为 Win7（不支持嵌套）→ `AssignProcessToJobObject` 失败，
 必须**降级并上报**（正好复用方案 A 的通道），不能静默失败。
 
+### B.6 实现记录（PR2）
+
+**接口落点**：新增 `src/core/process/process_isolation.h`
+
+```cpp
+struct ProcessIsolationSpec {
+    uint32_t max_processes = 0;
+    uint64_t max_process_memory_bytes = 0;
+    bool kill_tree_on_exit = true;
+};
+enum class IsolationOutcome { NotApplicable, Applied, Failed };
+```
+
+`ExecOptions::isolation`（输入）与 `ExecOutput::isolation`（结果）各挂一头，
+`WrappedCommand::isolation` 是两者之间的载体 —— 策略由 `SandboxAdapter` 派生，
+机制由 `process::exec()` 执行。
+
+落地形态与设计有四处偏差：
+
+1. **`SandboxConfig` 没有新增资源字段**，上限由 `SandboxAdapter::derive_isolation()`
+   按档位派生（`kRestrictiveMaxProcesses = 128`、`kRestrictiveMaxProcessMemoryBytes = 4 GiB`）。
+   理由：加字段会牵动 `restrictive()` / `permissive()` 工厂与既有 `[sandbox]` 用例；
+   而本 PR 的目标是"让 restrictive 在 Windows 上产生可观测差异"，参数化是独立需求。
+   上限**刻意宽松**：`JOB_OBJECT_LIMIT_ACTIVE_PROCESS` 超限是**派生被拒**（命令真的会失败），
+   取紧值会让正常的 `MSBuild -j` / `npm install` 崩掉，那比不做更糟。
+
+2. **POSIX 侧显式忽略 `isolation`**，而非"没实现所以不填"：`exec_posix` 已用
+   `setpgid + kill(-pid)`（#23 P1）覆盖进程树终止，重复施加没有意义。
+   `NotApplicable` 是这个事实的表达，有专门用例锁住。
+
+3. **降级上报分两条路**（`subprocess` 在 core 层，够不到 `agent::audit`）：
+   - 同步：`ExecOutput::isolation == Failed` → `SandboxVisibility::report_isolation()`
+     发一条进度警告 + 一条审计（`reason=job_object_unavailable`）。它与"无后端"那条
+     降级审计**各自独立去重、互不吞并** —— 二者是两件事（FS/网络策略缺席 vs
+     进程级约束施加失败）。
+   - 后台：lambda 可能比调用方存活更久，故不持有 `ctx`，改把警告写进**被持久化的
+     `stderr_text`**，之后查询该任务的任何人都看得到。
+
+4. **方案 A 的文案必须跟着收窄**：`command runs WITHOUT OS-level isolation` 在有
+   Job Object 时与事实不符。改为 `no FS/network isolation; process isolation: job-object
+   (...)`。这是必要的连带修改 —— 安全提示自相矛盾会直接削弱它的可信度。
+
+**验证**（`tests/unit/core/process/test_process_isolation.cpp`，标签
+`[process_isolation][issue84]`，11 用例 / 35 断言；`[sandbox_visibility]` 追加 3 条）：
+
+| 断言 | 覆盖 |
+|---|---|
+| `derive_isolation` 档位语义（restrictive 有值 / permissive 为 nullopt / 空规格不算约束） | 纯函数，跨平台 |
+| 宽松配置经 `wrap_command` 不带规格；未请求时 `isolation == NotApplicable` | 跨平台 |
+| POSIX 上请求了也保持 `NotApplicable`（进程组已接管） | POSIX |
+| Windows 严格档：`degraded=true` 且 `isolation` 非空 | Windows |
+| 请求隔离 → `Applied`，且命令输出完好 | Windows |
+| **超时后孙进程被杀**；**无 job 的对照组里孙进程存活**（证明差异真实存在） | Windows |
+| 超时连带终止不依赖 `KILL_ON_JOB_CLOSE`（专守 `terminate_child` 的 job 分支） | Windows |
+| 命令**正常结束**后孤儿孙进程仍被 `KILL_ON_JOB_CLOSE` 清理 | Windows |
+| `ActiveProcessLimit` 生效：4 次派生不可能全部成功 | Windows |
+| 进度文案在有 job 时收窄、审计留痕与"无后端"那条互不吞并 | 跨平台 |
+
+**变异测试 4 组，全部生效**：`TerminateJobObject → TerminateProcess` → 1 条失败；
+去掉 `KILL_ON_JOB_CLOSE` → 1 条失败；跳过 `AssignProcessToJobObject` → 4 条失败；
+不设 `ACTIVE_PROCESS` → 1 条失败。
+
+> 🔍 **过程中抓到一个假守卫**：探活最初用 `tasklist /FI "PID eq N"`，而该过滤表达式含
+> 引号 —— `escape_arg` 会把它转义成 `\"`，cmd.exe 解析失败后恒返回空输出，于是
+> "孙进程已死"的断言永远成立。是**对照组**（要求"无 job 时孙进程必须活着"）把它暴露
+> 出来的：换成 `OpenProcess` + `GetExitCodeProcess` 后才真正可用。
+> 再次印证：只测"应该消失"的一侧，很容易写出恒真的守卫。
+>
+> 同理，默认档下 `TerminateJobObject` 与 `KILL_ON_JOB_CLOSE` 效果重合，把它换成
+> `TerminateProcess` 一开始**无人察觉**（等价变异）。第 7 条用例用
+> `kill_tree_on_exit = false` 的规格把两者拆开，才守住这个分支。
+
+**本 PR 不做**：
+- 上限不可配置（见偏差 1）
+- 单进程内存上限没有自动化用例（需造一个稳定吃满内存的子进程，脆且慢）——
+  该标志位只由代码审查覆盖
+- `SandboxAdapter::is_enabled()` 在 Windows 上仍返回 `false`：它问的是"有没有
+  FS/网络后端"，答案仍然是没有。改它要同时改 §1.2 的两条既有用例，属独立议题
+- `exec_interactive()` 未接入 —— 它拉起的是 nvim 这类需要终端的外挂程序，
+  "进程树约束的收益"与"误杀用户编辑器"的风险不对称，需单独评估
+
 ### 方案 C — AppContainer：真正实现 restrictive（P2，需先 spike）
 
 1. `CreateAppContainerProfile` 建 profile → `STARTUPINFOEX` 传 `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES`。
@@ -205,11 +286,11 @@ actual_backend=none reason=backend_unavailable`。这与 #88 那次"只存在于
 
 ## 3. 修完后的档位语义（对齐用）
 
-| SandboxConfig | macOS | Linux | Windows 现状 | +A | +B | +C |
-|---|---|---|---|---|---|---|
-| `restrictive` | Seatbelt profile 强制 | bwrap 强制 | 直通，**无提示** | 直通 + **显式降级提示/审计** | + 进程/内存上限、杀全树 | FS deny + 断网 强制 |
-| `permissive` | 直通 | 直通 | 直通 | 直通 + `sandbox_disabled` 审计 | 同左 | 同左 |
-| `is_enabled()` | 探测 | 探测 | 恒 false，无调用方 | 入口提示当前平台能力 | 同左 | 恒 true |
+| SandboxConfig | macOS | Linux | Windows（A + B 已落地） | + C 之后 |
+|---|---|---|---|---|
+| `restrictive` | Seatbelt profile 强制 | bwrap 强制 | 无 FS/网络隔离，但有 **显式降级提示与审计** + Job Object 的进程数/内存上限与杀全树 | FS deny + 断网 强制 |
+| `permissive` | 直通 | 直通 | 直通 + `sandbox_disabled` 审计 | 同左 |
+| `is_enabled()` | 探测 | 探测 | 恒 false（它问的是 FS/网络后端，进程级约束不改变这个答案） | 恒 true |
 
 ---
 
@@ -223,8 +304,9 @@ issue 原验收「Windows 上以 restrictive 档执行 `写 C:\Windows\...` 或 
 | A | Windows 跑一条 restrictive 命令 → 进度输出出现 `Sandbox: degraded (backend: none)` | ✅ 用例可断言 `WrappedCommand` 语义 + 审计文件内容 |
 | A | 审计 jsonl 出现 `security.sandbox_degraded`，且只出现一次 | ✅ |
 | A | macOS/Linux 行为**不变**（既有 `[sandbox]` 用例全绿） | ✅ |
-| B | `cmd.exe /c <派生长命孙进程>` 超时后，孙进程不残留（`QueryInformationJobObject` ActiveProcesses == 0） | ⚠️ 需 Windows runner，当前 CI 无 |
-| B | `ActiveProcessLimit` 生效（超过上限的派生被拒） | ⚠️ 同上 |
+| B | 超时后孙进程不残留（`OpenProcess` + `GetExitCodeProcess` 探活，附"无 job 时存活"的对照组） | ✅ 已用例化（本机 Windows 取得证据）；CI 无 Windows runner |
+| B | 命令正常结束后孤儿孙进程被 `KILL_ON_JOB_CLOSE` 清理 | ✅ 同上 |
+| B | `ActiveProcessLimit` 生效（超过上限的派生被拒） | ✅ 同上 |
 | C | restrictive 下 socket 连接被拒（无 `internetClient`） | ⚠️ 同上 + 依赖 spike |
 | C | 写入 `deny_write` 前缀路径被拒 | ⚠️ 同上 |
 
@@ -240,7 +322,7 @@ issue 原验收「Windows 上以 restrictive 档执行 `写 C:\Windows\...` 或 
 | PR | 标题 | 内容 | 关联 |
 |---|---|---|---|
 | PR1 | `fix(#84): 沙箱降级状态可见化与审计留痕` | 方案 A（**已落地**） | `Refs #84` |
-| PR2 | `feat(#84): Windows Job Object 进程树隔离与资源上限` | 方案 B | `Refs #84` |
+| PR2 | `feat(#84): Windows Job Object 进程树隔离与资源上限` | 方案 B（**已落地**） | `Refs #84` |
 | Issue | `[安全] Windows AppContainer 沙箱后端（spike 先行）` | 方案 C 的 spike + 实现 | 新 issue |
 
 用 `Refs #84` 而非 `Closes`：单靠 PR1/PR2 无法关闭本 issue（C 未完成）。

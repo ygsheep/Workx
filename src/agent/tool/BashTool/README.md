@@ -167,6 +167,7 @@ execute_sync(command, cwd, timeout_ms, disable_sandbox, ctx)
     ▼
 5. 构建 ExecOptions
    ├─ cwd / args / timeout
+   ├─ isolation = wrapped.isolation   # #84 方案 B：进程级约束交给执行层
    └─ is_cancelled = [flag]() { flag->load(acquire); }   # 绑定 ctx.cancel_flag
     │
     ▼
@@ -175,17 +176,20 @@ execute_sync(command, cwd, timeout_ms, disable_sandbox, ctx)
    └─ 成功     → 继续
     │
     ▼
-7. format_result(out) + truncate_output(8000)
+7. 上报进程级隔离结果（#84 方案 B：仅 Failed 时告警 + 留痕，见 6.2）
     │
     ▼
-8. 上报完成状态
+8. format_result(out) + truncate_output(8000)
+    │
+    ▼
+9. 上报完成状态
    ├─ success   → "Command completed successfully"
    ├─ timed_out → "Command timed out"
    ├─ cancelled → "Command cancelled"
    └─ 非零退出  → "Command exited with code N"
     │
     ▼
-9. 返回 ToolResult::ok(formatted)
+10. 返回 ToolResult::ok(formatted)
 ```
 
 ### 5.3 execute_background 后台路径
@@ -206,8 +210,8 @@ execute_background(command, cwd, timeout_ms, disable_sandbox, ctx)
     ▼
 4. tm.launch(task_name, lambda, TaskType::Background)
    ├─ lambda 捕获 command/cwd/timeout_ms/wrapped
-   ├─ 内部构建 ExecOptions，is_cancelled 绑定 should_cancel
-   ├─ 调用 process::exec()（输出当前实现丢弃，后续迭代扩展）
+   ├─ 内部构建 ExecOptions（含 isolation），is_cancelled 绑定 should_cancel
+   ├─ 调用 process::exec()；隔离未能施加时把警告写进 stderr_text（后台拿不到 ctx）
    └─ TaskManager 通过 EventBus 发布 TaskCompletedEvent / TaskFailedEvent
     │
     ▼
@@ -241,14 +245,31 @@ constexpr const char* kShellFlag = "-c";
 
 默认启用 `SandboxConfig::restrictive(cwd)`：
 
-- 限制文件系统访问到 `cwd` 及必要临时目录
-- 限制网络访问（平台相关：Linux bwrap / macOS sandbox-exec / Windows Job Object）
+- 限制文件系统访问到 `cwd` 及必要临时目录（macOS Seatbelt / Linux bwrap）
+- 限制网络访问（同上；**Windows 做不到**，见下）
 - `dangerously_disable_sandbox=true` 切换为 `permissive()`，仅用于明确需要无限制访问的场景
 - 沙盒不可用时 `SandboxAdapter::wrap_command()` 自动降级（`wrapped.degraded=true`），仍执行命令但**如实上报**降级状态
 - #84：降级上报不再被 `was_wrapped` 门控 —— 同步与后台路径都会调用
   `SandboxVisibility::report()`，Windows 上不再出现"以为开了 restrictive、实际裸跑且零提示"
 - 审计留痕：`degraded` 写 `security.sandbox_degraded`，`dangerously_disable_sandbox` 写
   `security.sandbox_disabled`；两类各在工具实例内只写一次，避免逐条命令刷爆 `audit.jsonl`
+
+**Windows 上的真实语义（#84 方案 B）**：`degraded=true` 表示"没有 FS/网络隔离"，
+但**不等于完全没有约束**。`WrappedCommand::isolation` 会带上进程级规格，
+由 `process::exec()` 落为 Job Object：
+
+| 约束 | 机制 | 说明 |
+|------|------|------|
+| 进程树连带终止 | `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` + `TerminateJobObject` | 修掉 `TerminateProcess` 只杀直接子进程、`cmd.exe /c` 的孙进程残留成孤儿的缺陷 |
+| 进程数上限 | `JOB_OBJECT_LIMIT_ACTIVE_PROCESS` | 上限见 `sandbox_adapter.cpp` 的 `kRestrictiveMaxProcesses`，刻意宽松 |
+| 单进程内存上限 | `JOB_OBJECT_LIMIT_PROCESS_MEMORY` | 同上，防失控而非精确配额 |
+
+施加失败（如父进程已在 Job 内且系统不支持嵌套）时**不阻断命令**，但会：
+同步路径 → 一条进度警告 + 一条审计（`reason=job_object_unavailable`，实例内一次）；
+后台路径 → 把警告写进被持久化的 `stderr_text`（lambda 可能比调用方存活更久，不持有 ctx）。
+
+> ⚠️ Job Object **不具备**按路径拦 FS、按域名断网的能力。真正的 `restrictive` 强制
+> 需要 AppContainer（见 [sandbox/README.md](../../core/process/sandbox/README.md) 后续扩展）。
 
 ### 6.3 超时控制
 
@@ -260,6 +281,8 @@ constexpr const char* kShellFlag = "-c";
 - `timeout <= 0` 回退默认值
 - `timeout > 600000` 截断为 600000
 - 超时后 `process::exec()` 返回 `timed_out=true`，格式化为 `<error>Command timed out</error>`
+- Windows 上若进程级隔离生效，超时走 `TerminateJobObject` 连带终止整棵进程树；否则退回
+  `TerminateProcess`，只杀直接子进程（#84 方案 B）
 
 ### 6.4 取消机制
 
@@ -285,7 +308,8 @@ if (ctx.cancel_flag != nullptr) {
 | 时机 | 文本 |
 |------|------|
 | 同步执行开始 | `Executing: <command>` |
-| 沙盒状态 | `Sandbox: <active\|degraded\|disabled> (backend: <name>)`（#84：三态全部上报，degraded/disabled 附带 `command runs WITHOUT OS-level isolation`） |
+| 沙盒状态 | `Sandbox: <active\|degraded\|disabled> (backend: <name>)`（#84：三态全部上报；degraded/disabled 附带隔离说明 —— 无进程级隔离时为 `command runs WITHOUT OS-level isolation`，有 Job Object 时收窄为 `no FS/network isolation; process isolation: job-object (...)`） |
+| 进程级隔离未生效 | `Sandbox: process isolation UNAVAILABLE - job object not applied`（#84 方案 B，仅 Failed 时上报一次） |
 | 同步完成（成功） | `Command completed successfully` |
 | 同步完成（超时） | `Command timed out` |
 | 同步完成（取消） | `Command cancelled` |

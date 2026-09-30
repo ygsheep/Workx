@@ -372,6 +372,8 @@ ResultV2<ToolResult> BashTool::execute_sync(const std::string& command, const st
     process::ExecOptions opts;
     opts.cwd = cwd;
     opts.args = wrapped.args;
+    // #84 方案 B：把策略侧派生的进程级约束交给执行层（Windows 上落为 Job Object）
+    opts.isolation = wrapped.isolation;
     if (timeout_ms > 0) {
         opts.timeout = std::chrono::milliseconds(timeout_ms);
     }
@@ -391,6 +393,9 @@ ResultV2<ToolResult> BashTool::execute_sync(const std::string& command, const st
     }
 
     const auto& out = exec_result.value();
+    // #84 方案 B：进程级隔离到底有没有施加上，只有 exec 返回后才知道
+    sandbox_visibility_.report_isolation(out.isolation, name(), ctx);
+
     std::string formatted = format_result(out);
     formatted = truncate_output(std::move(formatted), kMaxOutputChars);
     // #36：输出脱敏，密钥内容替换为 [REDACTED:label]
@@ -447,6 +452,8 @@ ResultV2<ToolResult> BashTool::execute_background(const std::string& command,
             process::ExecOptions opts;
             opts.cwd = cwd;
             opts.args = wrapped.args;
+            // #84 方案 B：后台路径同样带上进程级约束（超时/取消时连带杀全树）
+            opts.isolation = wrapped.isolation;
             if (timeout_ms > 0) {
                 opts.timeout = std::chrono::milliseconds(timeout_ms);
             }
@@ -466,6 +473,14 @@ ResultV2<ToolResult> BashTool::execute_background(const std::string& command,
             //    非零退出/超时不视为 task 失败（命令执行了，只是结果非成功），符合 cc 行为
             //    任务被取消（#23 P3）：进程组已被销毁，输出无意义 → 清理注册表
             auto& out = exec_result.value();
+            if (out.isolation == process::IsolationOutcome::Failed) {
+                // #84 方案 B：后台路径拿不到 ctx（本 lambda 可能比调用方存活更久），
+                // 因此把降级事实写进被持久化的输出本身 —— 之后查询该任务的任何人都看得到，
+                // 不会像只发进度那样随上下文消失而静默丢失。
+                out.stderr_text =
+                    "[workx] process isolation unavailable: job object not applied\n" +
+                    out.stderr_text;
+            }
             if (out.cancelled) {
                 BashOutputRegistry::instance().remove(task_name);
             } else {
