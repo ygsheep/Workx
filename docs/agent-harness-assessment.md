@@ -112,7 +112,7 @@ Anthropic 的补充（工具设计五原则）：少而精（工具多了反而�
 | **P0-1** | 没有非交互 / headless 执行模式 | ✅ **已修**（#77，PR #90） | `src/agent/headless/headless.{h,cpp}`；CLI `-p/--print` + `--output-format`（`main.cpp:89-166`）；退出码 0/1/2 ⚠️ **零测试覆盖** |
 | **P0-2** | 无验证闭环门禁 | ✅ **P1 / P2 已落地**（#78，PR #98；issue 部分关闭） | ✅ **已接线**：`run_verification_gate()` 位于 `react_loop.cpp` 主循环（FinalAnswer 落地之前），验证未通过 → 回灌重试，达 `verify_max_attempts` 后带警告降级；headless 以 `enabled_by_default=true` 默认开启。13 条 `[issue78]` 用例全绿（含「回灌必须消耗预算」的死循环守卫）。<br>🔴 **原判「零实现」不成立**：`git grep -i "precompletion\|verification_gate" -- src` 零命中只能证明**没用 LangChain 的命名**——本仓等价能力叫 `goal_verdict.h`（`AgentGoal` / `GoalStatus`）、`verdict.h`（`check_goal` / `guard_command` / `parse_goal`）、`GoalGuardedAgent`（`agent_loop_adapters.cpp:33`）。<br>⚠️ **剩余缺口**：交互式仍默认关（P3）、命令自适应探测未做（P4）、内部评审器两条退出路径不经门禁、VF-08 未补 |
 | **P0-3** | 子 Agent 递归无上限 | ✅ **已修**（#79，PR #92） | `SubAgentBudget` 批量 + run 累计双护栏、atomic CAS；配置 `agent.sub_agent_max_batch/total` 📌 **复审修正**：递归深度其实已被结构性禁止（`agent_tool.cpp:80` `continue` 掉 `kAgentToolName`，深度恒为 1），真实缺口是横向规模 |
-| **P0-4** | JSON Schema 校验器是空壳 | ✅ **已修**（#80，PR #90） | `json_schema.{h,cpp}` 275 行；接入 `executor.h:223` 作 `validate_input` 后兜底 ⚠️ 现有 8 条用例只测纯函数，未测「执行侧接入」与「错误回灌自纠」 |
+| **P0-4** | JSON Schema 校验器是空壳 | ✅ **已修**（#80，PR #90） | `json_schema.{h,cpp}` 275 行；接入 `executor.h:223` 作 `validate_input` 后兜底 ⚠️ ~~现有 8 条用例只测纯函数，未测「执行侧接入」与「错误回灌自纠」~~ → **更正**：执行侧接入（JS-15）已由 `test_json_schema.cpp:160` 的 `[json_schema][executor]` 覆盖（第 8 条即执行侧集成用例，此前被漏看）；真缺口仅剩「错误回灌自纠」（JS-16） |
 | **P0-5** | 无 git checkpoint / 回滚 | ✅ **已修**（#81，PR #93） | `util/git_checkpoint.{h,cpp}`；`react_loop.cpp:622` 捕获基线、`chat_session.cpp:496` reset、headless 输出 `git_diff_summary`、TUI `/diff` + `/rollback --confirm`。只读安全网，不自动回滚 |
 
 #### P1 — 高分位差：直接对应分数
