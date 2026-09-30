@@ -2,7 +2,7 @@
  * @file i_stream_reader.h
  * @brief 流式读取器接口
  * @details IStreamReader 用于从后端增量读取流式响应
- * @version 1.0.0
+ * @version 1.1.0
  * @date 2026-07
  */
 
