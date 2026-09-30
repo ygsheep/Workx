@@ -153,6 +153,17 @@ detail 采用 `platform=… requested_level=… actual_backend=… reason=…` �
 | active → 不写任何降级审计 | 端到端 |
 | `BashTool::call()` 真跑 `echo` → 进度里出现 `Sandbox: ` | 工具集成 |
 
+**跨平台验证**：Windows 构建编不到 `sandbox_visibility.cpp` 的 `#if defined(__linux__)` 那一支
+（`platform_name()` 的三分支），故另在 WSL Ubuntu 24.04 + g++ 13.3 下用最小驱动单独编译验证：
+`-Wall -Wextra` 零告警，8 项断言全过，`detail=platform=linux requested_level=restrictive
+actual_backend=none reason=backend_unavailable`。这与 #88 那次"只存在于 POSIX 分支的 bug"
+是同一类风险 —— 本机 Windows 全绿不足以证明跨平台正确。
+
+**本 PR 不做**（留给 PR2 / 独立 issue）：
+- 未把 `Security*` 事件的 severity 细化（见上方遗留说明）
+- 未给"沙箱被关闭"加同样的**逐次**进度提示以外的行为约束 —— 本 PR 不改任何执行路径
+- 方案 B（Job Object）与方案 C（AppContainer）按 §5 的切分另行推进
+
 ### 方案 B — Job Object：资源上限 + 进程树连带终止（P1，约 2–3 人日）
 
 1. `WrappedCommand` 增 `std::optional<ProcessIsolationSpec> isolation`（平台中立描述：
