@@ -210,6 +210,9 @@ target_sources(workx_agent PRIVATE
     # util: JSON Schema 轻量校验（#80）
     util/json_schema.cpp
 
+    # util: git 基线检查点（#81）
+    util/git_checkpoint.cpp
+
     # headless: 非交互执行模式（#77）
     headless/headless.cpp
 )

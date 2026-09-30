@@ -17,6 +17,7 @@
 #include "agent/config/app_config.h"
 #include "agent/core/react_loop.h"
 #include "agent/factory.h"
+#include "agent/util/git_checkpoint.h"  // #81：git 基线检查点（收尾改动清单）
 #include "agent/model/provider_config.h"  // load_provider_configs
 #include "agent/model/provider_preset.h"
 #include "agent/tool/context.h"
@@ -49,6 +50,16 @@ std::string result_text(const ReActResult& r) {
     return "";
 }
 
+/// @brief #81：本次运行相对基线 commit 的改动摘要（非仓库或无改动时为空串）
+/// @details 无人值守场景下回答"agent 到底改了什么"，供调用方归档与 review。
+std::string git_diff_summary_text() {
+    auto& checkpoint = util::GitCheckpoint::instance();
+    if (!checkpoint.info().valid) return {};
+    const auto summary = checkpoint.diff_since_base();
+    if (summary.files.empty()) return {};
+    return util::GitCheckpoint::format_summary(summary);
+}
+
 /// @brief 序列化 ReActResult 为 json 输出（最终消息 + 统计）
 nlohmann::json result_json(const ReActResult& r, const std::string& session_id) {
     nlohmann::json usage = {
@@ -65,6 +76,12 @@ nlohmann::json result_json(const ReActResult& r, const std::string& session_id) 
         {"was_interrupted", r.was_interrupted},
         {"error_message", r.error_message},
     };
+    // #81：收尾报告——本次运行相对基线 commit 的改动清单。
+    //      非 git 仓库或无改动时不写入该字段，保持输出精简。
+    const std::string diff_text = git_diff_summary_text();
+    if (!diff_text.empty()) {
+        j["git_diff_summary"] = diff_text;
+    }
     return j;
 }
 
@@ -150,6 +167,11 @@ void render_output(const HeadlessOptions& opts, const ReActResult& react_result,
         out = result_text(react_result);
         if (out.empty()) out = react_result.error_message;
         out += "\n";
+        // #81：文本模式同样附改动清单（无人值守时无法事后追问"改了什么"）
+        const std::string diff_text = git_diff_summary_text();
+        if (!diff_text.empty()) {
+            out += "\n--- 改动清单 ---\n" + diff_text;
+        }
     }
 }
 

@@ -181,6 +181,11 @@ class ContextCaptureTool : public ITool {
 
 class CooperativeSlowTool : public ITool {
    public:
+    /// @brief 工具是否已被真正调用（供测试等待"进入执行"再触发取消）
+    /// @details 取消时机不能再用固定 sleep：run 启动阶段含 git 基线捕获（#81），
+    ///          耗时随机器/仓库大小变化，固定窗口会让取消落在工具执行之前。
+    bool started() const { return started_.load(); }
+
     const std::string& name() const override {
         static const std::string n = "Slow";
         return n;
@@ -197,6 +202,7 @@ class CooperativeSlowTool : public ITool {
         return {{"type", "object"}, {"properties", {}}};
     }
     ResultV2<ToolResult> call(const nlohmann::json&, const ToolContext& ctx) const override {
+        started_.store(true);
         // 协作式取消：每 50ms 轮询一次；无取消则 1s 后正常完成
         constexpr int kTicks = 20;
         for (int i = 0; i < kTicks; ++i) {
@@ -207,6 +213,9 @@ class CooperativeSlowTool : public ITool {
         }
         return ResultV2<ToolResult>::ok(ToolResult::ok(std::string("slow done")));
     }
+
+   private:
+    mutable std::atomic<bool> started_{false};
 };
 
 // ============================================================
@@ -513,9 +522,11 @@ TEST_CASE_METHOD(ReActLoopFixture,
     std::vector<ChatMessage> messages = {ChatMessage::user("slow tool")};
     auto loop = make_loop();
 
-    // 模拟工具执行中途用户打断
-    std::thread canceler([&should_cancel = this->should_cancel]() {
-        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    // 模拟工具执行中途用户打断：等工具真正开始执行后再置位（不依赖 run 启动耗时）
+    std::thread canceler([&should_cancel = this->should_cancel, &slow_tool]() {
+        for (int i = 0; i < 400 && !slow_tool->started(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));  // 最多等 2s
+        }
         should_cancel = true;
     });
     auto result = loop->run(messages, "", registry->get_all_schemas(), should_cancel);

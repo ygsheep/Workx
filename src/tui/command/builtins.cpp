@@ -7,10 +7,12 @@
 
 #include "command/builtins.h"
 
+#include <sstream>
 #include <string>
 
 #include "agent/command/inclaude/command.h"
 #include "agent/command/inclaude/types.h"
+#include "agent/util/git_checkpoint.h"  // #81：/diff 与 /rollback
 #include "theme/strings.h"
 
 namespace ftxtui {
@@ -158,6 +160,60 @@ void register_ftx_builtins(CommandRegistry& registry, const FtuiCommandCallbacks
         return CommandResult::ok("");
     });
     registry.register_command(test_askuser_cmd);
+
+    // === #81：git 检查点（只读清单 + 人工回滚）===
+    // 均不注册为工具，模型无法自主触发——回滚是不可逆操作，只能由用户发起。
+    auto diff_cmd = agent::command::make_local_command("diff", std::string(str::kCmdDiffDesc));
+    diff_cmd->set_argument_hint("/diff");
+    diff_cmd->set_call([](const std::string&, const CommandContext&) -> CommandResult {
+        auto& checkpoint = agent::util::GitCheckpoint::instance();
+        if (!checkpoint.info().valid) {
+            return CommandResult::ok("当前不在 git 仓库内，无基线可比较。");
+        }
+        const auto summary = checkpoint.diff_since_base();
+        return CommandResult::ok(agent::util::GitCheckpoint::format_summary(summary));
+    });
+    registry.register_command(diff_cmd);
+
+    auto rollback_cmd =
+        agent::command::make_local_command("rollback", std::string(str::kCmdRollbackDesc));
+    rollback_cmd->set_argument_hint("/rollback [--confirm]");
+    rollback_cmd->set_call([](const std::string& args, const CommandContext&) -> CommandResult {
+        auto& checkpoint = agent::util::GitCheckpoint::instance();
+        if (!checkpoint.info().valid) {
+            return CommandResult::ok("当前不在 git 仓库内，无法回滚。");
+        }
+        const auto summary = checkpoint.diff_since_base();
+        if (summary.files.empty()) {
+            return CommandResult::ok("无改动可回滚。");
+        }
+
+        // 未带 --confirm：只预览，不执行（回滚不可逆，必须显式确认）
+        // 只认首个 token 精确等于 --confirm：子串匹配会让 "--not-confirm-at-all" 误触发回滚。
+        std::istringstream arg_stream(args);
+        std::string first_arg;
+        arg_stream >> first_arg;
+        if (first_arg != "--confirm") {
+            std::string out = std::string(str::kRollbackPreviewHeader) +
+                              agent::util::GitCheckpoint::short_sha(summary.base_commit) + "\n";
+            for (const auto& f : summary.files) {
+                if (f.status == "?" || f.status == "A") continue;  // 不删除新增文件
+                out += "  " + f.status + "  " + f.path + "\n";
+            }
+            out += std::string(str::kRollbackConfirmHint);
+            return CommandResult::ok(std::move(out));
+        }
+
+        std::vector<std::string> skipped;
+        const int done = checkpoint.rollback_tracked(summary, skipped);
+        std::string out = std::string(str::kRollbackDonePrefix) + std::to_string(done) + " 个文件";
+        if (!skipped.empty()) {
+            out += std::string(str::kRollbackSkippedHint);
+            for (const auto& p : skipped) out += "  " + p + "\n";
+        }
+        return CommandResult::ok(std::move(out));
+    });
+    registry.register_command(rollback_cmd);
 }
 
 }  // namespace ftxtui
