@@ -13,6 +13,7 @@
 #include "agent/config/app_config.h"     // #30：agent::keys::MODEL_NAME
 #include "agent/hook/hook_manager.h"     // Issue #50：通用 Hook 事件系统
 #include "agent/skill/inclaude/conditional.h"
+#include "agent/util/git_checkpoint.h"     // #81：git 基线检查点
 #include "core/process/subprocess.h"       // #30：git 环境探测
 #include "core/utils/uuid.h"               // #30：每次 turn 生成 request_id
 #include "core/config/i_config_manager.h"  // #30：读取 backend.model_name
@@ -604,6 +605,10 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
     // git 探测结果（首次用到工具时懒加载；非仓库时保持默认值）
     tool::ToolContext turn_env_probe;
     bool turn_git_probed = false;
+
+    // #81：捕获 git 基线 commit（幂等，会话内只记一次），用于收尾回答"改了什么"。
+    //      纯只读（rev-parse / status），非仓库时静默跳过，不阻断 run。
+    util::GitCheckpoint::instance().capture(m_cwd);
 
     // 0.6.x：停滞检测 + 内部评审器。budget 为当前剩余预算（base 在"达上限评审→继续"时可追加）。
     // 用 while+budget 而非 for(m<=max) 表达，使"超限评审→追加预算"无需 goto 即可续跑同一循环体。

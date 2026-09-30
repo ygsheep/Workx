@@ -250,6 +250,14 @@ inline constexpr std::string_view kCmdProviderDesc = "切换供应商";
 inline constexpr std::string_view kCmdResumeDesc = "恢复历史会话";
 inline constexpr std::string_view kCmdRenameDesc = "重命名会话";
 inline constexpr std::string_view kCmdTestAskUserDesc = "测试 AskUser 提问弹窗（/Test: 测试命令）";
+// #81：git 检查点（只读清单 + 人工回滚）
+inline constexpr std::string_view kCmdDiffDesc = "显示本次会话改动的文件清单（#81）";
+inline constexpr std::string_view kCmdRollbackDesc = "回滚改动到会话开始的基线（#81，需 --confirm）";
+inline constexpr std::string_view kRollbackPreviewHeader = "预览：将回滚以下已跟踪文件到基线 ";
+inline constexpr std::string_view kRollbackConfirmHint = "\n确认执行：`/rollback --confirm`\n";
+inline constexpr std::string_view kRollbackSkippedHint =
+    "\n以下文件未回滚（新增/未跟踪文件不自动删除，请人工确认后处理）：\n";
+inline constexpr std::string_view kRollbackDonePrefix = "已回滚 ";
 
 // ---- AskUser 测试命令回显 ----
 inline constexpr std::string_view kTestAskUserPrefix = "[Test:askuser] 返回值\n";
