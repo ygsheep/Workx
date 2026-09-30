@@ -1,8 +1,8 @@
-# Issue #86 + #87 实现方案（待审核，未动代码）
+# Issue #86 + #87 实现方案
 
-> 状态：**待审核**。本文不含任何代码改动，审核通过后进入开发。
+> 状态：**已实现**（代码已落地并提交审查，PR #94）。本文保留为设计决策记录，不再是待审核方案。
 > 基线：`develop` @ `b2d41ca`（已含 PR #92 子Agent护栏 / PR #93 git检查点）
-> 分支：`fix/issue-86-87-silent-state-loss` —— **已创建并已切换过去**（见 §7）
+> 分支：`fix/issue-86-87-silent-state-loss` —— 2 个提交：`9cdd167`（#86）/ `1fb4b27`（#87）
 
 ---
 
@@ -299,7 +299,7 @@ git checkout -b fix/issue-86-87-silent-state-loss
 1. `context.h` 因 #92 增加 75 行（新增 `SubAgentBudget`），行号已重新校准，语义不变。
 2. `switch_session` 因 #93 新增步骤 5（`GitCheckpoint::reset()`），权限恢复顺延为步骤 6 —— 见 R8。
 
-**进入开发前无需再 rebase**：#81 已落地，本分支即基于其合并后的 develop。
+**开发期间无需 rebase**：#81 已落地，本分支即基于其合并后的 develop。
 
 ---
 
@@ -309,7 +309,7 @@ git checkout -b fix/issue-86-87-silent-state-loss
 
 | 组 | Issue | 备注 |
 |---|---|---|
-| 可靠性 | `#89` | **有前置缺陷**：`react_loop.cpp:696` 把 HTTP 状态码吞成固定串 `"Stream error during Thought phase"`，导致 `compute_retry`（`chat_session.cpp:1519`）里 `is_retryable(0, msg)` 恒 true——4xx 也在重试。不先打通错误传递链，fallback 触发条件无从判定。且依赖仍是 OPEN 的 `#55`（预算，P2） |
+| 可靠性 | `#89` | **前置缺陷已修复**（PR #95）：`http_client` → `SSEStreamReader` → `IStreamReader` 错误通道 → `ThoughtResult`/`ReActResult.http_status` → `compute_retry` 已端到端打通，4xx 不再被误判为可重试。降级主体（`fallback_models` 配置 + backend 切换 + 降级审计）待做。另依赖仍是 OPEN 的 `#55`（预算，P2） |
 | 上下文/编排 | `#82` `#83` | 同属 prompt 层注入，改 `factory.cpp:452-491`（环境段）与 `react_loop.cpp:1059`（tool_result 回注） |
 | 安全 | `#84` `#85` `#88` | `#84` Windows 沙箱涉及平台原生代码（Job Object / AppContainer / 仅暴露 degraded 三档成本相差一个数量级）；`#88` 需评估是否引入系统凭据存储（当前 vcpkg 无任何相关依赖） |
 | 子 Agent | `#52` | **描述已大面积过时**：`TaskStopTool`/`TaskOutputTool` 已注册、`run_in_background` 默认已为 true。真正缺的只剩 fork 复用父 prompt（`agent_tool.cpp:131` 每次重建，父 system prompt 根本不下发）、trace_id/depth（`AuditEvent::trace_id` 字段存在但**全仓零写入点**）、SendMessage 队列 |
