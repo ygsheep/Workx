@@ -96,6 +96,12 @@ TEST_CASE("GitCheckpoint format_summary renders empty and non-empty results", "[
     REQUIRE(text.find("+10") != std::string::npos);
 }
 
+TEST_CASE("GitCheckpoint short_sha truncates only full hashes", "[git_checkpoint]") {
+    REQUIRE(GitCheckpoint::short_sha("abcdefghijklmnopqrstuvwxyz") == "abcdefg");
+    REQUIRE(GitCheckpoint::short_sha("abc") == "abc");  // 已短于阈值：原样返回
+    REQUIRE(GitCheckpoint::short_sha("") == "");
+}
+
 TEST_CASE("GitCheckpoint reset clears captured info", "[git_checkpoint]") {
     GitCheckpoint::instance().reset();
     REQUIRE_FALSE(GitCheckpoint::instance().info().valid);
@@ -112,7 +118,8 @@ TEST_CASE("GitCheckpoint captures base commit and lists later changes", "[git_ch
     GitCheckpoint::instance().reset();
     REQUIRE(GitCheckpoint::instance().capture(repo.dir.string()));
     REQUIRE(GitCheckpoint::instance().info().valid);
-    REQUIRE_FALSE(GitCheckpoint::instance().info().base_commit.empty());
+    // 存完整 sha（40 位 sha-1 / 64 位 sha-256），避免大仓库短 sha 歧义
+    REQUIRE(GitCheckpoint::instance().info().base_commit.size() >= 40);
     // 提交后工作区干净
     REQUIRE(GitCheckpoint::instance().info().clean_at_capture);
 
@@ -141,6 +148,45 @@ TEST_CASE("GitCheckpoint captures base commit and lists later changes", "[git_ch
     REQUIRE(skipped.front() == "b.txt");
     REQUIRE(read_file(repo.dir / "a.txt") == "line1\n");
     REQUIRE(read_file(repo.dir / "b.txt") == "new\n");  // 未跟踪文件保持原样
+
+    GitCheckpoint::instance().reset();
+}
+
+TEST_CASE("GitCheckpoint recaptures when the working directory changes", "[git_checkpoint]") {
+    TempRepo repo_a;
+    TempRepo repo_b;
+    if (!repo_a.ready || !repo_b.ready) {
+        SKIP("git 不可用，跳过临时仓库用例");
+    }
+
+    GitCheckpoint::instance().reset();
+    REQUIRE(GitCheckpoint::instance().capture(repo_a.dir.string()));
+    REQUIRE(GitCheckpoint::instance().capture(repo_b.dir.string()));
+    REQUIRE(GitCheckpoint::instance().info().valid);
+    // 目录变了必须重捕获：否则会拿 A 仓库的 base commit 去 diff / 回滚 B 仓库
+    REQUIRE(fs::weakly_canonical(GitCheckpoint::instance().info().repo_root) ==
+            fs::weakly_canonical(repo_b.dir));
+
+    GitCheckpoint::instance().reset();
+}
+
+TEST_CASE("GitCheckpoint reports renamed files with their new path", "[git_checkpoint]") {
+    TempRepo repo;
+    if (!repo.ready) {
+        SKIP("git 不可用，跳过临时仓库用例");
+    }
+
+    GitCheckpoint::instance().reset();
+    REQUIRE(GitCheckpoint::instance().capture(repo.dir.string()));
+    REQUIRE(git_run(repo.dir, {"mv", "a.txt", "c.txt"}));
+
+    const auto summary = GitCheckpoint::instance().diff_since_base();
+    bool saw_rename = false;
+    for (const auto& f : summary.files) {
+        // name-status 输出 "R100\told\tnew"，numstat 输出 "old => new"：统一取新路径
+        if (f.path == "c.txt" && (f.status == "R" || f.status == "M")) saw_rename = true;
+    }
+    REQUIRE(saw_rename);
 
     GitCheckpoint::instance().reset();
 }

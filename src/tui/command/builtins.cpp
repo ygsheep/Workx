@@ -7,6 +7,7 @@
 
 #include "command/builtins.h"
 
+#include <sstream>
 #include <string>
 
 #include "agent/command/inclaude/command.h"
@@ -188,8 +189,13 @@ void register_ftx_builtins(CommandRegistry& registry, const FtuiCommandCallbacks
         }
 
         // 未带 --confirm：只预览，不执行（回滚不可逆，必须显式确认）
-        if (args.find("--confirm") == std::string::npos) {
-            std::string out = std::string(str::kRollbackPreviewHeader) + summary.base_commit + "\n";
+        // 只认首个 token 精确等于 --confirm：子串匹配会让 "--not-confirm-at-all" 误触发回滚。
+        std::istringstream arg_stream(args);
+        std::string first_arg;
+        arg_stream >> first_arg;
+        if (first_arg != "--confirm") {
+            std::string out = std::string(str::kRollbackPreviewHeader) +
+                              agent::util::GitCheckpoint::short_sha(summary.base_commit) + "\n";
             for (const auto& f : summary.files) {
                 if (f.status == "?" || f.status == "A") continue;  // 不删除新增文件
                 out += "  " + f.status + "  " + f.path + "\n";

@@ -23,8 +23,9 @@
 #include "agent/mcp/mcp_client_manager.h"  // #56 方案 D：MCP 连接管理器成员
 #include "agent/config/app_config.h"
 #include "agent/tool/AgentTool/agent_tool.h"  // #54：SubAgentLaunchOptions / launch_sub_agent（explore 并行）
-#include "agent/hook/hook_manager.h"   // #50 通用 Hook 事件系统：会话级 SessionStart/End
-#include "agent/audit/audit_logger.h"  // 会话生命周期审计
+#include "agent/hook/hook_manager.h"    // #50 通用 Hook 事件系统：会话级 SessionStart/End
+#include "agent/audit/audit_logger.h"   // 会话生命周期审计
+#include "agent/util/git_checkpoint.h"  // #81：切会话时重置 git 检查点基线
 #include "core/task/task_manager.h"
 #include "core/config/config_manager.h"
 #include "core/utils/uuid.h"  // 项目会话恢复：UUID 生成
@@ -489,6 +490,10 @@ bool ChatSession::switch_session(
         // 4. 重置压缩器和前缀形状基线（新会话上下文从零开始）
         m_compactor.reset();
         m_last_prefix_shape = PrefixShape{};
+
+        // 5. #81：丢弃旧会话的 git 检查点基线（新会话下次 run 重新捕获）
+        //    否则 /diff、/rollback 会沿用上一会话目录的 base commit，回滚到错误仓库。
+        util::GitCheckpoint::instance().reset();
     }  // 释放 m_state_mutex
 
     // #24：恢复该会话待办清单（发布事件刷新 UI）+ 接线持久化回调。

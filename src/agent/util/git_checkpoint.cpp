@@ -83,6 +83,24 @@ int to_int_or_zero(const std::string& s) {
     }
 }
 
+/// @brief 取 name-status 行的状态列与路径列
+/// @details 普通行为 "<status>\t<path>"；重命名行为 "R100\t<old>\t<new>"，
+///          此时路径取**新路径**（回滚与展示都以当前文件名为准）。
+bool parse_name_status(const std::string& line, std::string& status, std::string& path) {
+    const size_t t1 = line.find('\t');
+    if (t1 == std::string::npos) return false;
+    status = line.substr(0, t1);
+    const size_t t2 = line.find('\t', t1 + 1);
+    if (status[0] == 'R' || status[0] == 'C') {
+        if (t2 == std::string::npos) return false;
+        path = line.substr(t2 + 1);
+        status = std::string(1, status[0]);  // R100 → R，展示统一
+        return true;
+    }
+    path = line.substr(t1 + 1);
+    return !path.empty();
+}
+
 }  // namespace
 
 GitCheckpoint& GitCheckpoint::instance() {
@@ -91,11 +109,24 @@ GitCheckpoint& GitCheckpoint::instance() {
 }
 
 bool GitCheckpoint::capture(const std::string& cwd) {
-    if (info_.valid) return true;  // 幂等：会话内只捕获一次
-    if (git_stdout(cwd, {"rev-parse", "--is-inside-work-tree"}) != "true") return false;
+    std::lock_guard<std::mutex> lock(mtx_);
+    if (info_.valid) {
+        if (cwd_ == cwd) return true;  // 同目录：会话内只捕获一次
+        // 换了目录：旧基线属于别的仓库，必须重捕获（否则 diff/回滚会作用于错误仓库）。
+        // 这里内联清空而非调用 reset()：mtx_ 非递归，二次加锁会死锁。
+        info_ = GitCheckpointInfo{};
+        cwd_.clear();
+    }
+    // 一次 rev-parse 取回三项（是否仓库 / 仓库根 / 基线 commit）：
+    // Windows 下每个 git 子进程约 300ms+，run 开头同步调用必须尽量少（原 4 次 → 2 次）。
+    const std::string meta =
+        git_stdout(cwd, {"rev-parse", "--is-inside-work-tree", "--show-toplevel", "HEAD"});
+    const std::vector<std::string> meta_lines = split_lines(meta);
+    if (meta_lines.size() < 3 || meta_lines[0] != "true") return false;
 
-    info_.repo_root = git_stdout(cwd, {"rev-parse", "--show-toplevel"});
-    info_.base_commit = git_stdout(cwd, {"rev-parse", "--short", "HEAD"});
+    info_.repo_root = meta_lines[1];
+    // 存完整 sha：短 sha 在提交量增长后会歧义，git checkout 可能被拒绝
+    info_.base_commit = meta_lines[2];
     if (info_.repo_root.empty() || info_.base_commit.empty()) return false;
 
     info_.clean_at_capture = git_stdout(cwd, {"status", "--porcelain"}).empty();
@@ -105,11 +136,13 @@ bool GitCheckpoint::capture(const std::string& cwd) {
 }
 
 void GitCheckpoint::reset() {
+    std::lock_guard<std::mutex> lock(mtx_);
     info_ = GitCheckpointInfo{};
     cwd_.clear();
 }
 
 GitDiffSummary GitCheckpoint::diff_since_base() const {
+    std::lock_guard<std::mutex> lock(mtx_);
     GitDiffSummary out;
     if (!info_.valid) return out;
 
@@ -129,10 +162,10 @@ void GitCheckpoint::collect_tracked_changes(GitDiffSummary& out) const {
     std::map<std::string, std::string> status_by_path;
     const std::string name_status = git_stdout(cwd_, {"diff", "--name-status", info_.base_commit});
     for (const auto& line : split_lines(name_status)) {
-        // name-status 为两列：<status>\t<path>（重命名 R100\told\tnew 视为边缘情况忽略）
-        const size_t tab = line.find('\t');
-        if (tab == std::string::npos) continue;
-        status_by_path[line.substr(tab + 1)] = line.substr(0, tab);
+        std::string status;
+        std::string path;
+        if (!parse_name_status(line, status, path)) continue;
+        status_by_path[path] = status;
     }
 
     const std::string numstat = git_stdout(cwd_, {"diff", "--numstat", info_.base_commit});
@@ -141,6 +174,7 @@ void GitCheckpoint::collect_tracked_changes(GitDiffSummary& out) const {
         std::string del;
         std::string path;
         if (!parse_tab_line(line, ins, del, path)) continue;
+        path = normalize_numstat_path(path);  // 重命名行统一取新路径，与 name-status 对齐
 
         GitFileChange change;
         change.path = path;
@@ -162,15 +196,37 @@ void GitCheckpoint::collect_untracked(GitDiffSummary& out) const {
     }
 }
 
+std::string GitCheckpoint::short_sha(const std::string& full_sha) {
+    if (full_sha.size() <= kShortShaLen) return full_sha;
+    return full_sha.substr(0, kShortShaLen);
+}
+
+std::string GitCheckpoint::normalize_numstat_path(const std::string& raw) {
+    const std::string arrow = " => ";
+    const size_t pos = raw.find(arrow);
+    if (pos == std::string::npos) return raw;  // 普通行
+
+    std::string prefix = raw.substr(0, pos);
+    std::string rest = raw.substr(pos + arrow.size());
+    // "dir/{old => new}" 形式：前缀保留到 '{' 之前，拼上新文件名
+    const size_t brace = prefix.find('{');
+    if (brace != std::string::npos) {
+        rest = prefix.substr(0, brace) + rest;
+    }
+    if (!rest.empty() && rest.back() == '}') rest.pop_back();  // 去掉闭合花括号
+    return rest;
+}
+
 std::string GitCheckpoint::format_summary(const GitDiffSummary& summary) {
+    const std::string shown_base = short_sha(summary.base_commit);
     if (summary.files.empty()) {
-        return "无文件改动（相对基线 " + summary.base_commit + "）";
+        return "无文件改动（相对基线 " + shown_base + "）";
     }
 
     std::string out = "改动 " + std::to_string(summary.files.size()) + " 个文件（+" +
                       std::to_string(summary.total_insertions) + " / -" +
-                      std::to_string(summary.total_deletions) + "），基线 commit " +
-                      summary.base_commit + "\n";
+                      std::to_string(summary.total_deletions) + "），基线 commit " + shown_base +
+                      "\n";
     if (!summary.clean_at_capture) {
         out += "注意：会话开始时工作区已有未提交改动，以下清单可能包含非本次产生的改动。\n";
     }
@@ -183,11 +239,13 @@ std::string GitCheckpoint::format_summary(const GitDiffSummary& summary) {
 
 int GitCheckpoint::rollback_tracked(const GitDiffSummary& summary,
                                     std::vector<std::string>& skipped) const {
+    std::lock_guard<std::mutex> lock(mtx_);
     if (!info_.valid) return 0;
 
     int done = 0;
     for (const auto& f : summary.files) {
-        // 新增/未跟踪文件在基线中不存在，checkout 会失败；且删除不可逆，一律跳过
+        // 新增/未跟踪文件在基线中不存在，checkout 会失败；且删除不可逆，一律跳过。
+        // 重命名（R）的新路径同样不在基线中 → checkout 失败后计入 skipped，由人工处理。
         if (f.status == "?" || f.status == "A") {
             skipped.push_back(f.path);
             continue;

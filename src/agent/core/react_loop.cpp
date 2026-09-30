@@ -606,8 +606,8 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
     tool::ToolContext turn_env_probe;
     bool turn_git_probed = false;
 
-    // #81：捕获 git 基线 commit（幂等，会话内只记一次），用于收尾回答"改了什么"。
-    //      纯只读（rev-parse / status），非仓库时静默跳过，不阻断 run。
+    // #81：捕获 git 基线 commit（按目录幂等：同目录只记一次，换目录重新捕获），
+    //      用于收尾回答"改了什么"。纯只读（rev-parse / status），非仓库时静默跳过，不阻断 run。
     util::GitCheckpoint::instance().capture(m_cwd);
 
     // 0.6.x：停滞检测 + 内部评审器。budget 为当前剩余预算（base 在"达上限评审→继续"时可追加）。
