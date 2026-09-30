@@ -19,6 +19,7 @@ namespace agent {
 class IConfigManager;
 class ITaskManager;
 class IEventBus;
+class ICompletionProvider;
 
 /// @brief Headless 执行选项（由 CLI 参数解析而来）
 struct HeadlessOptions {
@@ -51,5 +52,18 @@ struct HeadlessResult {
 /// @return 执行结果（含退出码与 stdout 文本）
 HeadlessResult run_headless(IConfigManager& cfg, ITaskManager& task_manager, IEventBus& event_bus,
                             const HeadlessOptions& opts);
+
+/// @brief 使用注入的后端运行 headless（Issue #77 测试专用入口）
+///
+/// @details 与 run_headless 完全相同，仅跳过 provider 解析与 remote_url 校验，
+///          直接使用调用方提供的后端 —— 使单元测试能注入 MockCompletionProvider
+///          驱动主流程（否则只能依赖真实 API 配置，主流程不可测）。
+///          除后端来源外，其余分支（权限模式 / 工具注册 / 输出序列化 / 退出码）共用同一实现。
+///
+/// @param provider 后端指针，**不接管所有权**，生命周期由调用方保证
+/// @return 执行结果；provider 为 nullptr 时 exit_code == 2
+HeadlessResult run_headless_with_provider(IConfigManager& cfg, ITaskManager& task_manager,
+                                          IEventBus& event_bus, const HeadlessOptions& opts,
+                                          ICompletionProvider* provider);
 
 }  // namespace agent
