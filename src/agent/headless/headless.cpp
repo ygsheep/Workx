@@ -17,8 +17,9 @@
 #include "agent/config/app_config.h"
 #include "agent/core/react_loop.h"
 #include "agent/factory.h"
-#include "agent/util/git_checkpoint.h"  // #81：git 基线检查点（收尾改动清单）
-#include "agent/model/provider_config.h"  // load_provider_configs
+#include "agent/headless/headless_internal.h"  // #77：内部可测件声明（@internal）
+#include "agent/util/git_checkpoint.h"         // #81：git 基线检查点（收尾改动清单）
+#include "agent/model/provider_config.h"       // load_provider_configs
 #include "agent/model/provider_preset.h"
 #include "agent/tool/context.h"
 #include "agent/tool/registry.h"
@@ -30,7 +31,9 @@
 
 namespace agent {
 
-namespace {
+// ============================================================================
+// 内部可测件（声明见 headless_internal.h；@internal 仅供单元测试）
+// ============================================================================
 
 /// @brief 将权限模式字符串映射到 PermissionMode（headless 无人值守档）
 /// @return 成功返回 PermissionMode；失败返回空 optional
@@ -49,6 +52,11 @@ std::string result_text(const ReActResult& r) {
     if (r.was_error && !r.error_message.empty()) return r.error_message;
     return "";
 }
+
+/// @brief 退出码语义：0 成功 / 1 任务失败或被中断
+int derive_exit_code(const ReActResult& r) { return (r.was_error || r.was_interrupted) ? 1 : 0; }
+
+namespace {
 
 /// @brief #81：本次运行相对基线 commit 的改动摘要（非仓库或无改动时为空串）
 /// @details 无人值守场景下回答"agent 到底改了什么"，供调用方归档与 review。
@@ -118,8 +126,6 @@ nlohmann::json step_json(const ReActStep& s) {
     return j;
 }
 
-}  // namespace
-
 /// @brief 解析 provider 配置并创建后端
 /// @details 先按 preset 创建；失败则回退到自定义 provider 条目（与 create_session 对齐）
 BackendCreateResult resolve_backend(IConfigManager& cfg, IEventBus& event_bus) {
@@ -140,8 +146,10 @@ BackendCreateResult resolve_backend(IConfigManager& cfg, IEventBus& event_bus) {
 /// @brief 构造 headless 专用的 ReActLoop
 /// @note 不注入 event_bus：AskUserTool 调用 ctx.event_bus() 抛错 → 自动拒绝提问，
 ///       避免无人值守时阻塞等待应答超时。
+/// @note #77：形参由 BackendCreateResult& 改为裸 provider 指针，使
+///       run_headless_with_provider 能注入测试后端而不必伪造 BackendCreateResult。
 std::unique_ptr<ReActLoop> build_loop(IConfigManager& cfg, ITaskManager& task_manager,
-                                      BackendCreateResult& backend,
+                                      ICompletionProvider* provider,
                                       std::shared_ptr<tool::ToolRegistry> tool_registry,
                                       const std::string& session_id) {
     ReActLoop::Config loop_config;
@@ -152,13 +160,73 @@ std::unique_ptr<ReActLoop> build_loop(IConfigManager& cfg, ITaskManager& task_ma
     // 默认开启本身是安全的：agent.goal 未配置时 goal.type == None，门禁自动放行。
     agent::apply_verification_gate(loop_config, cfg, /*enabled_by_default=*/true);
 
-    return std::make_unique<ReActLoop>(backend.provider.get(), tool_registry, loop_config, &cfg,
-                                       &task_manager, std::filesystem::current_path().string(),
+    return std::make_unique<ReActLoop>(provider, tool_registry, loop_config, &cfg, &task_manager,
+                                       std::filesystem::current_path().string(),
                                        /*external_compactor=*/nullptr,
                                        /*event_bus=*/nullptr,
                                        /*touch_collector=*/nullptr,
                                        /*file_index_invalidator=*/nullptr, session_id);
 }
+
+/// @brief 同步执行一轮 ReAct 循环
+/// @param streamed 输出参数：stream-json 模式下累积的逐步 NDJSON
+ReActResult execute_task(ReActLoop& loop, const std::string& task,
+                         const nlohmann::json& tools_schema, const std::string& sys_prompt,
+                         const std::string& output_format, std::string& streamed) {
+    std::vector<ChatMessage> messages;
+    messages.push_back(ChatMessage::user(task));
+    std::atomic<bool> should_cancel{false};
+
+    // 步骤回调：stream-json 模式需要逐 step 输出
+    ReActLoop::StepCallback on_step = nullptr;
+    if (output_format == "stream-json") {
+        on_step = [&streamed](const ReActStep& step) { streamed += step_json(step).dump() + "\n"; };
+    }
+    return loop.run(messages, sys_prompt, tools_schema, should_cancel, std::move(on_step),
+                    /*on_token=*/nullptr);
+}
+
+/// @brief 已确定后端后的完整执行流程（权限 / 工具 / 循环 / 输出 / 退出码）
+/// @details run_headless 与 run_headless_with_provider 共用此实现，保证
+///          「解析后端」与「注入后端」两条路径除后端来源外行为完全一致。
+HeadlessResult run_with_provider(IConfigManager& cfg, ITaskManager& task_manager,
+                                 const HeadlessOptions& opts, ICompletionProvider* provider) {
+    HeadlessResult result;
+
+    // ---- 1. 权限模式（headless 无人值守档）----
+    auto pm = parse_permission_mode(opts.permission_mode);
+    if (!pm) {
+        result.exit_code = 2;
+        result.output = "error: 未知权限模式 '" + opts.permission_mode +
+                        "'（可选 default / accept-edits / bypass-permissions）\n";
+        return result;
+    }
+
+    // ---- 2. 注册内置工具 + 系统提示词 ----
+    auto tool_registry = std::make_shared<tool::ToolRegistry>();
+    // MCP：headless 下也尝试连接（与 create_session 一致；空 manager 则 MCP 工具返回"未连接"）
+    std::shared_ptr<mcp::McpClientManager> mcp_manager;
+    register_builtin_tools(*tool_registry, mcp_manager);
+
+    const std::string user_prompt = cfg.get_or<std::string>(keys::SYSTEM_PROMPT, "");
+    const std::string sys_prompt = build_system_prompt(user_prompt, *tool_registry);
+
+    // ---- 3. 构造循环并执行 ----
+    const std::string session_id = core::util::generate_uuid();
+    auto loop = build_loop(cfg, task_manager, provider, tool_registry, session_id);
+    loop->set_permission_mode(*pm);
+
+    // ---- 4. 同步执行 + 输出 + 退出码 ----
+    std::string streamed;
+    auto react_result = execute_task(*loop, opts.task, tool_registry->get_all_schemas(), sys_prompt,
+                                     opts.output_format, streamed);
+
+    render_output(opts, react_result, session_id, std::move(streamed), result.output);
+    result.exit_code = derive_exit_code(react_result);
+    return result;
+}
+
+}  // namespace
 
 /// @brief 按输出格式序列化 ReActResult
 /// @param streamed stream-json 模式下已累积的逐步输出，需在其后追加最终结果
@@ -180,70 +248,31 @@ void render_output(const HeadlessOptions& opts, const ReActResult& react_result,
     }
 }
 
-/// @brief 退出码语义：0 成功 / 1 任务失败或被中断
-int derive_exit_code(const ReActResult& r) { return (r.was_error || r.was_interrupted) ? 1 : 0; }
-
-/// @brief 同步执行一轮 ReAct 循环
-/// @param streamed 输出参数：stream-json 模式下累积的逐步 NDJSON
-ReActResult execute_task(ReActLoop& loop, const std::string& task,
-                         const nlohmann::json& tools_schema, const std::string& sys_prompt,
-                         const std::string& output_format, std::string& streamed) {
-    std::vector<ChatMessage> messages;
-    messages.push_back(ChatMessage::user(task));
-    std::atomic<bool> should_cancel{false};
-
-    // 步骤回调：stream-json 模式需要逐 step 输出
-    ReActLoop::StepCallback on_step = nullptr;
-    if (output_format == "stream-json") {
-        on_step = [&streamed](const ReActStep& step) { streamed += step_json(step).dump() + "\n"; };
-    }
-    return loop.run(messages, sys_prompt, tools_schema, should_cancel, std::move(on_step),
-                    /*on_token=*/nullptr);
-}
-
 HeadlessResult run_headless(IConfigManager& cfg, ITaskManager& task_manager, IEventBus& event_bus,
                             const HeadlessOptions& opts) {
-    HeadlessResult result;
-
     // ---- 1. 创建后端 ----
     auto backend_result = resolve_backend(cfg, event_bus);
     if (backend_result.remote_url.empty() || !backend_result.provider) {
+        HeadlessResult result;
         result.exit_code = 2;  // 参数/配置错误
         result.output = "error: 无法创建后端（缺少 remote_url / provider 配置）\n";
         return result;
     }
 
-    // ---- 2. 权限模式（headless 无人值守档）----
-    auto pm = parse_permission_mode(opts.permission_mode);
-    if (!pm) {
+    // ---- 2. 执行（与注入路径共用实现，保证两条路径行为一致）----
+    return run_with_provider(cfg, task_manager, opts, backend_result.provider.get());
+}
+
+HeadlessResult run_headless_with_provider(IConfigManager& cfg, ITaskManager& task_manager,
+                                          const HeadlessOptions& opts,
+                                          ICompletionProvider* provider) {
+    if (provider == nullptr) {
+        HeadlessResult result;
         result.exit_code = 2;
-        result.output = "error: 未知权限模式 '" + opts.permission_mode +
-                        "'（可选 default / accept-edits / bypass-permissions）\n";
+        result.output = "error: 未提供后端（provider == nullptr）\n";
         return result;
     }
-
-    // ---- 3. 注册内置工具 + 系统提示词 ----
-    auto tool_registry = std::make_shared<tool::ToolRegistry>();
-    // MCP：headless 下也尝试连接（与 create_session 一致；空 manager 则 MCP 工具返回"未连接"）
-    std::shared_ptr<mcp::McpClientManager> mcp_manager;
-    register_builtin_tools(*tool_registry, mcp_manager);
-
-    const std::string user_prompt = cfg.get_or<std::string>(keys::SYSTEM_PROMPT, "");
-    const std::string sys_prompt = build_system_prompt(user_prompt, *tool_registry);
-
-    // ---- 4. 构造循环并执行 ----
-    const std::string session_id = core::util::generate_uuid();
-    auto loop = build_loop(cfg, task_manager, backend_result, tool_registry, session_id);
-    loop->set_permission_mode(*pm);
-
-    // ---- 5. 同步执行 + 输出 + 退出码 ----
-    std::string streamed;
-    auto react_result = execute_task(*loop, opts.task, tool_registry->get_all_schemas(), sys_prompt,
-                                     opts.output_format, streamed);
-
-    render_output(opts, react_result, session_id, std::move(streamed), result.output);
-    result.exit_code = derive_exit_code(react_result);
-    return result;
+    return run_with_provider(cfg, task_manager, opts, provider);
 }
 
 }  // namespace agent
