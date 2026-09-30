@@ -176,6 +176,7 @@ target_sources(workx_agent PRIVATE
     tool/BashTool/bash_tool.cpp
     tool/PowerShellTool/powershell_tool.cpp
     tool/ShellTool/shell_detector.cpp
+    tool/ShellTool/sandbox_visibility.cpp
     tool/AgentTool/agent_tool.cpp
     tool/AskUser/AskUserTool.cpp
     tool/AskUser/ask_user_config.cpp

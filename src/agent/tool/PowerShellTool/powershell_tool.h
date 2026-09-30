@@ -24,6 +24,7 @@
 #pragma once
 
 #include <string>
+#include "agent/tool/ShellTool/sandbox_visibility.h"
 #include "agent/tool/itool.h"
 
 namespace agent::tool {
@@ -53,6 +54,9 @@ class PowerShellTool : public ITool {
     ResultV2<ToolResult> execute_background(const std::string& command, const std::string& cwd,
                                             int timeout_ms, bool disable_sandbox,
                                             const ToolContext& ctx) const;
+
+    /// @brief #84：沙箱状态上报器（降级 / 显式关闭的审计各只留痕一次）
+    mutable shell_common::SandboxVisibility sandbox_visibility_;
 };
 
 }  // namespace agent::tool
