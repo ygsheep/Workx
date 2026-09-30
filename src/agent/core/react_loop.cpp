@@ -195,7 +195,10 @@ ReActLoop::ThoughtResult ReActLoop::execute_thought(const CompletionRequest& req
     // 提交推理请求
     auto reader = m_provider->submit_completion(request);
     if (!reader) {
+        // #89：提交失败没有 HTTP 响应（后端未就绪 / 已 shutdown / 状态仲裁失败），
+        // http_status 保持 0；给出可区分的详情而非沿用上层固定串。
         result.status = ThoughtResult::Error;
+        result.error_message = "submit_completion returned null (no HTTP response)";
         return result;
     }
 
@@ -263,7 +266,10 @@ ReActLoop::ThoughtResult ReActLoop::execute_thought(const CompletionRequest& req
             result.status = ThoughtResult::Completed;
             break;
         } else if (state == StreamState::Error) {
+            // #89：把流层承载的状态码与详情透传出去（此前二者都被丢弃）
             result.status = ThoughtResult::Error;
+            result.http_status = reader->http_status();
+            result.error_message = reader->error_message();
             break;
         } else if (state == StreamState::Cancelled) {
             result.status = ThoughtResult::Cancelled;
@@ -705,9 +711,15 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
         }
 
         if (thought.status == ThoughtResult::Error) {
-            LOG_ERROR("[react_loop] iteration={} thought stream error", iteration);
+            // #89：此前固定串吞掉了 HTTP 状态码，使 compute_retry 只能靠
+            // is_retryable(0, msg) 判定，导致 4xx 也被当成网络错误重试。
+            LOG_ERROR("[react_loop] iteration={} thought stream error, http_status={}, error={}",
+                      iteration, thought.http_status, thought.error_message);
             result.was_error = true;
-            result.error_message = "Stream error during Thought phase";
+            result.http_status = thought.http_status;
+            result.error_message = thought.error_message.empty()
+                                       ? std::string("Stream error during Thought phase")
+                                       : thought.error_message;
             result.partial_content = thought.content;
             result.partial_reasoning = thought.reasoning;
             break;

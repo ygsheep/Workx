@@ -90,6 +90,14 @@ class MockStreamReader : public IStreamReader {
         return *this;
     }
 
+    /// @brief #89：设置错误时携带的 HTTP 状态码与详情（配合 set_error_at）
+    /// @details 生产路径由 SSEStreamReader 承载；Mock 需能模拟 429/5xx/4xx 以验证透传。
+    MockStreamReader& set_error_payload(int http_status, std::string message) {
+        error_http_status_ = http_status;
+        error_message_ = std::move(message);
+        return *this;
+    }
+
     /// @brief 设置取消状态（在消费指定数量的 chunk 后返回 Cancelled）
     MockStreamReader& set_cancel_after(size_t index) {
         cancel_after_ = index;
@@ -127,11 +135,17 @@ class MockStreamReader : public IStreamReader {
 
     void cancel() override {}
 
+    // #89：IStreamReader 错误通道
+    int http_status() const override { return error_http_status_; }
+    std::string error_message() const override { return error_message_; }
+
    private:
     std::vector<StreamChunk> chunks_;
     size_t consumed_ = 0;
     std::optional<size_t> error_at_;
     std::optional<size_t> cancel_after_;
+    int error_http_status_ = 0;      ///< #89：Error 时上报的 HTTP 状态码
+    std::string error_message_;      ///< #89：Error 时上报的错误详情
     int32_t prompt_tokens_ = 0;
     int32_t generated_tokens_ = 0;
     int32_t cache_creation_ = 0;

@@ -131,6 +131,10 @@ struct ReActResult {
     bool was_interrupted = false;  ///< 用户中断
     bool was_error = false;        ///< 发生错误（流式错误/提交失败/超迭代数）
     std::string error_message;     ///< 错误信息（was_error=true 时有效）
+    /// @brief #89：错误对应的 HTTP 状态码（0 = 非 HTTP 错误）
+    /// @details 供 compute_retry 判定可重试性，以及后续 fallback 判定是否值得换模型。
+    ///          无 HTTP 响应时保持 0（语义与 HttpRetryPolicy 的 http_status=0 一致）。
+    int http_status = 0;
 
     // --- 0.6.x：#31 目标验证状态（普通对话恒为 Unknown）---
     GoalStatus goal_status = GoalStatus::Unknown;
@@ -379,6 +383,12 @@ class WORKX_API ReActLoop {
             Error,      ///< 流式错误
             Cancelled   ///< 用户取消
         } status = Completed;
+
+        /// @brief #89：错误时的 HTTP 状态码（0 = 无 HTTP 响应，如网络错误 / 提交失败）
+        /// @details 此前状态码在流层被丢弃，上层只能拿到固定串描述，无法区分
+        ///          429（可重试、可降级）与 401（重试无益）。
+        int http_status = 0;
+        std::string error_message;  ///< 错误详情（status == Error 时有效）
     };
 
     /// @brief 内部评审器决定（停滞检测 / 达上限时判断"是否继续"）

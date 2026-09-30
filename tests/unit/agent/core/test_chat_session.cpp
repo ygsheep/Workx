@@ -275,6 +275,60 @@ TEST_CASE("compute_retry returns Sleep when retryable", "[session][h7][retry]") 
     REQUIRE(d2.delay_ms == 4000);
 }
 
+// ============================================================
+// #89：compute_retry 依据真实 HTTP 状态码判定（此前硬编码 http_status=0）
+// ============================================================
+
+TEST_CASE("compute_retry retries on http 429", "[session][h7][retry][89]") {
+    ReActResult r;
+    r.was_error = true;
+    r.http_status = 429;
+    r.error_message = "HTTP error: 429";
+    HttpRetryPolicy policy{.max_retries = 3, .base_delay_ms = 1000};
+
+    auto d = ChatSession::compute_retry(r, policy, 0);
+    REQUIRE(d.action == RetryAction::Sleep);
+    REQUIRE(d.delay_ms == 1000);
+}
+
+TEST_CASE("compute_retry retries on http 503", "[session][h7][retry][89]") {
+    ReActResult r;
+    r.was_error = true;
+    r.http_status = 503;
+    r.error_message = "HTTP error: 503";
+    HttpRetryPolicy policy{.max_retries = 3, .base_delay_ms = 1000};
+
+    auto d = ChatSession::compute_retry(r, policy, 0);
+    REQUIRE(d.action == RetryAction::Sleep);
+}
+
+TEST_CASE("compute_retry stops on http 4xx instead of retrying", "[session][h7][retry][89]") {
+    // 修复前：http_status 恒传 0，is_retryable(0, 非空 msg) 恒 true —— 400/401 也会重试。
+    // 客户端错误重试无益（也是后续 fallback 判定「换模型有没有用」的依据）。
+    for (int status : {400, 401, 403, 404}) {
+        ReActResult r;
+        r.was_error = true;
+        r.http_status = status;
+        r.error_message = "HTTP error: " + std::to_string(status);
+        HttpRetryPolicy policy{.max_retries = 3, .base_delay_ms = 1000};
+
+        auto d = ChatSession::compute_retry(r, policy, 0);
+        REQUIRE(d.action == RetryAction::Stop);
+    }
+}
+
+TEST_CASE("compute_retry treats http_status 0 as network error", "[session][h7][retry][89]") {
+    // 无 HTTP 响应（连接超时 / 提交失败）：仍按网络错误可重试，与修复前一致
+    ReActResult r;
+    r.was_error = true;
+    r.http_status = 0;
+    r.error_message = "Connection timed out";
+    HttpRetryPolicy policy{.max_retries = 3, .base_delay_ms = 1000};
+
+    auto d = ChatSession::compute_retry(r, policy, 0);
+    REQUIRE(d.action == RetryAction::Sleep);
+}
+
 TEST_CASE("compute_retry returns Stop when attempts exhausted", "[session][h7][retry]") {
     ReActResult r;
     r.was_error = true;

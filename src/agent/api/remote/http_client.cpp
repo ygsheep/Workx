@@ -506,7 +506,8 @@ class StreamSession : public std::enable_shared_from_this<StreamSession> {
                 err_msg += " - " + m_error_body.substr(0, 500);
             }
             LOG_WARN("[http][stream] HTTP {} error_body_len={}", http_code, m_error_body.size());
-            finish(err_msg);
+            // #89：状态码单独传给 reader，不再只存在于字符串里（上层需据此判定重试/降级）
+            finish(http_code, err_msg);
             return;
         }
         LOG_DEBUG("[http][stream] transfer done HTTP {}", http_code);
@@ -520,6 +521,11 @@ class StreamSession : public std::enable_shared_from_this<StreamSession> {
    private:
     void finish(const std::string& err) const {
         if (m_reader && !m_reader->is_finished()) m_reader->finish(err);
+        if (m_on_complete) m_on_complete();
+    }
+
+    void finish(long http_code, const std::string& err) const {
+        if (m_reader && !m_reader->is_finished()) m_reader->finish(http_code, err);
         if (m_on_complete) m_on_complete();
     }
 

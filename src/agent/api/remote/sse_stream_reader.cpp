@@ -81,16 +81,24 @@ void SSEStreamReader::feed_data(std::string_view data) {
     m_sse_parser.parse(data);
 }
 
-void SSEStreamReader::finish(const std::string& error) {
+void SSEStreamReader::finish(const std::string& error) { finish(0, error); }
+
+void SSEStreamReader::finish(long http_code, const std::string& error) {
     if (m_finished.exchange(true)) return;  // 已 finish 则不重复
     m_finish_error = error;
+    m_finish_status.store(static_cast<int>(http_code));
     if (error.empty()) {
         LOG_DEBUG("[sse] reader finished, tokens_received={}", m_token_count);
     } else {
-        LOG_WARN("[sse] reader finished with error: {} tokens_received={}", error, m_token_count);
+        LOG_WARN("[sse] reader finished with error: http_status={} error={} tokens_received={}",
+                 http_code, error, m_token_count);
     }
     m_queue_cv.notify_all();
 }
+
+int SSEStreamReader::http_status() const { return m_finish_status.load(); }
+
+std::string SSEStreamReader::error_message() const { return m_finish_error; }
 
 void SSEStreamReader::on_sse_event(const SSEEvent& event) {
     if (!event.has_data()) return;
