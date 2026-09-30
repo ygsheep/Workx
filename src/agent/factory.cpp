@@ -500,7 +500,7 @@ std::string build_system_prompt(const std::string& user_prompt, const tool::Tool
     sys_prompt += "\n\n";
     sys_prompt += build_environment_context();
 
-    // 注入项目记忆（CLAUDE.md / AGENT.md，从 CWD 向上遍历）
+    // 注入项目记忆（CLAUDE.md / AGENTS.md / AGENT.md，从 CWD 向上遍历）
     // 放在环境上下文之后、工具 prompt 之前，让项目约定优先级高于工具说明
     std::string project_memory =
         prompt::load_and_format_project_memory(std::filesystem::current_path());
