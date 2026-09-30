@@ -330,6 +330,8 @@ ResultV2<ToolResult> PowerShellTool::execute_sync(const std::string& command,
     process::ExecOptions opts;
     opts.cwd = cwd;
     opts.args = wrapped.args;
+    // #84 方案 B：把策略侧派生的进程级约束交给执行层（Windows 上落为 Job Object）
+    opts.isolation = wrapped.isolation;
     if (timeout_ms > 0) {
         opts.timeout = std::chrono::milliseconds(timeout_ms);
     }
@@ -346,6 +348,9 @@ ResultV2<ToolResult> PowerShellTool::execute_sync(const std::string& command,
     }
 
     const auto& out = exec_result.value();
+    // #84 方案 B：进程级隔离到底有没有施加上，只有 exec 返回后才知道
+    sandbox_visibility_.report_isolation(out.isolation, name(), ctx);
+
     std::string formatted = format_result(out);
     formatted = truncate_output(std::move(formatted));
     // #36：输出脱敏，密钥内容替换为 [REDACTED:label]
@@ -398,6 +403,8 @@ ResultV2<ToolResult> PowerShellTool::execute_background(const std::string& comma
             process::ExecOptions opts;
             opts.cwd = cwd;
             opts.args = wrapped.args;
+            // #84 方案 B：后台路径同样带上进程级约束（超时/取消时连带杀全树）
+            opts.isolation = wrapped.isolation;
             if (timeout_ms > 0) {
                 opts.timeout = std::chrono::milliseconds(timeout_ms);
             }
@@ -410,7 +417,15 @@ ResultV2<ToolResult> PowerShellTool::execute_background(const std::string& comma
                 const auto& err = exec_result.error();
                 throw std::runtime_error("Failed to execute PowerShell command: " + err.message);
             }
-            PSOutputRegistry::instance().store(task_name, exec_result.value());
+            auto& out = exec_result.value();
+            if (out.isolation == process::IsolationOutcome::Failed) {
+                // #84 方案 B：后台路径拿不到 ctx（本 lambda 可能比调用方存活更久），
+                // 因此把降级事实写进被持久化的输出本身，避免静默丢失。
+                out.stderr_text =
+                    "[workx] process isolation unavailable: job object not applied\n" +
+                    out.stderr_text;
+            }
+            PSOutputRegistry::instance().store(task_name, out);
         },
         TaskType::Background);
 

@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "core/process/exec_output.h"
+#include "core/process/process_isolation.h"
 #include "core/utils/result_v2.h"
 
 namespace agent::process {
@@ -40,6 +41,15 @@ struct ExecOptions {
     /// @brief stdout 缓冲区上限（字节），超限截断并置 truncated 标志
     /// @details 防止恶意/失控子进程写爆内存。默认 20MB（对齐 CC ripgrep.ts MAX_BUFFER_SIZE）
     size_t max_output_bytes = 20 * 1024 * 1024;
+
+    /// @brief 进程级隔离规格（#84 方案 B）
+    /// @details 非空时要求对子进程施加进程树与资源约束：
+    ///          - Windows: 建 Job Object 后指派，超时/取消改走 TerminateJobObject
+    ///            （连带终止整棵树），结果写入 ExecOutput::isolation
+    ///          - POSIX:   忽略本字段 —— 进程树连带终止已由 exec_posix 的进程组机制
+    ///            （setpgid + kill(-pid)）覆盖，无重复施加的必要
+    ///          nullopt 表示不要求任何进程级约束。
+    std::optional<ProcessIsolationSpec> isolation;
 };
 
 /// @brief 同步执行外部命令，捕获输出
@@ -50,8 +60,9 @@ struct ExecOptions {
 ///         - err: 启动失败（命令不存在、管道创建失败等），不含子进程输出
 ///
 /// @par 超时/取消行为
-/// - POSIX: kill(SIGTERM) → 5s 后 kill(SIGKILL)（防 rg 卡在不可中断 I/O）
-/// - Windows: TerminateProcess（无 SIGTERM 概念，直接终止）
+/// - POSIX: kill(SIGTERM) → 5s 后 kill(SIGKILL)，作用于**整个进程组**（#23 P1）
+/// - Windows: 有进程级隔离（ExecOptions::isolation）时走 TerminateJobObject，连带
+///   终止整棵进程树；否则 TerminateProcess 只终止直接子进程（#84）
 /// - 对齐 Claude Code CLI utils/ripgrep.ts L174-182 的升级逻辑
 ///
 /// @par 线程安全

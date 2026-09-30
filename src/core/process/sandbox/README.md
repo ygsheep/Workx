@@ -7,7 +7,8 @@
 
 1. **不侵入 subprocess**——沙盒逻辑作为独立适配层，在 `exec()` 之前把原命令包装成
    带沙盒前缀的命令字符串，subprocess 本身不感知沙盒存在
-2. **平台条件编译**——macOS/Linux 使用 OS 原生沙盒；Windows 无进程级沙盒，仅返回原命令
+2. **平台条件编译**——macOS/Linux 使用 OS 原生沙盒；Windows 无 FS/网络后端，仅返回原命令
+   （进程级约束另由 Job Object 提供，见下）
 3. **规则可配置**——通过 `SandboxConfig` 描述允许/拒绝的路径与域名，运行时生成对应 profile
 4. **优雅降级**——沙盒工具缺失时返回原命令并标记 `degraded`，不阻断业务
 5. **降级必须可见**（#84）——降级路径此前被调用方的 `if (was_wrapped)` 门控而完全静默，
@@ -93,6 +94,8 @@ struct WrappedCommand {
     bool was_wrapped;               // 是否实际包装（false 表示降级或未启用）
     bool degraded;                  // 是否降级（沙盒工具缺失）
     std::string backend_name;       // 使用的后端名称（"seatbelt" / "bubblewrap" / "none"）
+    // 进程级隔离规格（#84 方案 B）：与 FS/网络策略正交，由 process::exec() 消费
+    std::optional<ProcessIsolationSpec> isolation;
 };
 
 class SandboxAdapter {
@@ -106,6 +109,9 @@ public:
 
     /// 是否启用沙盒（编译期 + 运行期双重判定）
     static bool is_enabled();
+
+    /// 从配置派生进程级隔离规格（#84 方案 B，宽松配置返回 nullopt）
+    static std::optional<ProcessIsolationSpec> derive_isolation(const SandboxConfig& config);
 };
 ```
 
@@ -115,7 +121,7 @@ public:
 |---------|---------------|---------------|--------|----------------------------|
 | macOS   | Seatbelt      | `sandbox-exec`| ✅ 支持 | 系统自带，无需安装         |
 | Linux   | Bubblewrap    | `bwrap`       | ✅ 支持 | 需系统安装（Flatpak 默认带）|
-| Windows | —             | —             | ⚠️ 降级 | 无进程级沙盒，返回原命令；调用方必须如实上报（#84）|
+| Windows | Job Object    | 内核内置      | ⚠️ 部分 | **没有** FS/网络隔离（路径级与域名级控制需 AppContainer）；进程树连带终止与进程数/内存上限由 Job Object 提供（#84 方案 B）|
 
 ## 与 subprocess 的配合流程
 
@@ -207,16 +213,22 @@ auto wrapped = SandboxAdapter::wrap_command("rm", {"-rf", "/tmp/build"}, Sandbox
 
 1. **沙盒不替代权限校验**——`SandboxAdapter` 只做命令包装，工具层的 `check_permissions()`
    仍需独立判断是否允许执行该命令
-2. **Windows 仅降级模式**——Windows 无进程级沙盒，`wrap_command()` 返回原命令并标记
-   `degraded=true`，调用方应据此提示用户或回退到路径规则匹配
+2. **Windows 是"部分隔离"**——`wrap_command()` 在 Windows 上返回原命令并标记
+   `degraded=true`（没有 FS/网络隔离），但会一并带上 `isolation` 规格：`process::exec()`
+   据此建立 Job Object，提供进程树连带终止与进程数/内存上限。调用方**不要**把
+   `degraded` 读成"完全没有隔离"，应结合 `isolation` 如实描述（见 BashTool README）
 3. **沙盒工具路径缓存**——`SandboxDetector` 首次探测后缓存结果，避免每次 `exec()` 都
    搜索 PATH
 4. **profile 字符串注入防护**——生成 profile 时对路径参数做转义，防止命令注入
 5. **cwd 一致性**——包装后的命令默认在沙盒内保持原 cwd，调用方无需额外处理
+6. **隔离规格上限刻意宽松**——`restrictive` 档派生的进程数/内存上限是"防失控"而非
+   "精确配额"，取值见 `sandbox_adapter.cpp` 的 `kRestrictive*` 常量。过紧会让正常的
+   多进程构建（MSBuild -j / npm install）直接失败，那比不做更糟
 
 ## 后续扩展
 
-- **Windows AppContainer**——未来可在 Windows 上使用 AppContainer 实现进程级隔离
+- **Windows AppContainer**——唯一能在 Windows 上按路径拦 FS、按策略断网的机制。
+  需先 spike「Git Bash 能否在 AppContainer 里正常启动」，不通过则无意义
 - **seccomp 过滤**——Linux 上可叠加 seccomp 过滤系统调用，进一步限制子进程能力
 - **违规事件回调**——沙盒违规时通过回调通知 UI 层展示（对齐 CC 的 `SandboxViolationExpandedView`）
 - **动态规则更新**——运行时热更新 `SandboxConfig`，无需重启进程

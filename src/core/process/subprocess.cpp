@@ -6,7 +6,8 @@
  *   - CreatePipe 创建 stdout/stderr 管道（继承到子进程，父进程读端）
  *   - CreateProcessW 启动子进程
  *   - ReadFile 循环读取管道 + 检查超时/取消
- *   - TerminateProcess 终止（无 SIGTERM 概念）
+ *   - 终止：默认 TerminateProcess（只杀直接子进程）；调用方要求进程级隔离
+ *     （ExecOptions::isolation，#84 方案 B）时改走 TerminateJobObject 连带杀全树
  *   - 编码：子进程输出按 UTF-8 解码，回退 MultiByteToWideChar(CP_ACP)
  *
  * POSIX 实现：
@@ -27,6 +28,11 @@
 #include <thread>
 
 #ifdef _WIN32
+// Job Object API（jobapi2.h）随 windows.h 一并引入；WIN32_LEAN_AND_MEAN 只排除
+// winsock / ole / cryptography 等无关子系统，可显著缩短编译时间。
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 #include <shellapi.h>
 #else
@@ -195,6 +201,21 @@ struct HandleGuard {
     }
 };
 
+/// Job Object 句柄的 RAII 包装（无效值为 nullptr，与 HandleGuard 不同）
+/// @details 析构即 CloseHandle(job)。若 job 带 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE，
+///          关闭最后一个句柄会连带终止 job 内残留进程 —— 这正是"命令结束后不留
+///          孤儿孙进程"的实现方式，故析构顺序（先 job 后 process）不可调换。
+struct JobGuard {
+    HANDLE h = nullptr;
+    explicit JobGuard(HANDLE handle = nullptr) : h(handle) {}
+    ~JobGuard() {
+        if (h != nullptr) CloseHandle(h);
+    }
+    JobGuard(const JobGuard&) = delete;
+    JobGuard& operator=(const JobGuard&) = delete;
+    operator HANDLE() const { return h; }
+};
+
 /// 创建匿名管道，读端不继承（父进程持有），写端可继承（子进程持有）
 bool create_inheritable_pipe(HANDLE* read_handle, HANDLE* write_handle) {
     SECURITY_ATTRIBUTES sa{};
@@ -288,6 +309,84 @@ std::string escape_arg(const std::string& arg) {
     return result;
 }
 
+/// 创建并配置进程级隔离用的 Job Object（#84 方案 B）
+/// @param spec 隔离规格
+/// @return 配置成功的 job 句柄（调用方负责关闭）；无任何约束可施加或配置失败时返回 nullptr
+/// @details 三项约束分别映射到 JOB_OBJECT_LIMIT_ACTIVE_PROCESS（进程数）、
+///          JOB_OBJECT_LIMIT_PROCESS_MEMORY（单进程内存）、
+///          JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE（关闭句柄即连带终止，覆盖正常结束/超时/取消）。
+HANDLE create_isolation_job(const ProcessIsolationSpec& spec) {
+    HandleGuard job(CreateJobObjectW(nullptr, nullptr));
+    if (job.h == nullptr) {
+        return nullptr;
+    }
+
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+    if (spec.max_processes > 0) {
+        limits.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
+        limits.BasicLimitInformation.ActiveProcessLimit = spec.max_processes;
+    }
+    if (spec.max_process_memory_bytes > 0) {
+        limits.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_PROCESS_MEMORY;
+        limits.ProcessMemoryLimit = static_cast<SIZE_T>(spec.max_process_memory_bytes);
+    }
+    if (spec.kill_tree_on_exit) {
+        limits.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    }
+    if (limits.BasicLimitInformation.LimitFlags == 0) {
+        return nullptr;  // 规格为空，无可施加的约束
+    }
+    if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits))) {
+        return nullptr;
+    }
+    return job.release();
+}
+
+/// 把挂起态的子进程指派到新建的 Job Object 并恢复运行
+/// @param spec 隔离规格
+/// @param process 子进程句柄（由 CreateProcessW 以 CREATE_SUSPENDED 创建）
+/// @param thread 该进程主线程句柄
+/// @param[out] job 生效时写入 job 句柄（调用方负责关闭），未生效时保持 nullptr
+/// @return Applied / Failed
+/// @note **降级不是致命错误**：命令照常执行，只是失去进程树与资源约束，
+///       由上层（BashTool 等）决定是否告警。常见触发场景是父进程本身已在某个
+///       Job 内且系统不支持嵌套 Job（Windows 7）。
+IsolationOutcome apply_process_isolation(const ProcessIsolationSpec& spec, HANDLE process,
+                                         HANDLE thread, HANDLE* job) {
+    *job = nullptr;
+    HandleGuard new_job(create_isolation_job(spec));
+    IsolationOutcome outcome = IsolationOutcome::Failed;
+    if (new_job.h != nullptr && AssignProcessToJobObject(new_job.h, process)) {
+        *job = new_job.release();
+        outcome = IsolationOutcome::Applied;
+    }
+
+    if (ResumeThread(thread) == static_cast<DWORD>(-1)) {
+        // 理论上不可达（thread 句柄刚由 CreateProcessW 返回）。万一发生，子进程会
+        // 永久挂起并把读取循环拖死，故宁可终止也不要放任。
+        TerminateProcess(process, 1);
+        if (*job != nullptr) {
+            CloseHandle(*job);
+            *job = nullptr;
+        }
+        return IsolationOutcome::Failed;
+    }
+    return outcome;
+}
+
+/// 终止子进程
+/// @param process 子进程句柄
+/// @param job Job Object 句柄（nullptr 表示本次没有进程级隔离）
+/// @details 有 job 时走 TerminateJobObject 连带终止整棵树 —— TerminateProcess 只杀
+///          直接子进程，`cmd.exe /c <命令>` 派生的孙进程会残留成孤儿（#84）。
+void terminate_child(HANDLE process, HANDLE job) {
+    if (job != nullptr) {
+        TerminateJobObject(job, 1);
+    } else {
+        TerminateProcess(process, 1);
+    }
+}
+
 ResultV2<ExecOutput> exec_windows(const std::string& cmd, const ExecOptions& opts) {
     // 1. 构建命令行：cmd + arg1 + arg2 + ...
     //    只对含空格/引号的参数加引号，避免 cmd.exe "/c" 被引号包裹后无法识别
@@ -315,6 +414,14 @@ ResultV2<ExecOutput> exec_windows(const std::string& cmd, const ExecOptions& opt
     HandleGuard g_stderr_read(stderr_read), g_stderr_write(stderr_write);
 
     // 3. 启动子进程
+    //    #84 方案 B：要求进程级隔离时以挂起态创建，待 Job Object 指派完成后再恢复
+    //    运行 —— 否则子进程可能在指派前就派生孙进程，逃脱 job 的覆盖。
+    const bool want_isolation = opts.isolation.has_value();
+    DWORD creation_flags = CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT;
+    if (want_isolation) {
+        creation_flags |= CREATE_SUSPENDED;
+    }
+
     STARTUPINFOW si{};
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESTDHANDLES;
@@ -325,10 +432,10 @@ ResultV2<ExecOutput> exec_windows(const std::string& cmd, const ExecOptions& opt
 
     if (!CreateProcessW(nullptr,          // lpApplicationName（nullptr 表示从 cmdline 解析）
                         wcmdline.data(),  // lpCommandLine（可写缓冲区）
-                        nullptr, nullptr,                               // 进程/线程安全属性
-                        TRUE,                                           // bInheritHandles
-                        CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT,  // dwCreationFlags
-                        nullptr,  // lpEnvironment（继承父进程）
+                        nullptr, nullptr,  // 进程/线程安全属性
+                        TRUE,              // bInheritHandles
+                        creation_flags,    // dwCreationFlags
+                        nullptr,           // lpEnvironment（继承父进程）
                         wcwd.empty() ? nullptr : wcwd.c_str(), &si, &pi)) {
         DWORD err = GetLastError();
         return ResultV2<ExecOutput>::err(
@@ -338,19 +445,28 @@ ResultV2<ExecOutput> exec_windows(const std::string& cmd, const ExecOptions& opt
     }
     HandleGuard g_process(pi.hProcess), g_thread(pi.hThread);
 
+    // 3b. 进程级隔离：挂起 → 指派到 Job → 恢复运行（降级不阻断命令）
+    IsolationOutcome isolation_outcome = IsolationOutcome::NotApplicable;
+    JobGuard g_job;
+    if (want_isolation) {
+        isolation_outcome =
+            apply_process_isolation(*opts.isolation, pi.hProcess, pi.hThread, &g_job.h);
+    }
+
     // 4. 关闭父进程持有的写端，让子进程的 EOF 能传到读端
     CloseHandle(g_stdout_write.release());
     CloseHandle(g_stderr_write.release());
 
     // 5. 循环读取管道 + 检查超时/取消
     ExecOutput output;
+    output.isolation = isolation_outcome;
     const auto start = std::chrono::steady_clock::now();
     bool stdout_open = true, stderr_open = true;
 
     while (stdout_open || stderr_open) {
         // 检查取消
         if (opts.is_cancelled && opts.is_cancelled()) {
-            TerminateProcess(pi.hProcess, 1);
+            terminate_child(pi.hProcess, g_job.h);
             output.cancelled = true;
             break;
         }
@@ -358,7 +474,7 @@ ResultV2<ExecOutput> exec_windows(const std::string& cmd, const ExecOptions& opt
         if (opts.timeout) {
             auto elapsed = std::chrono::steady_clock::now() - start;
             if (elapsed >= *opts.timeout) {
-                TerminateProcess(pi.hProcess, 1);
+                terminate_child(pi.hProcess, g_job.h);
                 output.timed_out = true;
                 break;
             }
@@ -446,6 +562,10 @@ ResultV2<ExecOutput> exec_windows(const std::string& cmd, const ExecOptions& opt
     // 6. 等待子进程完全退出
     if (!output.timed_out && !output.cancelled) {
         WaitForSingleObject(pi.hProcess, 5000);
+    } else if (g_job.h != nullptr) {
+        // TerminateJobObject 是异步的：等直接子进程真正死掉再取退出码，
+        // 顺带保证 job 内其余进程（含孙进程）也已被清理。
+        WaitForSingleObject(pi.hProcess, 3000);
     }
 
     // 7. 获取退出码

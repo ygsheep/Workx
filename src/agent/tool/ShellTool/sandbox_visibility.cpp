@@ -36,8 +36,23 @@ std::string_view backend_name(const process::sandbox::WrappedCommand& wrapped) n
                                         : std::string_view{wrapped.backend_name};
 }
 
-/// @brief 进度文案后缀：明确写出"未经 OS 级隔离"
+/// @brief 进度文案后缀：完全没有任何隔离
 constexpr std::string_view kNoIsolationNote = " - command runs WITHOUT OS-level isolation";
+
+/// @brief 进度文案后缀：无 FS/网络隔离，但有进程级约束（#84 方案 B）
+constexpr std::string_view kProcessIsolationNote =
+    " - no FS/network isolation; process isolation: job-object (process count and memory "
+    "capped, process tree killed on exit)";
+
+/// @brief 选择隔离说明后缀
+/// @details 有进程级隔离时收窄措辞：此时命令确实受进程树与资源约束，
+///          笼统说"完全未经隔离"会与事实不符，反而削弱这条安全提示的可信度。
+std::string isolation_note(const process::sandbox::WrappedCommand& wrapped) {
+    if (wrapped.isolation.has_value() && wrapped.isolation->is_meaningful()) {
+        return std::string{kProcessIsolationNote};
+    }
+    return std::string{kNoIsolationNote};
+}
 
 }  // namespace
 
@@ -59,10 +74,10 @@ std::string sandbox_progress_message(SandboxState state,
             return std::format("Sandbox: active (backend: {})", backend_name(wrapped));
         case SandboxState::Degraded:
             return std::format("Sandbox: degraded (backend: {}){}", backend_name(wrapped),
-                               kNoIsolationNote);
+                               isolation_note(wrapped));
         case SandboxState::Disabled:
             return std::format("Sandbox: disabled (dangerously_disable_sandbox){}",
-                               kNoIsolationNote);
+                               isolation_note(wrapped));
     }
     return std::string{"Sandbox: unknown"};
 }
@@ -100,6 +115,27 @@ void SandboxVisibility::report(const process::sandbox::WrappedCommand& wrapped,
                                       : audit::EventType::SecuritySandboxDegraded;
     audit::AuditLogger::instance().log_security(type, sandbox_audit_detail(state, wrapped),
                                                 ctx.session_id, tool_name);
+}
+
+void SandboxVisibility::report_isolation(process::IsolationOutcome outcome,
+                                         const std::string& tool_name, const ToolContext& ctx) {
+    if (outcome != process::IsolationOutcome::Failed) {
+        return;
+    }
+
+    ctx.report_progress("Sandbox: process isolation UNAVAILABLE - job object not applied");
+
+    // 与"无后端"的降级是两件独立的事（前者是 FS/网络策略缺席，后者是进程级约束施加失败），
+    // 因此用独立的去重标志，互不吞并。
+    if (isolation_failed_logged_.exchange(true, std::memory_order_relaxed)) {
+        return;
+    }
+    audit::AuditLogger::instance().log_security(
+        audit::EventType::SecuritySandboxDegraded,
+        std::format("platform={} requested_level=restrictive actual_backend=none "
+                    "reason=job_object_unavailable",
+                    platform_name()),
+        ctx.session_id, tool_name);
 }
 
 }  // namespace agent::tool::shell_common

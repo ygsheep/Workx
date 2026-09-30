@@ -35,6 +35,13 @@ namespace {
 // 平台无关辅助
 // ============================================================
 
+// #84 方案 B：restrictive 档派生的进程级上限。
+// 刻意取宽松值 —— 目的是"防失控"（挡住 fork bomb / 单个进程内存爆炸），不是
+// "精确配额"。过紧会让正常的多进程构建（MSBuild -j / npm install）直接失败，
+// 那比不做更糟。
+constexpr uint32_t kRestrictiveMaxProcesses = 128;
+constexpr uint64_t kRestrictiveMaxProcessMemoryBytes = 4ull * 1024 * 1024 * 1024;  // 4 GiB
+
 /// 获取系统临时目录路径
 std::string get_temp_dir() {
 #ifdef _WIN32
@@ -321,8 +328,22 @@ WrappedCommand SandboxAdapter::wrap_command(const std::string& cmd,
             return make_degraded(cmd, args, "none");
         }
         default:
-            return make_degraded(cmd, args, "none");
+            // Windows（及未知平台）：没有 FS/网络后端，但 Job Object 仍能提供
+            // 进程树与资源约束（#84 方案 B），故把派生的隔离规格一并带上。
+            return make_degraded(cmd, args, "none", derive_isolation(config));
     }
+}
+
+std::optional<ProcessIsolationSpec> SandboxAdapter::derive_isolation(const SandboxConfig& config) {
+    // 宽松配置本就不打算限制任何东西，明确不施加进程级约束
+    if (config.is_permissive()) {
+        return std::nullopt;
+    }
+    ProcessIsolationSpec spec;
+    spec.max_processes = kRestrictiveMaxProcesses;
+    spec.max_process_memory_bytes = kRestrictiveMaxProcessMemoryBytes;
+    spec.kill_tree_on_exit = true;
+    return spec;
 }
 
 bool SandboxAdapter::is_enabled() {
@@ -391,13 +412,15 @@ WrappedCommand SandboxAdapter::wrap_with_bubblewrap(const std::string& bwrap_pat
 
 WrappedCommand SandboxAdapter::make_degraded(const std::string& cmd,
                                              const std::vector<std::string>& args,
-                                             const std::string& backend_name) {
+                                             const std::string& backend_name,
+                                             std::optional<ProcessIsolationSpec> isolation) {
     WrappedCommand result;
     result.cmd = cmd;
     result.args = args;
     result.was_wrapped = false;
     result.degraded = true;
     result.backend_name = backend_name;
+    result.isolation = std::move(isolation);
     return result;
 }
 

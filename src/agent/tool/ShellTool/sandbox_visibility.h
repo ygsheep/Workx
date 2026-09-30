@@ -22,6 +22,7 @@
 #include <atomic>
 #include <string>
 
+#include "core/process/process_isolation.h"
 #include "core/process/sandbox/sandbox_adapter.h"
 
 namespace agent::tool {
@@ -47,7 +48,9 @@ SandboxState classify_sandbox(const process::sandbox::WrappedCommand& wrapped,
 
 /// @brief 生成进度文案（纯函数）
 /// @details Active 保持既有格式 `Sandbox: active (backend: <name>)`；
-///          Degraded / Disabled 会明确写出"命令未经过 OS 级隔离"。
+///          Degraded / Disabled 会明确写出隔离的实际状态。有进程级隔离
+///          （#84 方案 B 的 Job Object）时措辞收窄为"无文件系统/网络隔离"，
+///          否则说"完全未经隔离"会与事实不符。
 std::string sandbox_progress_message(SandboxState state,
                                      const process::sandbox::WrappedCommand& wrapped);
 
@@ -70,9 +73,20 @@ class SandboxVisibility {
     void report(const process::sandbox::WrappedCommand& wrapped, bool disable_sandbox,
                 const std::string& tool_name, const ToolContext& ctx);
 
+    /// @brief 上报进程级隔离（Job Object）的实际应用结果（#84 方案 B）
+    /// @param outcome process::exec() 写入 ExecOutput::isolation 的结果
+    /// @param tool_name 审计事件中的工具名（如 "Bash"）
+    /// @param ctx 工具上下文
+    /// @details 只在 Failed 时产生输出：一条进度警告 + 一条审计（实例内只写一次）。
+    ///          Applied 不额外提示 —— 命令前那条进度文案里已含隔离描述。
+    void report_isolation(process::IsolationOutcome outcome, const std::string& tool_name,
+                          const ToolContext& ctx);
+
    private:
     std::atomic<bool> degraded_logged_{false};  ///< 降级审计是否已写
     std::atomic<bool> disabled_logged_{false};  ///< 关闭沙箱审计是否已写
+    /// 进程级隔离未能施加的审计是否已写（#84 方案 B，与"无后端"是两回事，故独立去重）
+    std::atomic<bool> isolation_failed_logged_{false};
 };
 
 }  // namespace agent::tool::shell_common
