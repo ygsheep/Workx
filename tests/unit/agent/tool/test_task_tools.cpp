@@ -773,3 +773,99 @@ TEST_CASE("AgentTool build_skill_preload_messages 忽略未知名/非技能/非 
     REQUIRE(AgentTool::build_skill_preload_messages({}, &registry).empty());
     REQUIRE(AgentTool::build_skill_preload_messages({"review"}, nullptr).empty());
 }
+
+// ============================================================================
+// #79：子 Agent 派生预算（单次批量规模 + run 累计总量）
+// 防递归已由"子 Agent 不含 Agent 工具"保证，此处护栏针对规模失控。
+// ============================================================================
+
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool rejects batch larger than max_batch",
+                 "[agent_tool][budget]") {
+    MockEventBus bus;
+    auto& tm = TaskManager::instance();
+    MockConfigManager cfg;
+    ToolContext ctx;
+
+    auto provider = std::make_shared<MockCompletionProvider>();
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->add_content_chunk("unused");
+    provider->set_next_reader(reader);
+    fill_ctx(ctx, bus, tm, cfg, provider.get());
+    ctx.sub_agent_budget = std::make_shared<SubAgentBudget>(/*max_batch=*/2, /*max_total=*/100);
+
+    AgentTool tool;
+    auto r = tool.call(nlohmann::json{{"tasks", nlohmann::json::array({
+                                                    {{"prompt", "task A"}},
+                                                    {{"prompt", "task B"}},
+                                                    {{"prompt", "task C"}},
+                                                })}},
+                       ctx);
+
+    REQUIRE_FALSE(r.is_ok());
+    // 错误信息须含上限值，模型才能据此自我纠正（拆分/缩减规模）
+    REQUIRE(r.error().message.find("超过上限") != std::string::npos);
+    REQUIRE(r.error().message.find("2") != std::string::npos);
+    // 整批拒绝：不得派生任何子 Agent（避免部分执行产生不完整结果）
+    REQUIRE(tm.getTasks().empty());
+}
+
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool rejects batch exceeding cumulative max_total",
+                 "[agent_tool][budget]") {
+    MockEventBus bus;
+    auto& tm = TaskManager::instance();
+    MockConfigManager cfg;
+    ToolContext ctx;
+
+    auto provider = std::make_shared<MockCompletionProvider>();
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->add_content_chunk("unused");
+    provider->set_next_reader(reader);
+    fill_ctx(ctx, bus, tm, cfg, provider.get());
+    // 批量上限 10（不触发），但累计上限 2 < 本次 3 个 → 总量护栏生效
+    ctx.sub_agent_budget = std::make_shared<SubAgentBudget>(/*max_batch=*/10, /*max_total=*/2);
+
+    AgentTool tool;
+    auto r = tool.call(nlohmann::json{{"tasks", nlohmann::json::array({
+                                                    {{"prompt", "task A"}},
+                                                    {{"prompt", "task B"}},
+                                                    {{"prompt", "task C"}},
+                                                })}},
+                       ctx);
+
+    REQUIRE_FALSE(r.is_ok());
+    REQUIRE(r.error().message.find("累计") != std::string::npos);
+    REQUIRE(tm.getTasks().empty());
+}
+
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool launches normally within budget",
+                 "[agent_tool][budget]") {
+    MockEventBus bus;
+    auto& tm = TaskManager::instance();
+    MockConfigManager cfg;
+    ToolContext ctx;
+
+    auto provider = std::make_shared<MockCompletionProvider>();
+    auto r1 = std::make_shared<MockStreamReader>();
+    r1->add_content_chunk("result A");
+    auto r2 = std::make_shared<MockStreamReader>();
+    r2->add_content_chunk("result B");
+    provider->set_next_reader(r1);
+    provider->set_next_reader(r2);
+    fill_ctx(ctx, bus, tm, cfg, provider.get());
+    // 预算充足：不得误伤正常派生路径
+    ctx.sub_agent_budget = std::make_shared<SubAgentBudget>(/*max_batch=*/10, /*max_total=*/10);
+
+    AgentTool tool;
+    auto r = tool.call(nlohmann::json{{"tasks", nlohmann::json::array({
+                                                    {{"prompt", "task A"}},
+                                                    {{"prompt", "task B"}},
+                                                })}},
+                       ctx);
+
+    REQUIRE(r.is_ok());
+    auto tasks = tm.getTasks();
+    REQUIRE(tasks.size() == 2);
+    REQUIRE(ctx.sub_agent_budget->launched() == 2);  // 额度已扣减
+    REQUIRE(ctx.sub_agent_budget->remaining() == 8);
+    tm.waitForAll();
+}
