@@ -4,6 +4,8 @@
  */
 
 #include "core/config/config_manager.h"
+#include "core/utils/file_permissions.h"
+#include "liblogger/logger.h"
 
 #include <format>
 #include <nlohmann/json.hpp>
@@ -234,6 +236,27 @@ ResultV2<void> ConfigManager::load_from_file(const std::filesystem::path& path) 
     }
 }
 
+namespace {
+
+/// 权限加固失败不阻断保存（可用性优先于加固），但必须留痕，便于用户排查为何权限未收紧。
+void harden_file_or_warn(const std::filesystem::path& path) {
+    auto result = harden_private_file(path);
+    if (result.is_err()) {
+        LOG_WARN("[config] 文件权限加固失败（配置已正常写入）path={} err={}", path.string(),
+                 result.error().to_string());
+    }
+}
+
+void harden_dir_or_warn(const std::filesystem::path& path) {
+    auto result = harden_private_dir(path);
+    if (result.is_err()) {
+        LOG_WARN("[config] 目录权限加固失败 path={} err={}", path.string(),
+                 result.error().to_string());
+    }
+}
+
+}  // namespace
+
 ResultV2<void> ConfigManager::save_to_file(const std::filesystem::path& path) {
     nlohmann::json j;
 
@@ -246,9 +269,10 @@ ResultV2<void> ConfigManager::save_to_file(const std::filesystem::path& path) {
     }
 
     try {
-        // 确保父目录存在
+        // 确保父目录存在，并收紧为「仅属主可访问」——配置内容含 API Key 等敏感项
         if (path.has_parent_path()) {
             std::filesystem::create_directories(path.parent_path());
+            harden_dir_or_warn(path.parent_path());
         }
 
         std::ofstream file(path);
@@ -259,6 +283,10 @@ ResultV2<void> ConfigManager::save_to_file(const std::filesystem::path& path) {
         }
         file << j.dump(4);
         file.close();
+
+        // ofstream 直写（trunc）保留已存在文件的权限位，老用户的 0644 会一直留着，
+        // 因此必须在 close() 之后显式收紧，而不能只在创建路径上设一次。
+        harden_file_or_warn(path);
         return ResultV2<void>::ok();
 
     } catch (const std::exception& e) {

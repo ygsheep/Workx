@@ -29,6 +29,12 @@ target_link_libraries(workx_core PUBLIC
     logger
 )
 
+# Windows：utils/file_permissions.cpp 使用 GetNamedSecurityInfoW / SetEntriesInAclW /
+# SetNamedSecurityInfoW（Advapi32），这些符号不会由其它库透传，需显式链接。
+if(WIN32)
+    target_link_libraries(workx_core PRIVATE advapi32)
+endif()
+
 target_sources(workx_core PRIVATE
     config/config_manager.cpp
     process/sandbox/sandbox_adapter.cpp
@@ -40,6 +46,7 @@ target_sources(workx_core PRIVATE
     tool_kind.cpp
     utils/error.cpp
     utils/file_index.cpp
+    utils/file_permissions.cpp
     utils/line_diff.cpp
     utils/uuid.cpp
     utils/path_encoder.cpp
