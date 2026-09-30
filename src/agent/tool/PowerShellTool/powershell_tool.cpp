@@ -324,10 +324,8 @@ ResultV2<ToolResult> PowerShellTool::execute_sync(const std::string& command,
     auto wrapped = process::sandbox::SandboxAdapter::wrap_command(
         kShell, {kNoProfileFlag, kNonInteractiveFlag, kCommandFlag, command}, sb_config);
 
-    if (wrapped.was_wrapped) {
-        std::string sb_status = wrapped.degraded ? "degraded" : "active";
-        ctx.report_progress("Sandbox: " + sb_status + " (backend: " + wrapped.backend_name + ")");
-    }
+    // #84：不再被 was_wrapped 门控 —— 平台无后端时会如实上报 degraded
+    sandbox_visibility_.report(wrapped, disable_sandbox, name(), ctx);
 
     process::ExecOptions opts;
     opts.cwd = cwd;
@@ -386,6 +384,9 @@ ResultV2<ToolResult> PowerShellTool::execute_background(const std::string& comma
                         : process::sandbox::SandboxConfig::restrictive(cwd);
     auto wrapped = process::sandbox::SandboxAdapter::wrap_command(
         kShell, {kNoProfileFlag, kNonInteractiveFlag, kCommandFlag, command}, sb_config);
+
+    // #84：后台路径此前完全没有沙箱状态上报，降级同样静默
+    sandbox_visibility_.report(wrapped, disable_sandbox, name(), ctx);
 
     const size_t task_id = s_task_id_counter.fetch_add(1, std::memory_order_relaxed);
     std::string task_name = "ps:" + std::to_string(task_id) + ":" + command.substr(0, 40);

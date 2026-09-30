@@ -364,11 +364,9 @@ ResultV2<ToolResult> BashTool::execute_sync(const std::string& command, const st
     auto wrapped =
         process::sandbox::SandboxAdapter::wrap_command(sh.cmd, {sh.flag, command}, sb_config);
 
-    // 上报降级或包装情况
-    if (wrapped.was_wrapped) {
-        std::string sb_status = wrapped.degraded ? "degraded" : "active";
-        ctx.report_progress("Sandbox: " + sb_status + " (backend: " + wrapped.backend_name + ")");
-    }
+    // #84：沙箱状态可见化 —— 原实现在 `if (wrapped.was_wrapped)` 门控内上报，
+    // 而降级路径（Windows 无后端）恰好 was_wrapped=false，导致"裸跑且零提示"。
+    sandbox_visibility_.report(wrapped, disable_sandbox, name(), ctx);
 
     // 构建 ExecOptions
     process::ExecOptions opts;
@@ -433,6 +431,9 @@ ResultV2<ToolResult> BashTool::execute_background(const std::string& command,
                         : process::sandbox::SandboxConfig::restrictive(cwd);
     auto wrapped = process::sandbox::SandboxAdapter::wrap_command(
         shell().cmd, {shell().flag, command}, sb_config);
+
+    // #84：后台路径此前完全没有沙箱状态上报，降级同样静默
+    sandbox_visibility_.report(wrapped, disable_sandbox, name(), ctx);
 
     // M-3 修复：task_name 拼接唯一递增 id，避免不同任务重名
     // 格式：bash:<id>:<command 前 40 字符>

@@ -161,7 +161,8 @@ execute_sync(command, cwd, timeout_ms, disable_sandbox, ctx)
    └─ POSIX:   /bin/sh -c "<command>"
     │
     ▼
-4. 上报沙盒状态（active / degraded + backend_name）
+4. 上报沙盒状态（#84：active / degraded / disabled，全部逐次上报；
+   降级与显式关闭另各写一条审计事件，见 6.2 与 6.5）
     │
     ▼
 5. 构建 ExecOptions
@@ -243,7 +244,11 @@ constexpr const char* kShellFlag = "-c";
 - 限制文件系统访问到 `cwd` 及必要临时目录
 - 限制网络访问（平台相关：Linux bwrap / macOS sandbox-exec / Windows Job Object）
 - `dangerously_disable_sandbox=true` 切换为 `permissive()`，仅用于明确需要无限制访问的场景
-- 沙盒不可用时 `SandboxAdapter::wrap_command()` 自动降级（`wrapped.degraded=true`），仍执行命令但上报降级状态
+- 沙盒不可用时 `SandboxAdapter::wrap_command()` 自动降级（`wrapped.degraded=true`），仍执行命令但**如实上报**降级状态
+- #84：降级上报不再被 `was_wrapped` 门控 —— 同步与后台路径都会调用
+  `SandboxVisibility::report()`，Windows 上不再出现"以为开了 restrictive、实际裸跑且零提示"
+- 审计留痕：`degraded` 写 `security.sandbox_degraded`，`dangerously_disable_sandbox` 写
+  `security.sandbox_disabled`；两类各在工具实例内只写一次，避免逐条命令刷爆 `audit.jsonl`
 
 ### 6.3 超时控制
 
@@ -280,7 +285,7 @@ if (ctx.cancel_flag != nullptr) {
 | 时机 | 文本 |
 |------|------|
 | 同步执行开始 | `Executing: <command>` |
-| 沙盒状态 | `Sandbox: <active\|degraded> (backend: <name>)` |
+| 沙盒状态 | `Sandbox: <active\|degraded\|disabled> (backend: <name>)`（#84：三态全部上报，degraded/disabled 附带 `command runs WITHOUT OS-level isolation`） |
 | 同步完成（成功） | `Command completed successfully` |
 | 同步完成（超时） | `Command timed out` |
 | 同步完成（取消） | `Command cancelled` |
@@ -462,6 +467,11 @@ tool.call(input, ctx);
 | **超时钳制** | `timeout=999999999` 自动截断 | ok |
 
 跨平台命令选择：Windows 用 `cmd.exe /c echo` / `exit /b 42` / `ping -n 10`，POSIX 用 `/bin/sh -c` / `exit 42` / `sleep 10`。
+
+沙箱状态可见性（#84）的用例单独放在
+[tests/unit/agent/tool/test_sandbox_visibility.cpp](../../../../tests/unit/agent/tool/test_sandbox_visibility.cpp)，
+标签 `[sandbox_visibility][issue84]`：三态判定、进度文案、审计详情、
+"连调 3 次只留 1 条审计"、active 不写审计，以及 `BashTool::call()` 的端到端上报。
 
 ---
 
