@@ -1,10 +1,12 @@
 # P0 功能测试用例方案
 
 > 适用范围：Issue #77 ~ #81（Agent Harness 评分卡中的 5 项 P0）
-> 编写日期：2026-09-30 · **复审更新 2026-09-30 12:30** · **二次更正 2026-09-30 13:20**（develop `b2d41ca`）
-> 状态：方案待评审；#77 / #79 / #80 / #81 均已合入 develop，可立即开工；#78 已有验证原语（#31/#32）但**默认路径未接线**
+> 编写日期：2026-09-30 · **复审更新 12:30** · **二次更正 13:20** · **三次更新 18:55**（develop `9a2de19`）
+> 状态：方案待评审；#77 / #79 / #80 / #81 均已合入 develop；**#78 的 P1 基建 + P2 headless 已落地**（PR #98），P3 / P4 待做
 >
 > 🔴 **二次更正说明**：初版与复审均把 #78 判为「代码未实现 / 零实现」，**该判定不成立**。详见 §1.2 E。
+> ✅ **三次更新（2026-09-30 18:39，`9a2de19`）**：#78 已落地 P1 / P2 —— `ReActLoop` 自带 FinalAnswer 前验证门禁
+> （`run_verification_gate()`），headless 入口默认开启；13 条 `[issue78]` 用例全绿。VF-08 / P3 / P4 仍未做。
 
 ---
 
@@ -22,11 +24,12 @@
 | #80 | json_schema 通用参数校验 | CLOSED | `d34d44a`（PR #90） | ⚠️ 8 用例，`test_json_schema.cpp` | ✅ |
 | #79 | 子 Agent 派生护栏 | CLOSED | `67ea633`（PR #92） | 5 用例，`test_sub_agent_budget.cpp` | ✅ |
 | #81 | git 检查点与回滚 | CLOSED | `b2d41ca`（PR #93） | 7 用例，`test_git_checkpoint.cpp` | ✅ |
-| #78 | 强制验证闭环 / PreCompletion 门禁 | **OPEN** | ❌ 无 | ⚠️ 已有 `goal_verdict` / `verdict` 用例（`test_agent_core.cpp:95-111`，**缺 `[#78]` 标签**） | ⚠️ **部分可开工**：VF-03 / VF-06 / VF-07 现在就能写 |
+| #78 | 强制验证闭环 / PreCompletion 门禁 | **OPEN**（部分落地） | ✅ `9a2de19`（PR #98，P1+P2） | ✅ **13 条 `[issue78]` 用例全绿**（`test_react_loop.cpp` 8 条 + `test_agent_core.cpp` 5 条） | ⚠️ P1 / P2 已完成；P3 / P4 与 VF-08 待做 |
 
-**结论**：4 项可立即开工，**#77 是唯一零覆盖项且优先级最高**；#78 **不是**「代码未实现」——验证原语已存在，缺的是接线，因此 **VF-03 / VF-06 / VF-07 可立即开工**，VF-01 / VF-02 / VF-04 需先接入默认路径。
+**结论（三次更新后）**：**#77 仍是唯一零覆盖项，优先级最高**；#78 的 P1 / P2 已于 2026-09-30 落地（PR #98）——
+门禁进主循环 + headless 默认开启，VF-01 ~ VF-07 / VF-09 共 13 条用例全绿。**剩余缺口**：P3（交互式默认开启）、P4（命令自适应探测）、VF-08。
 
-**复审附带结论（评分同步更新）**：四项 P0 落地后，Harness 加权总分从 **61.05 → 68.5**（详见 `docs/agent-harness-scorecard.html`）。初评「补齐 P0 后约 82 分」的预估偏乐观——它把 #78（权重 20% 的最大项）算进了红利，而这一项在**默认路径上**完全没生效（验证原语存在但未接线，见 §1.2 E）。
+**评分同步（三次更新）**：Harness 加权总分 **61.05 → 68.5 →（记账更正）69.9 → 71.9**（验证闭环 55 → 65，因 #78 P1 / P2 落地）。详见 `docs/agent-harness-scorecard.html`。
 
 **新暴露的三个风险**（P0 落地后才出现，已计入本方案）：
 1. **headless 零测试** —— 唯一合入即零覆盖的 P0 模块，失败模式是「静默输出错内容」而非崩溃；
@@ -51,7 +54,7 @@
 1. **`mock_git_repo.h`**：RAII 临时 git 仓库 fixture（init / commit / 改 / 删 / 未跟踪 / rename）。#81 的真仓库用例需要。
 2. **headless 后端注入口**：`run_headless()` 内部直接调 `create_backend(cfg, ...)` 建真实后端，**测试无法注入 `MockCompletionProvider`**。需抽出内部重载（如 `run_headless_with_provider(cfg, task_manager, provider, opts)`），否则 #77 只能测输出序列化纯函数，测不到主流程。
    → 这是 #77 用例能否落地的**阻塞项**，建议与用例同 PR 提交。
-3. **`scripted_model.h`（可选）**：把「第 N 轮返回指定 tool_call / 文本」封装成一行 DSL，供 #78 落地后大规模复用。
+3. **`scripted_model.h`（可选）**：把「第 N 轮返回指定 tool_call / 文本」封装成一行 DSL，供多轮脚本化用例复用。✅ #78 落地时**未新增**该基建，而是以 `VerificationGateFixture` 等价实现（见 §1.2 E）。
 
 ---
 
@@ -134,40 +137,49 @@
 > 📌 **对 Issue #79 标题的修正**：标题写的是「递归深度上限」，但深度其实已被**结构性禁止**——`agent_tool.cpp:80`（develop）/ `:103`（#79 分支）构建子 Agent 工具集时无条件 `continue` 掉 `kAgentToolName`，嵌套深度恒为 1。真实缺口是**横向规模**（批量 + run 累计），护栏实现也是按这个做的。因此**不需要**再写深度上限用例，SA-13 改为「锁住防递归守卫」的回归用例。
 > 📌 这条同时说明：本仓库的 issue 描述会过时，**动手前必须回代码核实**（此前 #52 / #87 / #89 均已出现同类情况）。
 
-#### E. #78 验证闭环（~~未实现~~ → **能力已存在，默认路径未接线**）
+#### E. #78 验证闭环（~~未实现~~ → ~~未接入默认路径~~ → **P1 / P2 已落地**）
 
-> 🔴 **事实更正**：#78 不是「从零实现」。`#31/#32` 已留下目标验证栈，且**已有测试**：
+> ✅ **三次更新（2026-09-30 18:39，`9a2de19` / PR #98）**：原列的三项缺口，前两项已闭合 ——
+> **① 接入默认 ReAct 路径** ✅ `run_verification_gate()` 已进入 `react_loop.cpp` 主循环（FinalAnswer 落地之前）；
+> **② 默认开启而非手工 opt-in** ⚠️ 部分 —— headless 默认开（`enabled_by_default=true`，评测入口先受益），**交互式仍默认关**；
+> **③ 与预算（#55）联动** ❌ 未做（设计文档列为 P4）。
+> 完整落地说明见 `docs/design-issue-78-verification-loop.md`。
+>
+> 🔴 **事实更正（二次）**：#78 不是「从零实现」。`#31/#32` 已留下目标验证栈，且**已有测试**：
 > `goal_verdict.h`（`AgentGoal` / `GoalStatus`）、`verdict.h`（`check_goal` / `guard_command` / `parse_goal`）、
 > `GoalGuardedAgent`（`agent_loop_adapters.cpp:33`，经 `agent.type="goal-guarded"|"verify"` 启用，`app_config.cpp:129`）。
-> 缺的是三件事：**① 接入默认 ReAct 路径**（`react_loop.cpp` 对 `check_goal` / `AgentGoal` / `has_checker` **零命中**）
-> **② 默认开启而非手工 opt-in**（默认 `agent.type` 为空 → 纯 ReAct → 零验证）**③ 与预算（#55）联动**。
-> → #78 的性质是**接线 + 改默认值**，工作量与风险显著低于初版估计。
+> 实现走的是**接线 + 改默认值**，工作量与风险显著低于初版估计。
 
 | ID | 类别 | 规格 | 现状 |
 |---|---|---|---|
-| VF-01 | P1 | 未通过验证（编译/测试/guard_command）不得进入 FinalAnswer | ❌ 尚未接入默认路径 |
-| VF-02 | P1 | 验证失败 → 错误信息回灌 LLM 重试；重试次数达上限后降级为「带警告终止」 | ⚠️ `GoalGuardedAgent` 已有 `max_attempts=50` 重试语义，但非默认 |
-| VF-03 | P2 | 项目无可用验证命令（无 CMake/Makefile）→ 跳过而非失败 | ⚠️ 需澄清：现行 `kLintCmd="echo 'no lint config'"`（`verdict.cpp:289`）是**硬编码默认命令**，与本条要的「探测项目是否真有命令」语义不同，不能直接宣称已覆盖 |
+| VF-01 | P1 | 未通过验证（编译/测试/guard_command）不得进入 FinalAnswer | ✅ **已落地** —— 用例「VF-01: 验证未通过时不产生无警告的最终答复」 |
+| VF-02 | P1 | 验证失败 → 错误信息回灌 LLM 重试；重试次数达上限后降级为「带警告终止」 | ✅ **已落地**（3 条用例）—— 含「回灌必须消耗预算（不得静默死循环）」，锁住 `continue` 跳过预算记账的坑 |
+| VF-03 | P2 | 项目无可用验证命令（无 CMake/Makefile）→ 跳过而非失败 | ✅ **已落地**（门禁侧，用例「无可用验证器时门禁直接放行」）；⚠️ **命令自适应探测**（区分硬编码 `kLintCmd` 与真实探测）仍归 P4 |
 
 **建议补充（已随 VF-01~03 一并回帖到 issue #78）**：
 
 | ID | 类别 | 用例 | 理由 |
 |---|---|---|---|
-| **VF-04** | P1 | **默认路径接入**：脚本化模型全程不调工具直接给 final_answer，断言退出前发生了验证判定 | 本 issue 的真缺口；唯一能证明「闭环真的关上了」的用例 |
-| **VF-05** | P2 | `Stop` hook 的 `blockingError` 不得吞掉 final_answer（`react_loop.cpp:1218-1224` 的覆写） | 该覆写可能是缺陷；走 Stop 路线会直接踩到 |
-| **VF-06** | **P1·安全** | `guard_command` 必须拦住 `goal.command` 注入：`;` `&&` `\|` `$()` 反引号、换行 | 自动执行场景的 RCE 前置，**先于功能本体落地** |
-| **VF-07** | P2 | 「无可用验证命令」的探测行为（`custom_script` + 项目无 CMake/Makefile → 跳过） | 补 VF-03 与 `kLintCmd` 之间的语义差 |
-| **VF-08** | P4 | headless(#77) × 验证闭环：验证执行时不得阻塞 stdin（无人值守） | 跨模块耦合，与 HL-12 同类 |
-| **VF-09** | P2 | 达 `max_iterations`（`at_limit`）时是否仍能完成一轮验证 | 呼应 issue 关联的 #55 |
+| **VF-04** | P1 | **默认路径接入**：脚本化模型全程不调工具直接给 final_answer，断言退出前发生了验证判定 | ✅ **已落地** —— 本 issue 的真缺口已闭合（用例「VF-04: apply_verification_gate 按入口正确装配门禁」） |
+| **VF-05** | P2 | `Stop` hook 的 `blockingError` 不得吞掉 final_answer（`react_loop.cpp:1218-1224` 的覆写） | ✅ **已落地**（用例「VF-05: Stop hook 阻断不吞掉验证结论」）—— 门禁不走 Stop 路线，天然绕开该覆写 |
+| **VF-06** | **P1·安全** | `guard_command` 必须拦住 `goal.command` 注入：`;` `&&` `\|` `$()` 反引号、换行 | ✅ **已落地**（2 条用例：字符串级拦截 + 正常调用形式不误伤）—— 自动执行场景的 RCE 前置已守住 |
+| **VF-07** | P2 | 「无可用验证命令」的探测行为（`custom_script` + 项目无 CMake/Makefile → 跳过） | ⚠️ **部分** —— 用例锁了「目标类型与 checker 对应」；真实探测语义归 P4 |
+| **VF-08** | P4 | headless(#77) × 验证闭环：验证执行时不得阻塞 stdin（无人值守） | ❌ **未落地** —— 依赖 #77 的 headless 集成基建（与 HL-12 同类），待同批补 |
+| **VF-09** | P2 | 达 `max_iterations`（`at_limit`）时是否仍能完成一轮验证 | ✅ **已落地**（用例「VF-09: 预算仅剩一轮时不再无效回灌，直接降级」）；⚠️ 内部评审器两条退出路径仍不经门禁（设计文档 §7.1） |
 
-> ⚠️ **实现约束（影响方案选型）**：`Stop` 事件**撑不起闭环**——派发点在 `react_loop.cpp:1201-1227`，位于**循环收尾之后**，
-> `blockingError` 仅覆写 final_answer（`:1218-1224`），**不会重新进入循环**。单靠 `Stop` 只能「注入一句警告」，
-> 做不到「验证 → 失败 → 回灌 → 修复 → 重验」。必须在 loop 内部新增退出前判定点，或走 `GoalGuardedAgent` 外层包壳。
+> ⚠️ **实现约束（影响方案选型）**：`Stop` 事件**撑不起闭环**——派发点在 `react_loop.cpp` 循环收尾之后，
+> `blockingError` 仅覆写 final_answer，**不会重新进入循环**。单靠 `Stop` 只能「注入一句警告」，
+> 做不到「验证 → 失败 → 回灌 → 修复 → 重验」。
+> → ✅ **落地采用的方案**：在 loop 内部新增退出前判定点（`run_verification_gate()`，位于 FinalAnswer 落地之前）；
+> **未**采用 `GoalGuardedAgent` 外层包壳——headless 自行构造 `ReActLoop`，走包壳会让评测入口零验证。
 
 三条先以规格形式挂在 #78（✅ **已于 2026-09-30 回帖**），实现落地后在 `tests/unit/agent/core/test_react_loop.cpp` 用脚本化模型实现。
+> ✅ **已实现**（2026-09-30，PR #98）：13 条 `[issue78]` 用例分布在 `test_react_loop.cpp`（8 条）与 `test_agent_core.cpp`（5 条）。
+> 未新增独立的 `scripted_model.h` —— 直接复用了 `VerificationGateFixture` + `MockCompletionProvider` 的多轮脚本能力。
 
-> 📌 前置：`scripted_model.h`（§0.3 第 3 项）为 VF-02 / VF-04 的多轮脚本化所必需，建议从「可选」提升为**必需项**。
-> 📌 现有 goal/verdict 用例标签为 `[agent][goal][verify]`，**缺 `[#78]`**，不满足 §2.3 自订规范，无法 `ctest -L "#78"` 单 issue 回归。
+> 📌 前置：`scripted_model.h`（§0.3 第 3 项）为 VF-02 / VF-04 的多轮脚本化所必需 → ✅ 落地时以 `VerificationGateFixture` 等价实现，**无需新增基建**。
+> 📌 既有 goal/verdict 用例标签为 `[agent][goal][verify]`；新用例统一打 `[issue78]`，已满足 §2.3 规范，可 `ctest -L issue78` 单 issue 回归。
+> ⚠️ **不要**用 `[#78]` 形式 —— `#` 开头是 Catch2 保留的文件名标签，会导致用例无法被按名选中。
 
 ### 1.3 明确不覆盖的场景（及原因）
 
@@ -220,7 +232,7 @@ tests/
 │   │   ├── tool/
 │   │   │   └── test_sub_agent_budget.cpp   # #79  已存在（分支上）5 条
 │   │   └── core/
-│   │       └── test_react_loop.cpp         # #78  落地后在此加 VF-01~03
+│   │       └── test_react_loop.cpp         # #78  VF-01~07 / VF-09 已在此实现（8 条）
 │   └── helpers/
 │       ├── mock_provider.h                 # 已存在
 │       ├── mock_git_repo.h                 # 【新增】RAII 临时仓库 fixture
@@ -243,7 +255,7 @@ tests/
 **TEST_CASE**：
 
 ```cpp
-TEST_CASE("headless: 未知权限模式返回 exit 2", "[headless][error][#77]") {
+TEST_CASE("headless: 未知权限模式返回 exit 2", "[headless][error][issue77]") {
     // 对应 src/agent/headless/headless.cpp:212-218
     ...
 }
@@ -258,7 +270,7 @@ TEST_CASE("headless: 未知权限模式返回 exit 2", "[headless][error][#77]")
 | `[error]` | 异常分支 | |
 | `[boundary]` | 边界条件 | |
 | `[regression]` | 回归/跨模块 | |
-| `[#77]` `[#78]` `[#79]` `[#80]` `[#81]` | 按 issue 聚合 | `ctest -L "#77"` 单 issue 回归 |
+| `[issue77]` `[issue78]` `[issue79]` `[issue80]` `[issue81]` | 按 issue 聚合 | `ctest -L issue77` 单 issue 回归 |
 | `[slow]` | 慢（>1s，如并发压测） | `ctest -LE slow` 快子集 |
 | `[git]` | 依赖外部 git 可执行文件 | 环境缺失时 SKIP |
 | `[.]` / `[!shouldfail]` | 隐藏 / 预期失败（待实现） | 默认不跑 |
@@ -276,7 +288,7 @@ TEST_CASE("headless: 未知权限模式返回 exit 2", "[headless][error][#77]")
 ```
 阶段 0（0.5d）基建  →  阶段 1（1.5d）#77  →  阶段 2（0.5d）#80
                                     ↓
-              阶段 3（0.5d）#79  →  阶段 4（0.5d）#81  →  阶段 5（#78 实现后）
+              阶段 3（0.5d）#79  →  阶段 4（0.5d）#81  →  阶段 5（#78 已落地）
                                     ↓
                           阶段 6（0.5d）CI 接入
 ```
@@ -290,14 +302,15 @@ TEST_CASE("headless: 未知权限模式返回 exit 2", "[headless][error][#77]")
 | **2** | JS-09 ~ JS-16（重点 JS-15/JS-16） | 无 | #80 补齐执行侧接入验证 |
 | **3** | SA-06 ~ SA-13 | ✅ 无（#79 已合入 `67ea633`） | #79 护栏完整 |
 | **4** | GC-08 ~ GC-15 | ✅ 无（#81 已合入 `b2d41ca`） | #81 完整 |
-| **5** | VF-01 ~ VF-09 | ⚠️ #78 需先接入默认路径（VF-03 / VF-06 / VF-07 不依赖接线，可先行） | 验证闭环 |
+| **5** | VF-01 ~ VF-09 | ✅ 无（#78 的 P1 / P2 已落地 `9a2de19`；仅 VF-08 依赖 #77 集成基建） | 验证闭环 |
 | **6** | `.github/workflows/build-test.yml` | 阶段 1 完成 | CI 真门禁 |
 
 **排序理由**：
 - #77 第一 —— 唯一零覆盖，且是整条评测链路的入口，失败模式是「静默错」最难发现；
 - #80 第二 —— JS-15/JS-16 是 issue 本意（执行侧校验），现有 8 条只覆盖了一半，补它最便宜；
 - #79 / #81 第三/四 —— 实现与基础用例已在 develop，只需补边界与回归；
-- #78 最后 —— **默认路径未接线**（验证原语已存在）；其中 VF-03 / VF-06 / VF-07 不依赖接线，可与阶段 1 并行。
+- #78 最后 —— ✅ **P1 / P2 已落地**（`9a2de19`：门禁进主循环 + headless 默认开启），仅剩 VF-08 待补；
+  P3（交互式默认开启）/ P4（命令自适应探测）按设计文档后续推进，不再阻塞阶段 5。
 
 **建议并行排布**：阶段 0 的 ① 与 ② 可并行（互不依赖），阶段 1 开工的同时阶段 3 / 4 可由另一人推进。
 
@@ -342,7 +355,7 @@ jobs:
 | 级别 | 内容 | 阻塞 |
 |---|---|---|
 | 硬门禁 | `ctest -LE slow` 全绿；新增 P0 用例必须存在且通过 | ✅ |
-| 硬门禁 | 单 issue 回归：`ctest -L "#77"` 等 | ✅（阶段 1 后开启） |
+| 硬门禁 | 单 issue 回归：`ctest -L issue77` 等 | ✅（阶段 1 后开启） |
 | 软报告 | `-L slow`（并发压测等），`continue-on-error: true` 观察 2 周再转硬 | ❌ |
 | 软报告 | 全量测试耗时 / 通过数趋势，上传 artifact | ❌ |
 
@@ -386,11 +399,13 @@ Refs #77
 
 ## 附录：验收标准（本案完成时）
 
-- [ ] #77 用例数 ≥ 12，且能 `ctest -L "#77"` 单独跑通（**当前 0，最高优先**）
+- [ ] #77 用例数 ≥ 12，且能 `ctest -L issue77` 单独跑通（**当前 0，最高优先**）
 - [ ] #80 补齐 JS-15 / JS-16（执行侧接入验证 + 错误回灌自纠）
 - [ ] #79 补齐 SA-06 ~ SA-13（含并发不超发 SA-10、防递归回归 SA-13）
 - [ ] #81 补齐 GC-08 ~ GC-15（含真仓库用例与 `[git]` 标签守卫）
-- [x] #78 验收规格已挂到 issue（2026-09-30 已回帖），实现后转 VF-01 ~ VF-09
+- [x] #78 验收规格已挂到 issue（2026-09-30 已回帖）
+- [x] #78 实现已落地（P1 / P2，`9a2de19` / PR #98）——VF-01 ~ VF-07 / VF-09 共 13 条用例全绿
+- [ ] VF-08（headless 下验证执行不阻塞 stdin）—— 依赖 #77 的 headless 集成基建，待补
 - [ ] CI 存在 build + test job，且对 develop 的 push/PR 生效
 - [ ] 无一个用例依赖真实 LLM 或外网
-- [ ] 评分卡复审分数同步（评分卡 HTML 仍为 68.5；**验证闭环维度依据已更正为 55，总分应为 69.9**，需同步到 `docs/agent-harness-scorecard.html`；注意这是记账更正，非能力提升）
+- [x] 评分卡分数同步（`docs/agent-harness-scorecard.html` 已更新至 **71.9**；验证闭环 55 → 65 是 #78 P1 / P2 落地带来的**真实能力提升**，与此前 48 → 55 的记账更正性质不同）

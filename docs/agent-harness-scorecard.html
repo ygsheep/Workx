@@ -86,17 +86,18 @@
 
 <header>
   <h1>Workx · Agent Harness 评分卡</h1>
-  <div class="sub">v0.10.1 · 静态代码审计 + 业界 Harness 评测方法论对齐 · 初评 2026-09-29 · <b style="color:var(--blue)">复审 2026-09-30</b> · <b style="color:var(--red)">二次更正 2026-09-30 13:35</b></div>
-  <div class="badge">⚠ 代码预估分，非跑分结果 —— P0 五项已落地四项（#77 / #79 / #80 / #81），headless 入口已通，但仍未跑过任何基准</div>
+  <div class="sub">v0.10.1 · 静态代码审计 + 业界 Harness 评测方法论对齐 · 初评 2026-09-29 · <b style="color:var(--blue)">复审 2026-09-30</b> · <b style="color:var(--red)">二次更正 13:35</b> · <b style="color:var(--green)">三次更新 18:55</b></div>
+  <div class="badge">⚠ 代码预估分，非跑分结果 —— P0 五项现已全部落地（#78 为 P1 / P2），headless 入口已通，但仍未跑过任何基准</div>
+  <div class="badge" style="background:rgba(63,185,80,.14);color:var(--green);border-color:rgba(63,185,80,.4)">✅ <b>三次更新 2026-09-30 18:39</b>：#78 的 P1 / P2 已落地（<code style="color:var(--purple)">9a2de19</code> / PR #98）—— 主循环自带 FinalAnswer 前验证门禁（<code style="color:var(--purple)">run_verification_gate()</code>），headless 默认开启，13 条 <code style="color:var(--purple)">[issue78]</code> 用例全绿。→ 验证闭环 55 → <b>65</b>，加权总分 69.9 → <b>71.9</b>。<b>这一次是真实能力提升</b>，与二次更正的记账性质不同。</div>
   <div class="badge" style="background:rgba(248,81,73,.14);color:var(--red);border-color:rgba(248,81,73,.4)">🔴 <b>二次更正</b>：「#78 零实现 / 代码完全未实现」的判定<b>不成立</b>。#31/#32 的目标验证栈已存在（<code style="color:var(--purple)">check_goal</code> / <code style="color:var(--purple)">guard_command</code> / <code style="color:var(--purple)">parse_goal</code> / <code style="color:var(--purple)">GoalGuardedAgent</code>）且已有测试，缺的是<b>接入默认 ReAct 路径 + 默认开启</b>。→ 验证闭环 48 → <b>55</b>，加权总分 68.5 → <b>69.9</b>。<b>这是记账更正，不是能力提升</b>——能力一直在代码里，只是初评与复审都没看见。</div>
 </header>
 
 <div class="kpis">
-  <div class="kpi"><div class="label">加权总分</div><div class="val v-yellow">69.9<small style="font-size:15px;color:var(--dim)">/100</small></div><div class="note">初评 61 → 复审 68.5 → <b style="color:var(--red)">更正 69.9</b>（+1.4 记账更正）</div></div>
+  <div class="kpi"><div class="label">加权总分</div><div class="val v-yellow">71.9<small style="font-size:15px;color:var(--dim)">/100</small></div><div class="note">初评 61 → 复审 68.5 → 更正 69.9 → <b style="color:var(--green)">71.9</b>（+2.0 真实提升）</div></div>
   <div class="kpi"><div class="label">最强维度</div><div class="val v-green" style="font-size:22px">工具层 82</div><div class="note">schema 执行侧兜底校验</div></div>
-  <div class="kpi"><div class="label">最大失分维度</div><div class="val v-red" style="font-size:22px">验证闭环 55</div><div class="note">加权失分 9.0 · 默认路径未接线（#78）</div></div>
-  <div class="kpi"><div class="label">P0 进度</div><div class="val v-green">4<small style="font-size:15px;color:var(--dim)">/5</small></div><div class="note">#78 仍 OPEN：能力已有，默认路径未接线</div></div>
-  <div class="kpi"><div class="label">剩余提升空间</div><div class="val v-blue">+11<small style="font-size:15px;color:var(--dim)">分</small></div><div class="note">补 #78 约 76，再补 P1 约 81</div></div>
+  <div class="kpi"><div class="label">最大失分维度</div><div class="val v-red" style="font-size:22px">验证闭环 65</div><div class="note">加权失分 7.0 · 仍欠 P3 / P4 / VF-08（#78）</div></div>
+  <div class="kpi"><div class="label">P0 进度</div><div class="val v-green">4.5<small style="font-size:15px;color:var(--dim)">/5</small></div><div class="note">#78 P1 / P2 已落地 · P3 / P4 待做</div></div>
+  <div class="kpi"><div class="label">剩余提升空间</div><div class="val v-blue">+9<small style="font-size:15px;color:var(--dim)">分</small></div><div class="note">补完 #78 约 76，再补 P1 约 81</div></div>
 </div>
 
 <h2>维度评分</h2>
@@ -117,18 +118,18 @@
       <line x1="180" y1="160" x2="94.0" y2="91.4" stroke="#30363d" stroke-width="1" opacity=".5"/>
       <polygon points="180,80.8 240.2,112.0 222.9,169.8 212.5,227.4 150.4,221.4 99.6,178.4 167.1,149.7"
                fill="rgba(139,148,158,.16)" stroke="#6e7681" stroke-width="1.5" stroke-dasharray="4 3"/>
-      <polygon points="180,69.8 240.2,112.0 239.0,173.5 215.8,234.3 145.6,231.4 96.4,179.1 141.3,129.1"
+      <polygon points="180,69.8 240.2,112.0 249.7,175.9 215.8,234.3 145.6,231.4 96.4,179.1 141.3,129.1"
                fill="rgba(88,166,255,.28)" stroke="#58a6ff" stroke-width="2"/>
       <circle cx="180" cy="69.8" r="3" fill="#58a6ff"/>
       <circle cx="240.2" cy="112.0" r="3" fill="#58a6ff"/>
-      <circle cx="239.0" cy="173.5" r="3.5" fill="#f85149"/>
+      <circle cx="249.7" cy="175.9" r="3.5" fill="#f85149"/>
       <circle cx="215.8" cy="234.3" r="3" fill="#58a6ff"/>
       <circle cx="145.6" cy="231.4" r="3" fill="#58a6ff"/>
       <circle cx="96.4" cy="179.1" r="3" fill="#58a6ff"/>
       <circle cx="141.3" cy="129.1" r="4" fill="#d29922"/>
       <text x="180" y="26" text-anchor="middle" fill="#8b949e" font-size="11">工具层 72→82</text>
       <text x="286" y="76" text-anchor="start" fill="#8b949e" font-size="11">上下文 70</text>
-      <text x="312" y="190" text-anchor="start" fill="#f85149" font-size="11">验证 40→55</text>
+      <text x="312" y="190" text-anchor="start" fill="#f85149" font-size="11">验证 40→65</text>
       <text x="240" y="282" text-anchor="start" fill="#8b949e" font-size="11">安全 68→75</text>
       <text x="120" y="282" text-anchor="end" fill="#8b949e" font-size="11">编排 62→72</text>
       <text x="48" y="190" text-anchor="end" fill="#8b949e" font-size="11">可观测 75→78</text>
@@ -147,8 +148,8 @@
             <td><div class="bar"><i style="width:70%;background:var(--green)"></i></div></td>
             <td class="score v-green">70</td><td class="dim-ev">四级缓存感知压缩 + Stuck 守卫 · #82 未做</td></tr>
         <tr><td class="dim-name">验证闭环</td><td>20</td>
-            <td><div class="bar"><i style="width:55%;background:var(--red)"></i></div></td>
-            <td class="score v-red">55 <small style="color:var(--red);font-size:10px">+15</small></td><td class="dim-ev">#78 能力已有但默认路径未接线 · 仅 #81 改动清单可审计</td></tr>
+            <td><div class="bar"><i style="width:65%;background:var(--yellow)"></i></div></td>
+            <td class="score v-yellow">65 <small style="color:var(--green);font-size:10px">+25</small></td><td class="dim-ev">#78 P1/P2 已落地 · 门禁进主循环 + headless 默认开启；欠 P3/P4/VF-08</td></tr>
         <tr><td class="dim-name">安全与权限</td><td>15</td>
             <td><div class="bar"><i style="width:75%;background:var(--yellow)"></i></div></td>
             <td class="score v-yellow">75 <small style="color:var(--yellow);font-size:10px">+7</small></td><td class="dim-ev">#81 基线 + 回滚入口 · Win 沙箱仍 none</td></tr>
@@ -169,19 +170,20 @@
 <h2>差距清单</h2>
 
 <div class="find">
-  <div class="find-h"><span class="tag t-p0" style="background:rgba(63,185,80,.16);color:var(--green);border-color:rgba(63,185,80,.4)">DONE</span>P0 已落地 4/5 — 复审核实（commit 级）</div>
+  <div class="find-h"><span class="tag t-p0" style="background:rgba(63,185,80,.16);color:var(--green);border-color:rgba(63,185,80,.4)">DONE</span>P0 已落地 4.5/5 — 复审核实（commit 级）</div>
   <ul>
     <li><b>#77 headless 非交互模式</b> ✅ — <code>src/agent/headless/headless.{h,cpp}</code>；CLI <code>-p/--print</code> + <code>--output-format text|json|stream-json</code>（<code>main.cpp:89-166</code>）；退出码 0/1/2 语义化。<br><span>→ 评测链路的前置条件已解除。⚠️ 但<b>零测试覆盖</b>——全仓 <code>grep -i headless -- tests</code> 无命中，是新的最大风险点。</span></li>
     <li><b>#80 json_schema 执行侧校验</b> ✅ — <code>util/json_schema.{h,cpp}</code>（275 行，type/properties/required/enum/range/length/pattern/items），已接入 <code>executor.h:223</code> 作为 <code>validate_input</code> 之后的兜底。<br><span>→ 新工具漏写 validate_input 不再裸奔，错误结构化可回灌自纠。</span></li>
     <li><b>#79 子 Agent 派生护栏</b> ✅ — <code>SubAgentBudget</code>（批量上限 + run 累计上限，atomic CAS 预约），配置 <code>agent.sub_agent_max_batch/total</code>。<br><span>📌 复审修正：issue 标题的「递归深度」其实<b>已被结构性禁止</b>——<code>agent_tool.cpp:80</code> 构建子工具集时 <code>continue</code> 掉 <code>kAgentToolName</code>，深度恒为 1。真实缺口是横向规模，实现也是按这个做的。</span></li>
     <li><b>#81 git 检查点</b> ✅ — <code>util/git_checkpoint.{h,cpp}</code>；<code>react_loop.cpp:622</code> 捕获基线、<code>chat_session.cpp:496</code> reset、headless 输出 <code>git_diff_summary</code>、TUI <code>/diff</code> + <code>/rollback --confirm</code>。<br><span>→ 只读安全网 + 人工回滚入口；不自动回滚，避免误删用户改动。</span></li>
+    <li><b>#78 强制验证闭环（P1 / P2）</b> ✅ — <code>run_verification_gate()</code> 位于 <code>react_loop.cpp</code> 主循环（FinalAnswer 落地之前）：未通过 → 回灌失败原因重试，达 <code>verify_max_attempts</code> → 带警告降级终止；headless 以 <code>enabled_by_default=true</code> 默认开启。<br><span>→ 13 条 <code>[issue78]</code> 用例全绿，含「回灌必须消耗预算」的死循环守卫。⚠️ 交互式仍默认关（P3）、命令自适应探测未做（P4）、VF-08 未补。</span></li>
   </ul>
 </div>
 
 <div class="find">
-  <div class="find-h"><span class="tag t-p0">P0</span>剩余阻塞项 — 唯一未接线的一项</div>
+  <div class="find-h"><span class="tag t-p1" style="background:rgba(63,185,80,.16);color:var(--green);border-color:rgba(63,185,80,.4)">已落地</span>#78 验证闭环 — P1 / P2 已进默认路径</div>
   <ul>
-    <li><b>#78 强制验证闭环 / PreCompletion 门禁</b> — <b style="color:var(--red)">此前记的「零命中 / 代码完全未实现」是错的。</b><code>git grep -i "precompletion\|verification_gate" -- src</code> 零命中只能证明<b>没用 LangChain 的命名</b>——本仓等价能力叫 <code>check_goal</code> / <code>GoalGuardedAgent</code> / <code>Verdict</code>。<br><span>→ <b>实际已存在</b>：<code>goal_verdict.h</code>（<code>AgentGoal</code> / <code>GoalStatus</code>）、<code>verdict.h</code>（<code>check_goal</code> / <code>guard_command</code> / <code>parse_goal</code>，默认命令 <code>ctest --output-on-failure</code>）、<code>GoalGuardedAgent</code>（<code>agent.type="goal-guarded"|"verify"</code> 启用），且 <code>test_agent_core.cpp:95-111</code> 已有用例。<br>→ <b>真缺口</b>：<code>react_loop.cpp</code> 对 <code>check_goal</code> / <code>AgentGoal</code> / <code>has_checker</code> 零命中，默认 <code>agent.type</code> 为空走纯 ReAct → <b>默认路径零验证</b>。当前 agent 依旧是「写完自己看一眼就停」。<br>→ 因此本项是<b>接线 + 改默认值</b>，不是从零实现；预期收益应<b>低于</b> LangChain 的 +13.7（本机缺口更窄）。<b>权重 20% 的维度 48 → 55，仍是最大失分项。</b></span></li>
+    <li><b>#78 强制验证闭环 / PreCompletion 门禁</b> — <b style="color:var(--green)">已落地 P1 / P2</b>（<code>9a2de19</code> / PR #98）。主循环在 FinalAnswer 落地前执行 <code>run_verification_gate()</code>：验证未通过 → 回灌失败原因重试；达 <code>verify_max_attempts</code> 上限 → 附加「未完成验证」警告后降级终止。<br><span>→ <b>headless 默认开启</b>（评测入口先受益），交互式保持默认关闭，以免改变既有体验。<br>→ <b>此前「零命中 / 代码完全未实现」的记录是错的</b>：<code>git grep -i "precompletion\|verification_gate"</code> 只能证明没用 LangChain 的命名 —— 本仓等价能力叫 <code>check_goal</code> / <code>GoalGuardedAgent</code> / <code>Verdict</code>，一直存在。本项性质始终是<b>接线 + 改默认值</b>。<br>→ ⚠️ <b>剩余缺口</b>：P3 交互式默认开启、P4 命令自适应探测、VF-08（headless 下验证不阻塞 stdin）、内部评审器两条退出路径仍不经门禁。<br>→ 权重 20% 的维度 55 → <b>65</b>，仍是最大失分项（加权失分 7.0）。</span></li>
   </ul>
 </div>
 
@@ -218,9 +220,9 @@
 <h2>怎么真跑一次分</h2>
 <div class="steps">
   <div class="step">
-    <div class="n">STEP 0（阻塞中）</div>
+    <div class="n">STEP 0 ✅ P1/P2 已完成</div>
     <div class="t">补 #78 验证闭环</div>
-    <p>把既有验证栈接进默认 ReAct 路径：退出前强制跑构建/测试/<code>guard_command</code>，失败则回灌重试，达上限后带警告终止。<br><b>不用从零写</b>：<code>check_goal</code> / <code>guard_command</code> / <code>GoalGuardedAgent</code> 均已就绪，缺的是接线与默认开启。<br><b>约束</b>：<code>Stop</code> 事件撑不起闭环（派发在循环收尾后，<code>blockingError</code> 仅覆写 final_answer，不会重入）→ 需在 loop 内加退出前判定点，或走外层包壳。<br><b>为什么排在最前</b>：权重 20% 的维度、最大失分项；但本机缺口比 LangChain 当年窄，预期收益<b>低于</b> +13.7。</p>
+    <p>已把既有验证栈接进默认 ReAct 路径（<code>9a2de19</code> / PR #98）：FinalAnswer 落地前强制跑构建/测试/<code>guard_command</code>，失败则回灌重试，达上限后带警告终止。<br><b>未从零写</b>：<code>check_goal</code> / <code>guard_command</code> / <code>GoalGuardedAgent</code> 复用即可。<br><b>采用的方案</b>：判定下沉进 loop 内部（<code>run_verification_gate()</code>）—— <code>Stop</code> 事件撑不起闭环（派发在循环收尾后，<code>blockingError</code> 仅覆写 final_answer，不会重入）。<br><b>剩余</b>：P3 交互式默认开启 / P4 命令自适应探测 / VF-08。</p>
   </div>
   <div class="step">
     <div class="n">STEP 1 ✅ 已完成</div>
@@ -240,16 +242,16 @@
 </div>
 
 <div class="note">
-  <b>参考分数线（预估，非实测）</b>：初评时「跑不了」→ 现在 <b>已具备跑分条件但仍未跑</b> → 补 #78 后约 <b>50–62%</b> → 再补 P1 约 <b>58–72%</b>（Terminal-Bench 2.x pass@1）。
+  <b>参考分数线（预估，非实测）</b>：初评时「跑不了」→ 现在 <b>已具备跑分条件但仍未跑</b> → #78 P1/P2 落地后约 <b>50–62%</b> → 再补 P1 约 <b>58–72%</b>（Terminal-Bench 2.x pass@1）。
   对照 LangChain deepagents-cli：52.8% → 66.5%，同一模型、只改 harness。<br>
-  <b>对初评预估的修正</b>：初评写「补齐 P0 后约 82 分」，实际四项落地后只到 <b>68.5</b>（二次更正后 <b>69.9</b>）。差距有两处原因 —— ① 初评把 #78（权重最大项）算进了 P0 红利，而它在<b>默认路径上未生效</b>；② 「评测与迭代」维度的大部分分数取决于<b>真的跑过分</b>，headless 只解锁了前置条件，不是分数本身。<br>
+  <b>对初评预估的修正</b>：初评写「补齐 P0 后约 82 分」，实际五项落地后只到 <b>71.9</b>（68.5 → 69.9 记账更正 → 71.9）。差距有两处原因 —— ① 初评把 #78（权重最大项）算进了 P0 红利，而它的 P1/P2 直到 2026-09-30 才进默认路径；② 「评测与迭代」维度的大部分分数取决于<b>真的跑过分</b>，headless 只解锁了前置条件，不是分数本身。<br>
   <b>评分口径提醒</b>：同一模型换 harness，Terminal-Bench 可摆动 3–5 分，SWE-bench 可达 10–20 分；HarnessTax 发现 harness 更影响<b>成本</b>（最高 5 倍）而非成功率 —— 所以最终要画<b>成本–成功率 Pareto 前沿</b>，只看成功率会奖励"烧钱换分"。
 </div>
 
 <footer>
   参考：HarnessTax（UC Berkeley × Arena）· LangChain《Improving Deep Agents with Harness Engineering》《The Anatomy of an Agent Harness》· Anthropic《Writing effective tools for agents》· Harbor（Terminal-Bench 官方 runner）· Backgrind《Agentic coding benchmarks in 2026》<br>
   完整文字版：<code>docs/agent-harness-assessment.md</code> · 用例方案：<code>docs/p0-test-plan.md</code> · 题库清单：<code>docs/agent-harness-eval-datasets.md</code><br>
-  复审基准：develop <code>b2d41ca</code>（#93 git checkpoint）/ <code>67ea633</code>（#92 子 Agent 护栏）/ <code>d34d44a</code>（#90 headless + schema）
+  复审基准：develop <code>b2d41ca</code>（#93 git checkpoint）/ <code>67ea633</code>（#92 子 Agent 护栏）/ <code>d34d44a</code>（#90 headless + schema） · <b style="color:var(--green)">三次更新基准：develop <code>9a2de19</code>（#98：#78 验证门禁 P1/P2）</b>
 </footer>
 
 </div>
