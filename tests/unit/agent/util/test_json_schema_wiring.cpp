@@ -89,9 +89,21 @@ void queue_text(MockCompletionProvider& provider, const std::string& text) {
     provider.set_next_reader(reader);
 }
 
-}  // namespace
+/// @brief JS-16 场景跑完后交给断言的材料
+struct WiringRun {
+    ReActResult result;                      ///< 循环最终结果
+    std::shared_ptr<PathEchoTool> tool;      ///< 被测工具（拷出以检查调用记录）
+    std::vector<ReActStep> observations;     ///< 全部 Observation 步骤
+    std::vector<ChatMessage> last_messages;  ///< 最后一轮请求的对话快照
+    int submit_count = 0;                    ///< 模型被提交的次数
+};
 
-TEST_CASE("JS-16 坏参数被拦截后，错误回灌使模型自纠并最终成功", "[json_schema][issue80]") {
+/// @brief 跑「坏参被拦 → 错误回灌 → 改好参 → 收尾」三轮
+/// @details 三轮脚本：① `{"not_path":1}` 缺必填，应被 schema 校验拦截且
+///          工具实现不被调用；② `{"path":"/tmp/x"}` 合法，应真正执行成功；
+///          ③ 纯文本收尾。把执行与断言拆开，既让 TEST_CASE 只保留断言，
+///          也满足 CI complexity-gate 对单函数 ≤ 50 行的约束。
+WiringRun run_bad_then_good() {
     MockConfigManager cfg;
     MockCompletionProvider provider;
     auto registry = std::make_shared<tool::ToolRegistry>();
@@ -105,40 +117,49 @@ TEST_CASE("JS-16 坏参数被拦截后，错误回灌使模型自纠并最终成
     // 第 3 轮：收尾
     queue_text(provider, "done");
 
+    WiringRun run;
+    run.tool = tool;
     // 捕获 Observation 步骤，用于验证错误确实回灌进了对话
-    std::vector<ReActStep> observations;
-    ReActLoop::StepCallback on_step = [&observations](const ReActStep& s) {
-        if (s.type == ReActStepType::Observation) observations.push_back(s);
+    ReActLoop::StepCallback on_step = [&run](const ReActStep& s) {
+        if (s.type == ReActStepType::Observation) run.observations.push_back(s);
     };
 
     ReActLoop loop(&provider, registry, ReActLoop::Config{}, &cfg);
-
-    std::vector<ChatMessage> messages;
-    messages.push_back(ChatMessage::user("touch /tmp/x"));
+    std::vector<ChatMessage> messages{ChatMessage::user("touch /tmp/x")};
     std::atomic<bool> should_cancel{false};
+    run.result = loop.run(messages, "you are a test agent", registry->get_all_schemas(),
+                          should_cancel, on_step, /*on_token=*/nullptr);
 
-    const auto result = loop.run(messages, "you are a test agent", registry->get_all_schemas(),
-                                 should_cancel, on_step, /*on_token=*/nullptr);
+    // provider 随本函数结束而析构，先拷出断言所需的两项
+    run.last_messages = provider.last_messages;
+    run.submit_count = provider.submit_count;
+    return run;
+}
 
-    REQUIRE(result.was_error == false);
+}  // namespace
+
+TEST_CASE("JS-16 坏参数被拦截后，错误回灌使模型自纠并最终成功", "[json_schema][issue80]") {
+    const auto run = run_bad_then_good();
+
+    REQUIRE(run.result.was_error == false);
 
     // 核心：坏参数在第一次调用就被 schema 校验拦住，从未落到工具实现。
     // 若拦截失效，第 1 轮会带着 {"not_path":1} 执行一次，call_count 将是 2。
-    REQUIRE(tool->call_count == 1);
-    REQUIRE(tool->last_path == "/tmp/x");
+    REQUIRE(run.tool->call_count == 1);
+    REQUIRE(run.tool->last_path == "/tmp/x");
 
     // 两次工具调用 → 两条 observation：第 1 条为错误，第 2 条成功
-    REQUIRE(observations.size() == 2);
-    REQUIRE(observations[0].is_error == true);
-    REQUIRE_FALSE(observations[0].observation.empty());
-    REQUIRE(observations[1].is_error == false);
-    REQUIRE(observations[1].observation.find("/tmp/x") != std::string::npos);
+    REQUIRE(run.observations.size() == 2);
+    REQUIRE(run.observations[0].is_error == true);
+    REQUIRE_FALSE(run.observations[0].observation.empty());
+    REQUIRE(run.observations[1].is_error == false);
+    REQUIRE(run.observations[1].observation.find("/tmp/x") != std::string::npos);
 
     // 回灌证据：第一轮的错误文本出现在后续请求的 Tool 消息里
     bool error_fed_back = false;
-    for (const auto& m : provider.last_messages) {
+    for (const auto& m : run.last_messages) {
         if (m.role == ChatMessage::Role::Tool && m.is_error &&
-            m.content == observations[0].observation) {
+            m.content == run.observations[0].observation) {
             error_fed_back = true;
             break;
         }
@@ -146,5 +167,5 @@ TEST_CASE("JS-16 坏参数被拦截后，错误回灌使模型自纠并最终成
     REQUIRE(error_fed_back);
 
     // 三轮各有一次 submit（第 1 轮坏参、第 2 轮好参、第 3 轮收尾）
-    REQUIRE(provider.submit_count == 3);
+    REQUIRE(run.submit_count == 3);
 }
