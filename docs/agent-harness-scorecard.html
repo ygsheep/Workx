@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Workx Agent Harness 评分卡</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2129; --border:#30363d;
+    --text:#e6edf3; --muted:#8b949e; --dim:#6e7681;
+    --blue:#58a6ff; --green:#3fb950; --yellow:#d29922; --red:#f85149; --purple:#bc8cff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    line-height:1.6; padding:32px 20px 64px;
+  }
+  .wrap{max-width:1080px;margin:0 auto}
+  header{border-bottom:1px solid var(--border);padding-bottom:22px;margin-bottom:28px}
+  h1{font-size:26px;font-weight:650;letter-spacing:.3px}
+  .sub{color:var(--muted);font-size:13px;margin-top:8px}
+  .badge{
+    display:inline-block;background:rgba(210,153,34,.14);color:var(--yellow);
+    border:1px solid rgba(210,153,34,.35);border-radius:5px;
+    padding:3px 9px;font-size:12px;margin-top:12px
+  }
+
+  /* KPI */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:30px}
+  .kpi{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px 18px}
+  .kpi .label{color:var(--muted);font-size:12px;letter-spacing:.4px}
+  .kpi .val{font-size:30px;font-weight:700;margin-top:4px;line-height:1.15}
+  .kpi .note{color:var(--dim);font-size:11.5px;margin-top:4px}
+  .v-yellow{color:var(--yellow)} .v-red{color:var(--red)} .v-green{color:var(--green)} .v-blue{color:var(--blue)}
+
+  h2{font-size:17px;font-weight:640;margin:34px 0 14px;display:flex;align-items:center;gap:9px}
+  h2::before{content:"";width:3px;height:15px;background:var(--blue);border-radius:2px}
+
+  /* radar + table */
+  .split{display:grid;grid-template-columns:340px 1fr;gap:22px;align-items:start}
+  @media(max-width:860px){.split{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px}
+  .card h3{font-size:13px;color:var(--muted);font-weight:600;margin-bottom:12px}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;color:var(--muted);font-weight:600;font-size:11.5px;
+     letter-spacing:.5px;padding:8px 10px;border-bottom:1px solid var(--border)}
+  td{padding:9px 10px;border-bottom:1px solid rgba(48,54,61,.55);vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  .dim-name{font-weight:600}
+  .dim-ev{color:var(--dim);font-size:11.5px;font-family:ui-monospace,Consolas,monospace}
+  .bar{height:7px;border-radius:4px;background:#21262d;overflow:hidden;min-width:90px}
+  .bar i{display:block;height:100%;border-radius:4px}
+  .score{font-weight:700;font-variant-numeric:tabular-nums}
+
+  /* findings */
+  .find{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:0;overflow:hidden;margin-bottom:12px}
+  .find-h{padding:12px 16px;background:var(--panel2);display:flex;align-items:center;gap:10px;font-size:13.5px;font-weight:640}
+  .tag{font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;letter-spacing:.4px}
+  .t-p0{background:rgba(248,81,73,.16);color:var(--red);border:1px solid rgba(248,81,73,.4)}
+  .t-p1{background:rgba(210,153,34,.14);color:var(--yellow);border:1px solid rgba(210,153,34,.35)}
+  .t-p2{background:rgba(139,148,158,.14);color:var(--muted);border:1px solid rgba(139,148,158,.3)}
+  .find ul{list-style:none;padding:6px 0}
+  .find li{padding:8px 16px;border-top:1px solid rgba(48,54,61,.5);font-size:13px}
+  .find li code{background:#21262d;color:var(--purple);padding:1px 5px;border-radius:4px;font-size:11.5px;font-family:ui-monospace,Consolas,monospace}
+  .find li b{color:var(--text)}
+  .find li span{color:var(--muted)}
+
+  /* roadmap */
+  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}
+  .step{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px}
+  .step .n{color:var(--blue);font-size:11.5px;font-weight:700;letter-spacing:1px}
+  .step .t{font-weight:640;font-size:14px;margin:6px 0 8px}
+  .step p{color:var(--muted);font-size:12.5px}
+  .step code{background:#21262d;color:var(--blue);padding:1px 5px;border-radius:4px;font-size:11.5px}
+
+  .note{color:var(--muted);font-size:12.5px;background:var(--panel);border:1px solid var(--border);
+        border-left:3px solid var(--yellow);border-radius:8px;padding:13px 16px;margin-top:12px}
+  footer{margin-top:36px;padding-top:18px;border-top:1px solid var(--border);color:var(--dim);font-size:12px}
+  footer a{color:var(--blue);text-decoration:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Workx · Agent Harness 评分卡</h1>
+  <div class="sub">v0.10.1 · 静态代码审计 + 业界 Harness 评测方法论对齐 · 初评 2026-09-29 · <b style="color:var(--blue)">复审 2026-09-30</b></div>
+  <div class="badge">⚠ 代码预估分，非跑分结果 —— P0 五项已落地四项（#77 / #79 / #80 / #81），headless 入口已通，但仍未跑过任何基准</div>
+</header>
+
+<div class="kpis">
+  <div class="kpi"><div class="label">加权总分</div><div class="val v-yellow">68<small style="font-size:15px;color:var(--dim)">/100</small></div><div class="note">复审较初评 61 → <b style="color:var(--green)">+7.5</b></div></div>
+  <div class="kpi"><div class="label">最强维度</div><div class="val v-green" style="font-size:22px">工具层 82</div><div class="note">schema 执行侧兜底校验</div></div>
+  <div class="kpi"><div class="label">最弱维度</div><div class="val v-red" style="font-size:22px">验证闭环 48</div><div class="note">唯一未动工的 P0（#78）</div></div>
+  <div class="kpi"><div class="label">P0 进度</div><div class="val v-green">4<small style="font-size:15px;color:var(--dim)">/5</small></div><div class="note">#78 仍 OPEN，代码零实现</div></div>
+  <div class="kpi"><div class="label">剩余提升空间</div><div class="val v-blue">+13<small style="font-size:15px;color:var(--dim)">分</small></div><div class="note">补 #78 约 74，再补 P1 约 81</div></div>
+</div>
+
+<h2>维度评分</h2>
+<div class="split">
+  <div class="card">
+    <h3>能力雷达（满分 100）</h3>
+    <svg viewBox="0 0 360 320" width="100%" style="display:block">
+      <polygon points="180,50 266.0,91.4 287.2,184.5 227.7,259.1 132.3,259.1 72.8,184.5 94.0,91.4" fill="none" stroke="#30363d" stroke-width="1"/>
+      <polygon points="180,77.5 244.5,108.6 260.4,178.4 215.8,234.3 144.2,234.3 99.6,178.4 115.5,108.6" fill="none" stroke="#30363d" stroke-width="1" opacity=".7"/>
+      <polygon points="180,105 223.0,125.7 233.6,172.2 203.9,209.6 156.1,209.6 126.4,172.2 137.0,125.7" fill="none" stroke="#30363d" stroke-width="1" opacity=".55"/>
+      <polygon points="180,132.5 201.5,142.9 206.8,166.1 191.9,184.8 168.1,184.8 153.2,166.1 158.5,142.9" fill="none" stroke="#30363d" stroke-width="1" opacity=".4"/>
+      <line x1="180" y1="160" x2="180" y2="50" stroke="#30363d" stroke-width="1" opacity=".5"/>
+      <line x1="180" y1="160" x2="266.0" y2="91.4" stroke="#30363d" stroke-width="1" opacity=".5"/>
+      <line x1="180" y1="160" x2="287.2" y2="184.5" stroke="#30363d" stroke-width="1" opacity=".5"/>
+      <line x1="180" y1="160" x2="227.7" y2="259.1" stroke="#30363d" stroke-width="1" opacity=".5"/>
+      <line x1="180" y1="160" x2="132.3" y2="259.1" stroke="#30363d" stroke-width="1" opacity=".5"/>
+      <line x1="180" y1="160" x2="72.8" y2="184.5" stroke="#30363d" stroke-width="1" opacity=".5"/>
+      <line x1="180" y1="160" x2="94.0" y2="91.4" stroke="#30363d" stroke-width="1" opacity=".5"/>
+      <polygon points="180,80.8 240.2,112.0 222.9,169.8 212.5,227.4 150.4,221.4 99.6,178.4 167.1,149.7"
+               fill="rgba(139,148,158,.16)" stroke="#6e7681" stroke-width="1.5" stroke-dasharray="4 3"/>
+      <polygon points="180,69.8 240.2,112.0 231.5,171.7 215.8,234.3 145.6,231.4 96.4,179.1 141.3,129.1"
+               fill="rgba(88,166,255,.28)" stroke="#58a6ff" stroke-width="2"/>
+      <circle cx="180" cy="69.8" r="3" fill="#58a6ff"/>
+      <circle cx="240.2" cy="112.0" r="3" fill="#58a6ff"/>
+      <circle cx="231.5" cy="171.7" r="3.5" fill="#f85149"/>
+      <circle cx="215.8" cy="234.3" r="3" fill="#58a6ff"/>
+      <circle cx="145.6" cy="231.4" r="3" fill="#58a6ff"/>
+      <circle cx="96.4" cy="179.1" r="3" fill="#58a6ff"/>
+      <circle cx="141.3" cy="129.1" r="4" fill="#d29922"/>
+      <text x="180" y="26" text-anchor="middle" fill="#8b949e" font-size="11">工具层 72→82</text>
+      <text x="286" y="76" text-anchor="start" fill="#8b949e" font-size="11">上下文 70</text>
+      <text x="312" y="190" text-anchor="start" fill="#f85149" font-size="11">验证 40→48</text>
+      <text x="240" y="282" text-anchor="start" fill="#8b949e" font-size="11">安全 68→75</text>
+      <text x="120" y="282" text-anchor="end" fill="#8b949e" font-size="11">编排 62→72</text>
+      <text x="48" y="190" text-anchor="end" fill="#8b949e" font-size="11">可观测 75→78</text>
+      <text x="74" y="76" text-anchor="end" fill="#d29922" font-size="11">评测 15→45</text>
+    </svg>
+  </div>
+
+  <div class="card" style="padding:8px 14px 6px">
+    <table>
+      <thead><tr><th style="width:110px">维度</th><th style="width:52px">权重</th><th style="width:110px">得分</th><th style="width:46px"></th><th>关键证据</th></tr></thead>
+      <tbody>
+        <tr><td class="dim-name">工具设计与执行</td><td>20</td>
+            <td><div class="bar"><i style="width:82%;background:var(--green)"></i></div></td>
+            <td class="score v-green">82 <small style="color:var(--green);font-size:10px">+10</small></td><td class="dim-ev">#80 schema 兜底校验接入 executor.h:223</td></tr>
+        <tr><td class="dim-name">上下文工程</td><td>20</td>
+            <td><div class="bar"><i style="width:70%;background:var(--green)"></i></div></td>
+            <td class="score v-green">70</td><td class="dim-ev">四级缓存感知压缩 + Stuck 守卫 · #82 未做</td></tr>
+        <tr><td class="dim-name">验证闭环</td><td>20</td>
+            <td><div class="bar"><i style="width:48%;background:var(--red)"></i></div></td>
+            <td class="score v-red">48 <small style="color:var(--red);font-size:10px">+8</small></td><td class="dim-ev">#78 未做 · 仅 #81 改动清单可审计</td></tr>
+        <tr><td class="dim-name">安全与权限</td><td>15</td>
+            <td><div class="bar"><i style="width:75%;background:var(--yellow)"></i></div></td>
+            <td class="score v-yellow">75 <small style="color:var(--yellow);font-size:10px">+7</small></td><td class="dim-ev">#81 基线 + 回滚入口 · Win 沙箱仍 none</td></tr>
+        <tr><td class="dim-name">编排与可靠性</td><td>10</td>
+            <td><div class="bar"><i style="width:72%;background:var(--yellow)"></i></div></td>
+            <td class="score v-yellow">72 <small style="color:var(--yellow);font-size:10px">+10</small></td><td class="dim-ev">#79 批量 + run 累计双护栏（原子预约）</td></tr>
+        <tr><td class="dim-name">可观测性与成本</td><td>10</td>
+            <td><div class="bar"><i style="width:78%;background:var(--green)"></i></div></td>
+            <td class="score v-green">78 <small style="color:var(--green);font-size:10px">+3</small></td><td class="dim-ev">headless usage 统计 + 收尾 diff 报告</td></tr>
+        <tr><td class="dim-name">评测与迭代</td><td>5</td>
+            <td><div class="bar"><i style="width:45%;background:var(--yellow)"></i></div></td>
+            <td class="score v-yellow">45 <small style="color:var(--yellow);font-size:10px">+30</small></td><td class="dim-ev">#77 headless 已通 · 仍无 adapter / eval 集</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<h2>差距清单</h2>
+
+<div class="find">
+  <div class="find-h"><span class="tag t-p0" style="background:rgba(63,185,80,.16);color:var(--green);border-color:rgba(63,185,80,.4)">DONE</span>P0 已落地 4/5 — 复审核实（commit 级）</div>
+  <ul>
+    <li><b>#77 headless 非交互模式</b> ✅ — <code>src/agent/headless/headless.{h,cpp}</code>；CLI <code>-p/--print</code> + <code>--output-format text|json|stream-json</code>（<code>main.cpp:89-166</code>）；退出码 0/1/2 语义化。<br><span>→ 评测链路的前置条件已解除。⚠️ 但<b>零测试覆盖</b>——全仓 <code>grep -i headless -- tests</code> 无命中，是新的最大风险点。</span></li>
+    <li><b>#80 json_schema 执行侧校验</b> ✅ — <code>util/json_schema.{h,cpp}</code>（275 行，type/properties/required/enum/range/length/pattern/items），已接入 <code>executor.h:223</code> 作为 <code>validate_input</code> 之后的兜底。<br><span>→ 新工具漏写 validate_input 不再裸奔，错误结构化可回灌自纠。</span></li>
+    <li><b>#79 子 Agent 派生护栏</b> ✅ — <code>SubAgentBudget</code>（批量上限 + run 累计上限，atomic CAS 预约），配置 <code>agent.sub_agent_max_batch/total</code>。<br><span>📌 复审修正：issue 标题的「递归深度」其实<b>已被结构性禁止</b>——<code>agent_tool.cpp:80</code> 构建子工具集时 <code>continue</code> 掉 <code>kAgentToolName</code>，深度恒为 1。真实缺口是横向规模，实现也是按这个做的。</span></li>
+    <li><b>#81 git 检查点</b> ✅ — <code>util/git_checkpoint.{h,cpp}</code>；<code>react_loop.cpp:622</code> 捕获基线、<code>chat_session.cpp:496</code> reset、headless 输出 <code>git_diff_summary</code>、TUI <code>/diff</code> + <code>/rollback --confirm</code>。<br><span>→ 只读安全网 + 人工回滚入口；不自动回滚，避免误删用户改动。</span></li>
+  </ul>
+</div>
+
+<div class="find">
+  <div class="find-h"><span class="tag t-p0">P0</span>剩余阻塞项 — 唯一未动工的一项</div>
+  <ul>
+    <li><b>#78 强制验证闭环 / PreCompletion 门禁</b> — <code>git grep -i "precompletion\|verification_gate" -- src</code> <b>零命中</b>，代码完全未实现。<br><span>→ 仍是业界公认单项收益最大的一项：LangChain 仅补此项，同一模型 Terminal-Bench 2.0 从 52.8% → 66.5%。当前 agent 依旧是「写完自己看一眼就停」。<b>权重 20% 的维度卡在 48 分，全靠它。</b></span></li>
+  </ul>
+</div>
+
+<div class="find">
+  <div class="find-h"><span class="tag t-p1">NEW</span>P0 落地后新暴露的风险</div>
+  <ul>
+    <li><b>headless 零测试</b><span> — 唯一合入即零覆盖的 P0 模块，且失败模式是「静默输出错内容」而非崩溃（最难发现）。用例方案见 <code>docs/p0-test-plan.md</code> 的 HL-01~12。</span></li>
+    <li><b>headless 无法注入 mock 后端</b><span> — <code>run_headless()</code> 内部直连 <code>create_backend(cfg,...)</code>，测试拿不到 <code>MockCompletionProvider</code>；需先抽 <code>run_headless_with_provider()</code> 重载，否则 HL 用例只能测纯函数。</span></li>
+    <li><b>schema 校验只测了纯函数</b><span> — 现有 8 条用例未覆盖「执行侧真的接入」与「错误回灌后自纠」，等于 #80 只验证了一半（JS-15/JS-16）。</span></li>
+  </ul>
+</div>
+
+<div class="find">
+  <div class="find-h"><span class="tag t-p1">P1</span>高分位差 — 直接对应分数</div>
+  <ul>
+    <li><b>P1-1 无环境上下文注入</b><span> — 启动时未注入目录树骨架、工具链探测、项目构建/测试命令（LangChain LocalContextMiddleware）。</span></li>
+    <li><b>P1-2 无时间 / 轮次预算提示</b><span> — 模型极不擅长估计时间，需注入 budget warning 推它从"改"切到"验"。</span></li>
+    <li><b>P1-3 Windows 无真实沙箱</b><span> — <code>sandbox_adapter.cpp:418</code> 降级为 <code>"none"</code>，而 Windows 是 README 宣称的一等平台。</span></li>
+    <li><b>P1-4 命令拦截是黑名单</b><span> — <code>permission_ask.cpp:124-144</code> 固定 pattern 列表，天然可绕过；补白名单严格档。</span></li>
+    <li><b>P1-5 AGENTS.md 加载不到</b><span> — <code>memory.h:68/80</code> 只认 <code>CLAUDE.md</code> / <code>AGENT.md</code>（无 S）。本仓库根目录的 AGENTS.md 静默不生效，只因同时存在 CLAUDE.md 才没暴露。</span></li>
+    <li><b>P1-6 Plan / PermissionMode 不随 resume 持久化</b><span> — <code>react_loop.h:314-316</code> 自认"只读边界静默丢失"。</span></li>
+    <li><b>P1-7 API Key 明文落盘且无权限加固</b><span> — <code>~/.workx/config.json</code>，全仓无 <code>chmod/0600</code> 处理。</span></li>
+    <li><b>P1-8 无模型降级 / 无 run 预算上限</b><span> — <code>retry.h</code> 有指数退避（3 次 / 1s–60s），但 429 耗尽即失败。</span></li>
+  </ul>
+</div>
+
+<div class="find">
+  <div class="find-h"><span class="tag t-p2">P2</span>工程化与文档债</div>
+  <ul>
+    <li><span>无 run trace 导出与失败模式聚类（<code>ExecutionTrace</code> 已删，挂"后续 issue"）；token 计数是启发式 chars/4，与真实 tokenizer 偏差大；文档与实现漂移：<code>docs/full-guide.md</code> 仍描述不存在的 <code>src/app/</code>、压缩水位文档 0.60/0.75/0.85/0.95 vs 代码 0.5/0.6/0.8/0.9、max_iterations 文档 25 vs 代码 40；残留 <code>chat_session.{h,cpp}.bak</code>；22 个工具接近"选择困难"阈值，需按意图合并 + namespacing。</span></li>
+  </ul>
+</div>
+
+<h2>怎么真跑一次分</h2>
+<div class="steps">
+  <div class="step">
+    <div class="n">STEP 0（阻塞中）</div>
+    <div class="t">补 #78 验证闭环</div>
+    <p>实现 PreCompletionChecklist：退出前强制跑构建/测试/<code>guard_command</code>，失败则回灌重试，达上限后带警告终止。<br><b>为什么排在最前</b>：权重 20% 的维度，业界实测单项收益 +13.7 分（同一模型）。</p>
+  </div>
+  <div class="step">
+    <div class="n">STEP 1 ✅ 已完成</div>
+    <div class="t">加 headless 模式</div>
+    <p><code>workx -p "&lt;task&gt;" --output-format json</code> 已落地（PR #90）。<br><b>欠账</b>：零测试覆盖 + 无法注入 mock 后端，见上方 NEW 区块。</p>
+  </div>
+  <div class="step">
+    <div class="n">STEP 2</div>
+    <div class="t">Harbor adapter + 子集跑分</div>
+    <p>写 <code>agents/workx/{install.sh,run.sh}</code>，先跑 <code>terminal-bench@2.0</code> 的 <b>30 题随机子集 × 3 次</b>（对齐 HarnessTax 口径，bootstrap 10k 取 95% CI），再扩到全量 89 题。建议同时报 Claude/GPT 对照组，把 harness 贡献与模型贡献分开。</p>
+  </div>
+  <div class="step">
+    <div class="n">STEP 3</div>
+    <div class="t">trace 分析回路</div>
+    <p>补 run manifest（每轮工具/参数/结果/token/耗时/错误类型），然后：拉失败 run → 并行错误分析 agent → 汇总成 harness 改动 → <b>复测</b>。每次改动都要检查是否在别的题上回归。</p>
+  </div>
+</div>
+
+<div class="note">
+  <b>参考分数线（预估，非实测）</b>：初评时「跑不了」→ 现在 <b>已具备跑分条件但仍未跑</b> → 补 #78 后约 <b>50–62%</b> → 再补 P1 约 <b>58–72%</b>（Terminal-Bench 2.x pass@1）。
+  对照 LangChain deepagents-cli：52.8% → 66.5%，同一模型、只改 harness。<br>
+  <b>对初评预估的修正</b>：初评写「补齐 P0 后约 82 分」，实际四项落地后只到 <b>68.5</b>。差距有两处原因 —— ① 初评把 #78（权重最大项）算进了 P0 红利，而它一项没做；② 「评测与迭代」维度的大部分分数取决于<b>真的跑过分</b>，headless 只解锁了前置条件，不是分数本身。<br>
+  <b>评分口径提醒</b>：同一模型换 harness，Terminal-Bench 可摆动 3–5 分，SWE-bench 可达 10–20 分；HarnessTax 发现 harness 更影响<b>成本</b>（最高 5 倍）而非成功率 —— 所以最终要画<b>成本–成功率 Pareto 前沿</b>，只看成功率会奖励"烧钱换分"。
+</div>
+
+<footer>
+  参考：HarnessTax（UC Berkeley × Arena）· LangChain《Improving Deep Agents with Harness Engineering》《The Anatomy of an Agent Harness》· Anthropic《Writing effective tools for agents》· Harbor（Terminal-Bench 官方 runner）· Backgrind《Agentic coding benchmarks in 2026》<br>
+  完整文字版：<code>docs/agent-harness-assessment.md</code> · 用例方案：<code>docs/p0-test-plan.md</code> · 题库清单：<code>docs/agent-harness-eval-datasets.md</code><br>
+  复审基准：develop <code>b2d41ca</code>（#93 git checkpoint）/ <code>67ea633</code>（#92 子 Agent 护栏）/ <code>d34d44a</code>（#90 headless + schema）
+</footer>
+
+</div>
+</body>
+</html>
