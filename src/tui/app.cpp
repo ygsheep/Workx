@@ -927,6 +927,16 @@ void App::resume_session(const std::string& file_path, const std::string& title)
     m_vm.apply(ActionAppendMessage{
         .role = "assistant",
         .text = std::string(str::kResumedPrefix) + title + std::string(str::kMdBoldEnd)});
+
+    // #87：权限模式未能恢复时显式告知——静默回退到可写模式等于安全边界悄悄降级。
+    // 正常恢复（restored=true）不打扰用户；三分支判定由 ChatSession 单点产出，此处只呈现。
+    const auto perm = m_deps.session->last_permission_restore();
+    if (!perm.restored && !perm.reason.empty()) {
+        m_vm.apply(ActionAppendMessage{
+            .role = "assistant",
+            .text = std::string(perm.reason == "invalid_value" ? str::kPermRestoreInvalid
+                                                               : str::kPermRestoreNoRecord)});
+    }
 }
 
 /// @brief 从当前会话重建转录区（resume 历史载入 / 压缩上下文后刷新共用）

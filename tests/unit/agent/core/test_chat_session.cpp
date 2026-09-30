@@ -901,3 +901,132 @@ TEST_CASE("ChatSession queue auto-sends after current loop ends", "[session][que
     }
     REQUIRE(found_queued_user);
 }
+
+// ============================================================
+// #87：PermissionMode / SessionMode 随 resume 持久化
+// ============================================================
+// 背景：修复前三态只存在于内存，resume 后一律重置为 Default —— 用户在 Plan 模式批准
+// 方案后中断再恢复，agent 变成可写可执行的普通模式，而用户以为还在只读阶段。
+
+namespace {
+
+/// @brief 造一个可被 switch_session 恢复的会话文件（load_meta 需要 session_start）
+/// @param permission 为空表示不写 permission 事件（模拟本特性之前的历史会话）
+std::filesystem::path make_resumable_session(
+    const std::string& file_name,
+    const std::optional<agent::session::PermissionEvent>& permission) {
+    namespace fs = std::filesystem;
+    auto tmp = fs::temp_directory_path() / file_name;
+    fs::remove(tmp);
+
+    auto store = std::make_shared<agent::session::SessionStore>(tmp.string(), file_name);
+    if (!store->open()) throw std::runtime_error("open failed");
+    store->append_session_start("/project", "model-x", "develop");
+    store->append_user_message("u1", "", "hello", "t1");
+    if (permission) store->append_permission(*permission);
+    store->close();
+    return tmp;
+}
+
+/// @brief 关闭会话持有的文件句柄后再删除临时文件
+/// @details switch_session 以 append 模式重新打开会话文件，Windows 上未关闭的句柄
+///          会让 remove 抛「文件被占用」（断言本身已通过，仅清理失败）。
+void close_and_remove(std::unique_ptr<ChatSession>& session, const std::filesystem::path& p) {
+    if (auto store = session->session_store()) store->close();
+    session.reset();
+    std::error_code ec;
+    std::filesystem::remove(p, ec);
+}
+
+}  // anonymous namespace
+
+TEST_CASE("ChatSession switch_session restores plan permission boundary",
+          "[session][permission][87]") {
+    MockConfigManager cfg;
+
+    agent::session::PermissionEvent ev;
+    ev.permission_mode = "plan";
+    ev.session_mode = "plan";
+    ev.permission_mode_before_plan = "bypass-permissions";
+    ev.in_plan = true;
+    auto tmp = make_resumable_session("workx_test_perm_restore.jsonl", ev);
+
+    auto session = make_test_session(cfg);
+    REQUIRE(session->switch_session(tmp.string()));
+
+    // 核心断言：Plan 只读边界在 resume 后仍然成立（修复前这里会是 Default）
+    REQUIRE(session->permission_mode() == tool::PermissionMode::Plan);
+    REQUIRE(session->session_mode() == tool::SessionMode::Plan);
+
+    const auto r = session->last_permission_restore();
+    REQUIRE(r.restored == true);
+    REQUIRE(r.reason.empty());  // 成功恢复不提示用户
+    REQUIRE(r.mode == tool::PermissionMode::Plan);
+
+    close_and_remove(session, tmp);
+}
+
+TEST_CASE("ChatSession switch_session falls back to default when no permission record",
+          "[session][permission][87]") {
+    MockConfigManager cfg;
+
+    // 历史会话：没有任何 permission 事件
+    auto tmp = make_resumable_session("workx_test_perm_no_record.jsonl", std::nullopt);
+
+    auto session = make_test_session(cfg);
+    REQUIRE(session->switch_session(tmp.string()));
+
+    REQUIRE(session->permission_mode() == tool::PermissionMode::Default);
+    REQUIRE(session->session_mode() == tool::SessionMode::Standard);
+
+    // 回退必须显式告知（reason 非空 → TUI 插一行提示），不能静默降级
+    const auto r = session->last_permission_restore();
+    REQUIRE(r.restored == false);
+    REQUIRE(r.reason == "no_record");
+
+    close_and_remove(session, tmp);
+}
+
+TEST_CASE("ChatSession switch_session falls back to plan on invalid permission value",
+          "[session][permission][87]") {
+    MockConfigManager cfg;
+
+    agent::session::PermissionEvent ev;
+    ev.permission_mode = "bogus-mode";  // 跨版本/被篡改
+    ev.session_mode = "standard";
+    auto tmp = make_resumable_session("workx_test_perm_invalid.jsonl", ev);
+
+    auto session = make_test_session(cfg);
+    REQUIRE(session->switch_session(tmp.string()));
+
+    // 值非法：从严回退 Plan（宁可只读，不可放行写操作）
+    REQUIRE(session->permission_mode() == tool::PermissionMode::Plan);
+    REQUIRE(session->session_mode() == tool::SessionMode::Plan);
+
+    const auto r = session->last_permission_restore();
+    REQUIRE(r.restored == false);
+    REQUIRE(r.reason == "invalid_value");
+
+    close_and_remove(session, tmp);
+}
+
+TEST_CASE("ChatSession persists permission change after resume", "[session][permission][87]") {
+    MockConfigManager cfg;
+
+    auto tmp = make_resumable_session("workx_test_perm_persist.jsonl", std::nullopt);
+    auto session = make_test_session(cfg);
+    REQUIRE(session->switch_session(tmp.string()));
+
+    // switch_session 后会话文件以 append 模式重新打开 → 后续模式变更应落盘
+    REQUIRE(session->session_store() != nullptr);
+
+    session->set_permission_mode(tool::PermissionMode::BypassPermissions);
+    REQUIRE(session->permission_mode() == tool::PermissionMode::BypassPermissions);
+
+    session->session_store()->close();
+    auto latest = agent::session::SessionStore::load_permission(tmp.string());
+    REQUIRE(latest.has_value());
+    REQUIRE(latest->permission_mode == "bypass-permissions");
+
+    close_and_remove(session, tmp);
+}

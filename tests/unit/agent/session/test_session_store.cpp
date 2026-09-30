@@ -591,3 +591,98 @@ TEST_CASE("session_store: todo empty snapshot clears on resume", "[session][stor
 
     store.clear_for_test();
 }
+
+// ============================================================
+// #87：permission 事件（权限模式持久化）
+// ============================================================
+
+TEST_CASE("session_store: permission event round-trip", "[session][store][permission]") {
+    TempFile tmp("workx_test_permission.jsonl");
+
+    {
+        SessionStore store(tmp.string(), "perm-session");
+        REQUIRE(store.open());
+
+        PermissionEvent ev;
+        ev.permission_mode = "plan";
+        ev.session_mode = "plan";
+        ev.permission_mode_before_plan = "default";
+        ev.in_plan = true;
+        REQUIRE(store.append_permission(ev));
+        store.close();
+    }
+
+    auto loaded = SessionStore::load_permission(tmp.string());
+    REQUIRE(loaded.has_value());
+    REQUIRE(loaded->permission_mode == "plan");
+    REQUIRE(loaded->session_mode == "plan");
+    REQUIRE(loaded->permission_mode_before_plan == "default");
+    REQUIRE(loaded->in_plan == true);
+}
+
+TEST_CASE("session_store: load_permission takes the last event", "[session][store][permission]") {
+    TempFile tmp("workx_test_permission_last.jsonl");
+
+    {
+        SessionStore store(tmp.string(), "perm-session-2");
+        REQUIRE(store.open());
+
+        // 模拟一次真实会话：默认 → 用户 Shift+Tab 切 bypass → agent 进入 plan
+        PermissionEvent first;
+        first.permission_mode = "default";
+        first.session_mode = "standard";
+        REQUIRE(store.append_permission(first));
+
+        PermissionEvent second;
+        second.permission_mode = "bypass-permissions";
+        second.session_mode = "standard";
+        REQUIRE(store.append_permission(second));
+
+        PermissionEvent third;
+        third.permission_mode = "plan";
+        third.session_mode = "plan";
+        third.permission_mode_before_plan = "bypass-permissions";
+        third.in_plan = true;
+        REQUIRE(store.append_permission(third));
+        store.close();
+    }
+
+    // append-only 语义：恢复的是「最后一次处于什么模式」，不是初始模式
+    auto loaded = SessionStore::load_permission(tmp.string());
+    REQUIRE(loaded.has_value());
+    REQUIRE(loaded->permission_mode == "plan");
+    REQUIRE(loaded->permission_mode_before_plan == "bypass-permissions");
+}
+
+TEST_CASE("session_store: load_permission on file without permission event",
+          "[session][store][permission]") {
+    TempFile tmp("workx_test_permission_none.jsonl");
+
+    {
+        SessionStore store(tmp.string(), "perm-session-3");
+        REQUIRE(store.open());
+        REQUIRE(store.append_session_start("/cwd", "model", "main"));
+        store.close();
+    }
+
+    // 历史会话（本特性之前创建）没有 permission 事件 → nullopt，由调用方走 fail-safe
+    REQUIRE_FALSE(SessionStore::load_permission(tmp.string()).has_value());
+}
+
+TEST_CASE("session_store: load_permission ignores malformed event",
+          "[session][store][permission]") {
+    TempFile tmp("workx_test_permission_bad.jsonl");
+
+    {
+        std::ofstream ofs(tmp.path(), std::ios::app);
+        ofs << "{\"type\":\"permission\"}\n";  // 缺全部字段
+        ofs << "not a json line\n";            // 坏行：不应影响后续解析
+        ofs << "{\"type\":\"permission\",\"permissionMode\":\"bogus-mode\","
+               "\"sessionMode\":\"standard\"}\n";
+    }
+
+    // 坏值照样读出（值合法性由 ChatSession 判定 → 走 invalid_value 从严分支）
+    auto loaded = SessionStore::load_permission(tmp.string());
+    REQUIRE(loaded.has_value());
+    REQUIRE(loaded->permission_mode == "bogus-mode");
+}

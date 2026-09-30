@@ -106,6 +106,27 @@ void from_json(const nlohmann::json& j, SkillEvent& ev) {
 }
 
 // ============================================================
+// PermissionEvent 序列化（#87）
+// ============================================================
+
+void to_json(nlohmann::json& j, const PermissionEvent& ev) {
+    j = nlohmann::json{
+        {"type", "permission"},
+        {"permissionMode", ev.permission_mode},
+        {"sessionMode", ev.session_mode},
+        {"permissionModeBeforePlan", ev.permission_mode_before_plan},
+        {"inPlan", ev.in_plan},
+    };
+}
+
+void from_json(const nlohmann::json& j, PermissionEvent& ev) {
+    ev.permission_mode = j.value("permissionMode", std::string{});
+    ev.session_mode = j.value("sessionMode", std::string{});
+    ev.permission_mode_before_plan = j.value("permissionModeBeforePlan", std::string{});
+    ev.in_plan = j.value("inPlan", false);
+}
+
+// ============================================================
 // 生命周期
 // ============================================================
 
@@ -249,6 +270,13 @@ bool SessionStore::append_sub_agent(const SubAgentEvent& ev) {
 }
 
 bool SessionStore::append_skill(const SkillEvent& ev) {
+    nlohmann::json j = ev;
+    j["sessionId"] = m_session_id;
+    j["timestamp"] = now_iso();
+    return append_line(j);
+}
+
+bool SessionStore::append_permission(const PermissionEvent& ev) {
     nlohmann::json j = ev;
     j["sessionId"] = m_session_id;
     j["timestamp"] = now_iso();
@@ -417,6 +445,16 @@ std::vector<core::todo::TodoItem> SessionStore::load_todos(const std::string& fi
         }
     }
     return todos;
+}
+
+std::optional<PermissionEvent> SessionStore::load_permission(const std::string& file_path) {
+    std::optional<PermissionEvent> latest;
+    for (const auto& j : read_all(file_path)) {
+        if (j.value("type", "") != "permission") continue;
+        PermissionEvent ev = j.get<PermissionEvent>();  // 取最后一条（append-only 快照）
+        latest = ev;
+    }
+    return latest;
 }
 
 std::vector<SubAgentEvent> SessionStore::load_sub_agents(const std::string& file_path) {

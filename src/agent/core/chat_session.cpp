@@ -68,6 +68,54 @@ std::string now_iso() {
     return buf;
 }
 
+// ============================================================
+// #87：权限模式枚举 ↔ 字符串（permission 事件落盘格式）
+// ============================================================
+// 字符串而非整数落盘：与 system_prompt.reason（initial/changed/resume）风格一致，
+// 便于人工排查会话轨迹；映射失败即视为非法值（走 fail-safe 从严分支）。
+// 注：headless.cpp 有同构的 parse_permission_mode（CLI 参数解析用），两者取值集合必须一致。
+
+std::string permission_mode_to_string(tool::PermissionMode m) {
+    switch (m) {
+        case tool::PermissionMode::Default:
+            return "default";
+        case tool::PermissionMode::AcceptEdits:
+            return "accept-edits";
+        case tool::PermissionMode::Plan:
+            return "plan";
+        case tool::PermissionMode::BypassPermissions:
+            return "bypass-permissions";
+    }
+    return "default";
+}
+
+std::optional<tool::PermissionMode> permission_mode_from_string(const std::string& s) {
+    if (s == "default") return tool::PermissionMode::Default;
+    if (s == "accept-edits") return tool::PermissionMode::AcceptEdits;
+    if (s == "plan") return tool::PermissionMode::Plan;
+    if (s == "bypass-permissions") return tool::PermissionMode::BypassPermissions;
+    return std::nullopt;
+}
+
+std::string session_mode_to_string(tool::SessionMode m) {
+    switch (m) {
+        case tool::SessionMode::Standard:
+            return "standard";
+        case tool::SessionMode::Plan:
+            return "plan";
+        case tool::SessionMode::Minimal:
+            return "minimal";
+    }
+    return "standard";
+}
+
+std::optional<tool::SessionMode> session_mode_from_string(const std::string& s) {
+    if (s == "standard") return tool::SessionMode::Standard;
+    if (s == "plan") return tool::SessionMode::Plan;
+    if (s == "minimal") return tool::SessionMode::Minimal;
+    return std::nullopt;
+}
+
 }  // anonymous namespace
 
 namespace {
@@ -465,6 +513,10 @@ bool ChatSession::switch_session(
     auto meta = agent::session::SessionStore::load_meta(file_path);
     if (!meta) return false;
 
+    // #87：权限模式快照（append-only，取最后一条；无事件时为空 → 走 fail-safe）
+    // 与 load_messages/load_meta 同在锁外读取：文件 I/O 不应持 m_state_mutex。
+    auto permission = agent::session::SessionStore::load_permission(file_path);
+
     // 从文件名提取 session_id（stem，如 "76e1b10d-...-...jsonl" → "76e1b10d-...-..."）
     std::string new_session_id = std::filesystem::path(file_path).stem().string();
 
@@ -494,6 +546,12 @@ bool ChatSession::switch_session(
         // 5. #81：丢弃旧会话的 git 检查点基线（新会话下次 run 重新捕获）
         //    否则 /diff、/rollback 会沿用上一会话目录的 base commit，回滚到错误仓库。
         util::GitCheckpoint::instance().reset();
+
+        // 6. #87：恢复权限模式与工作模式。
+        //    修复前三态只存在于内存，resume 后一律重置为 Default：用户在 Plan 模式批准
+        //    方案后中断再恢复，agent 会变成普通模式「可以写入和执行」，而用户以为还在
+        //    只读阶段——安全边界静默降级。
+        m_last_permission_restore = restore_permission_locked(permission);
     }  // 释放 m_state_mutex
 
     // #24：恢复该会话待办清单（发布事件刷新 UI）+ 接线持久化回调。
@@ -997,6 +1055,9 @@ std::string ChatSession::merge_queued_text(const std::vector<QueuedMessageItem>&
 void ChatSession::set_permission_mode(tool::PermissionMode mode) {
     std::lock_guard<std::mutex> lock(m_state_mutex);
     m_permission_mode = mode;
+    // #87：CLI --permission-mode / factory 注入的初始模式也要落盘，
+    // 否则 resume 时读不到任何 permission 事件（首轮就走 fail-safe 分支）。
+    persist_permission_state_locked();
 }
 
 tool::PermissionMode ChatSession::permission_mode() const {
@@ -1014,20 +1075,26 @@ void ChatSession::toggle_permission_mode() {
     if (m_session_mode == tool::SessionMode::Plan) {
         return;
     }
+    bool changed = false;
     switch (m_permission_mode) {
         case tool::PermissionMode::Default:
             m_permission_mode = tool::PermissionMode::BypassPermissions;
+            changed = true;
             break;
         case tool::PermissionMode::BypassPermissions:
             m_permission_mode = tool::PermissionMode::Default;
+            changed = true;
             break;
         case tool::PermissionMode::Plan:
             // 理论不可达（Plan 由模式管理）；保守回退到 Default
             m_permission_mode = tool::PermissionMode::Default;
+            changed = true;
             break;
         case tool::PermissionMode::AcceptEdits:
             break;  // 占位模式，不参与循环
     }
+    // #87：Shift+Tab 切换后落盘（会话中途改模式是最常见的边界丢失场景）
+    if (changed) persist_permission_state_locked();
 }
 
 tool::SessionMode ChatSession::session_mode() const {
@@ -1051,6 +1118,8 @@ void ChatSession::set_session_mode(tool::SessionMode mode) {
         m_session_mode = mode;
         // 方案 A：模式变化后按目标模式重建系统提示词（工具说明随模式收窄/恢复）
         persist_reason = rebuild_system_prompt_locked();
+        // #87：三态落盘（进入/退出 Plan 会联动 permission_mode，必须一并持久化）
+        persist_permission_state_locked();
     }
     if (!persist_reason.empty()) persist_system_prompt(persist_reason);
 }
@@ -1078,8 +1147,82 @@ void ChatSession::toggle_session_mode() {
         }
         // 方案 A：模式变化后按目标模式重建系统提示词
         persist_reason = rebuild_system_prompt_locked();
+        // #87：三态落盘（append-only，resume 时取最后一条）
+        persist_permission_state_locked();
     }
     if (!persist_reason.empty()) persist_system_prompt(persist_reason);
+}
+
+// ============================================================
+// #87：权限/工作模式持久化与恢复
+// ============================================================
+
+void ChatSession::persist_permission_state_locked() {
+    if (!m_session_store) return;  // 未开会话 / 内存会话：无文件可写，静默跳过
+    agent::session::PermissionEvent ev;
+    ev.permission_mode = permission_mode_to_string(m_permission_mode);
+    ev.session_mode = session_mode_to_string(m_session_mode);
+    ev.permission_mode_before_plan = permission_mode_to_string(m_permission_mode_before_plan);
+    ev.in_plan = m_in_plan_mode;
+    if (!m_session_store->append_permission(ev)) {
+        LOG_WARN("#87: persist permission state failed, session={}", m_session_id);
+    }
+}
+
+ChatSession::PermissionRestoreResult ChatSession::restore_permission_locked(
+    const std::optional<agent::session::PermissionEvent>& ev) {
+    PermissionRestoreResult r;
+
+    // 分支 1（no_record）：历史会话或从未切换过模式 —— 事件流里没有 permission 事件。
+    // 这不是「曾经处于 Plan」，而是「没记录」，绝大多数是旧会话，故回退 Default 而非从严切 Plan
+    // （强行切 Plan 会让所有历史会话 resume 后写不了文件，等于用新的静默失败替换旧的）。
+    // 但**必须显式告知**：restored=false + reason 交给 TUI 呈现，不静默降级。
+    if (!ev.has_value()) {
+        m_permission_mode = tool::PermissionMode::Default;
+        m_permission_mode_before_plan = tool::PermissionMode::Default;
+        m_session_mode = tool::SessionMode::Standard;
+        m_in_plan_mode = false;
+        r.restored = false;
+        r.reason = "no_record";
+        r.mode = m_permission_mode;
+        LOG_WARN("#87: session={} has no permission record, fallback to default (explicit notice)",
+                 m_session_id);
+        return r;
+    }
+
+    auto pm = permission_mode_from_string(ev->permission_mode);
+    auto sm = session_mode_from_string(ev->session_mode);
+    // before_plan 缺失/非法只影响「退出 Plan 时恢复到哪个模式」，可容忍 → 取 Default
+    auto bpm = permission_mode_from_string(ev->permission_mode_before_plan);
+
+    // 分支 2（invalid_value）：值非法（跨版本/被篡改）——从严回退 Plan，宁可只读。
+    if (!pm.has_value() || !sm.has_value()) {
+        m_permission_mode = tool::PermissionMode::Plan;
+        m_permission_mode_before_plan = bpm.value_or(tool::PermissionMode::Default);
+        m_session_mode = tool::SessionMode::Plan;
+        m_in_plan_mode = true;
+        r.restored = false;
+        r.reason = "invalid_value";
+        r.mode = m_permission_mode;
+        LOG_WARN("#87: session={} has invalid permission record (mode={}, session_mode={}), "
+                 "fallback to plan",
+                 m_session_id, ev->permission_mode, ev->session_mode);
+        return r;
+    }
+
+    // 分支 3：正常恢复三态
+    m_permission_mode = *pm;
+    m_session_mode = *sm;
+    m_permission_mode_before_plan = bpm.value_or(tool::PermissionMode::Default);
+    m_in_plan_mode = ev->in_plan;
+    r.restored = true;
+    r.mode = m_permission_mode;
+    return r;
+}
+
+ChatSession::PermissionRestoreResult ChatSession::last_permission_restore() const {
+    std::lock_guard<std::mutex> lock(m_state_mutex);
+    return m_last_permission_restore;
 }
 
 std::string ChatSession::rebuild_system_prompt_locked() {
@@ -1261,6 +1404,7 @@ void ChatSession::run_completion(const std::string& user_text,
                                 std::lock_guard<std::mutex> lk(m_state_mutex);
                                 m_permission_mode = mode;
                                 m_permission_mode_before_plan = before_plan;
+                                m_in_plan_mode = in_plan;
                                 // 工具路径（EnterPlanMode/ExitPlanModeV2）同步工作模式：
                                 // 进入计划 → 模式=计划；退出计划 → 回落到标准模式
                                 if (in_plan) {
@@ -1268,6 +1412,9 @@ void ChatSession::run_completion(const std::string& user_text,
                                 } else if (m_session_mode == tool::SessionMode::Plan) {
                                     m_session_mode = tool::SessionMode::Standard;
                                 }
+                                // #87：工具路径的 Plan 进出是最关键的只读边界，
+                                // 不落盘则「agent 自己进入 Plan → 中断 → resume」后边界静默消失。
+                                persist_permission_state_locked();
                             },
                     });
                     // 注入会话工作模式（标准/计划/极简）：极简模式白名单守卫依据
