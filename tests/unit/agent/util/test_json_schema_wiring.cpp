@@ -91,8 +91,7 @@ void queue_text(MockCompletionProvider& provider, const std::string& text) {
 
 }  // namespace
 
-TEST_CASE("JS-16 坏参数被拦截后，错误回灌使模型自纠并最终成功",
-          "[json_schema][issue80]") {
+TEST_CASE("JS-16 坏参数被拦截后，错误回灌使模型自纠并最终成功", "[json_schema][issue80]") {
     MockConfigManager cfg;
     MockCompletionProvider provider;
     auto registry = std::make_shared<tool::ToolRegistry>();
@@ -118,9 +117,8 @@ TEST_CASE("JS-16 坏参数被拦截后，错误回灌使模型自纠并最终成
     messages.push_back(ChatMessage::user("touch /tmp/x"));
     std::atomic<bool> should_cancel{false};
 
-    const auto result =
-        loop.run(messages, "you are a test agent", registry->get_all_schemas(), should_cancel,
-                 on_step, /*on_token=*/nullptr);
+    const auto result = loop.run(messages, "you are a test agent", registry->get_all_schemas(),
+                                 should_cancel, on_step, /*on_token=*/nullptr);
 
     REQUIRE(result.was_error == false);
 
