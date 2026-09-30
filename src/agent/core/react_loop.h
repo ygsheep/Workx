@@ -201,6 +201,16 @@ class WORKX_API ReActLoop {
         /// @details ReActLoop 在 PreToolUse / PostToolUse / Stop 三处调用，
         ///          blockingError/preventContinuation 语义作用于当前 turn。
         std::shared_ptr<hook::HookManager> hooks;
+
+        // ---- #78：FinalAnswer 前强制验证闭环（PreCompletion 门禁）----
+        /// 验证目标（None = 不启用门禁）。由 apply_verification_gate() 统一装配。
+        AgentGoal goal;
+        /// 门禁总开关。默认 false —— MVP 不改变任何既有行为；
+        /// 仅当 goal.has_goal() 且该类型有验证器时才可能执行验证命令。
+        bool verify_before_finish = false;
+        /// 验证失败回灌重试上限。刻意远小于 AgentGoal::max_attempts(50)：
+        /// 后者是外层包壳的轮预算，套进单循环会把成本放大一个量级。
+        int verify_max_attempts = 3;
     };
 
     /// @brief 步骤回调（每完成一个步骤时调用）
@@ -403,7 +413,30 @@ class WORKX_API ReActLoop {
     // 内部方法
     // ============================================================
 
-    /// @brief 构建 CompletionRequest
+    /// @brief Issue #78：FinalAnswer 前验证门禁的裁决
+    enum class GateResult {
+        Pass,     ///< 验证通过 —— 正常采纳模型的最终答复
+        Degrade,  ///< 达重试上限仍未通过 —— 附加"未完成验证"警告后放行
+        Retry,    ///< 验证未通过 —— 驳回本轮答复，回灌错误原因后继续迭代
+    };
+
+    /// @brief Issue #78：在采纳 FinalAnswer 之前执行验证门禁
+    /// @details 仅在「开关开启 + goal 非空 + 该类型有验证器」时真正执行 check_goal()，
+    ///          其余情形一律 Pass（不执行任何命令）。这是 PreCompletion 语义的核心：
+    ///          Retry 时本轮**不产生** final_answer 也不记录 FinalAnswer 步骤，
+    ///          被驳回的答复不会泄漏为输出。
+    /// @param answer_text 模型本轮给出的最终答复（Degrade 时附警告后保留）
+    /// @param reasoning 模型的推理内容
+    /// @param result 循环结果（写入 goal_status；Degrade 时写入 final_answer）
+    /// @param messages 会话历史（Retry 时回灌一条 user 消息）
+    /// @param iteration 当前迭代序号（Retry 时必须手动推进，见实现注释）
+    /// @param budget 剩余预算（Retry 时必须手动递减，否则回灌不消耗预算 → 无限循环）
+    /// @param verify_attempts 本 run 已发生的验证失败次数（跨迭代累计）
+    GateResult run_verification_gate(const std::string& answer_text, const std::string& reasoning,
+                                     ReActResult& result, std::vector<ChatMessage>& messages,
+                                     int& iteration, int& budget, int& verify_attempts);
+
+    /// @brief 构造 CompletionRequest
     CompletionRequest build_request(const std::vector<ChatMessage>& messages,
                                     const std::string& system_prompt,
                                     const nlohmann::json& tools_schema) const;
@@ -506,5 +539,18 @@ class WORKX_API ReActLoop {
     /// @brief #56 方案 D：会话级 MCP 连接管理器（注入 ToolContext.mcp_manager_ptr）
     std::shared_ptr<agent::mcp::McpClientManager> m_mcp_manager;
 };
+
+/// @brief Issue #78：按配置装配 ReActLoop 的验证门禁（FinalAnswer 前验证）
+/// @details **所有直接构造 ReActLoop 的入口都必须调用本函数**。
+///          原因在 `docs/design-issue-78-verification-loop.md` §1.2 约束 2：
+///          GoalGuardedAgent 是 opt-in 的外层包壳，而 headless 等入口是自己 new
+///          ReActLoop 的，绕过了它 —— 漏调用即该入口永远零验证。集中到本函数，
+///          是为了让"新增入口忘记接线"这类回归只能发生在一处（VF-04 守护）。
+/// @param cfg [out] 被填入 goal / verify_before_finish / verify_max_attempts
+/// @param config_manager 配置源
+/// @param enabled_by_default 未显式配置时的开关默认值。交互式传 false；
+///           headless（评测入口）传 true —— #78 的收益必须在能被测到的地方先落地。
+void apply_verification_gate(ReActLoop::Config& cfg, const IConfigManager& config_manager,
+                             bool enabled_by_default = false);
 
 }  // namespace agent

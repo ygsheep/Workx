@@ -10,7 +10,8 @@
 #include "agent/core/react_observer.h"
 #include "agent/api/i_stream_reader.h"
 #include "agent/compact/prefix_shape.h"  // DS_CACHE M-2: normalize_tools_schema
-#include "agent/config/app_config.h"     // #30：agent::keys::MODEL_NAME
+#include "agent/config/app_config.h"     // #30：agent::keys::MODEL_NAME / #78：验证门禁键
+#include "agent/core/verdict.h"          // #78：check_goal / has_checker（#31 验证原语）
 #include "agent/hook/hook_manager.h"     // Issue #50：通用 Hook 事件系统
 #include "agent/skill/inclaude/conditional.h"
 #include "agent/util/git_checkpoint.h"     // #81：git 基线检查点
@@ -546,6 +547,90 @@ ReActLoop::ReviewerDecision ReActLoop::run_reviewer(const std::string& user_requ
 }
 
 // ============================================================
+// #78：FinalAnswer 前验证门禁（PreCompletion）
+// ============================================================
+
+namespace {
+
+/// @brief #78：验证失败时回灌给模型的纠偏指令
+/// @details 口径对齐 LangChain PreCompletionChecklist —— 明确要求"运行命令并读完整输出，
+///          与任务要求而不是自己的代码比对"，而非笼统地让它"再检查一遍"。
+std::string build_verification_feedback(const Verdict& v) {
+    return std::format(
+        "验证未通过（{}）。回到任务原文逐条核对，运行项目的构建/测试命令并读完整输出，"
+        "与任务要求（而不是与你自己的代码）比对，不一致就修。"
+        "修完再次验证之前不要声明完成。",
+        v.detail);
+}
+
+/// @brief #78：达重试上限后的降级提示（附在最终答复末尾）
+std::string build_verification_warning(const Verdict& v) {
+    return std::format(
+        "\n\n[未完成验证] 已达到验证重试上限，最后一次验证结果：{}。"
+        "以上内容未经实际构建/测试确认，请人工复核后再采信。",
+        v.detail);
+}
+
+}  // namespace
+
+void apply_verification_gate(ReActLoop::Config& cfg, const IConfigManager& config_manager,
+                             bool enabled_by_default) {
+    const std::string goal_spec = config_manager.get_or<std::string>(keys::AGENT_GOAL, "");
+    cfg.goal = parse_goal(goal_spec);
+    cfg.verify_before_finish =
+        config_manager.get_or<bool>(keys::AGENT_VERIFY_BEFORE_FINISH, enabled_by_default);
+    // 归一化到 >=1：0/负值会让 cap 判定永假或永真，两种都会破坏闭环语义
+    cfg.verify_max_attempts =
+        std::max(1, config_manager.get_or<int>(keys::AGENT_VERIFY_MAX_ATTEMPTS,
+                                               cfg.verify_max_attempts));
+}
+
+ReActLoop::GateResult ReActLoop::run_verification_gate(
+    const std::string& answer_text, const std::string& reasoning, ReActResult& result,
+    std::vector<ChatMessage>& messages, int& iteration, int& budget, int& verify_attempts) {
+    // VF-03：开关未开 / 未声明目标 / 该目标类型没有可用验证器 → 一律放行，不执行任何命令。
+    // has_checker 这一项是关键：没有验证手段时若照样判定失败，就会把"无法验证"
+    // 误报成"验证失败"，反而污染结果。
+    if (!m_config.verify_before_finish || !m_config.goal.has_goal() ||
+        !has_checker(m_config.goal.type)) {
+        return GateResult::Pass;
+    }
+
+    const Verdict v = check_goal(m_config.goal, m_cwd);
+    if (v.status == GoalStatus::Achieved) {
+        result.goal_status = GoalStatus::Achieved;
+        LOG_INFO("[react_loop] #78 verification passed: {}", v.detail);
+        return GateResult::Pass;
+    }
+
+    const int attempt = ++verify_attempts;
+    const int cap = std::max(1, m_config.verify_max_attempts);
+    LOG_WARN("[react_loop] #78 verification not passed (status={}, attempt {}/{}): {}",
+             static_cast<int>(v.status), attempt, cap, v.detail);
+
+    // 回灌重试的两个前置条件：
+    //   1) 未达重试上限 —— §5.2 成本控制：每次重试都可能再跑一轮全量 ctest/build，
+    //      不封顶会把单次 turn 的成本放大数倍；
+    //   2) budget > 1 —— 本分支还要再扣 1，扣完必须至少剩下得下一轮 Thought，
+    //      否则回灌之后循环立刻因 budget<=0 退出，白白浪费一次修复机会。
+    if (attempt < cap && budget > 1) {
+        messages.push_back(ChatMessage::user(build_verification_feedback(v)));
+        // ⚠️ §5.1：++iteration / --budget 位于主循环体末尾，本分支的 continue 会跳过它们，
+        //          必须在此手动记账 —— 漏掉就是"回灌不消耗预算"的死循环。
+        ++iteration;
+        --budget;
+        return GateResult::Retry;
+    }
+
+    // VF-02：到这一步仍未通过 → 降级为"带警告终止"，绝不静默放行，也绝不空输。
+    result.goal_status = GoalStatus::Failed;
+    result.final_answer = answer_text + build_verification_warning(v);
+    result.final_reasoning = reasoning;
+    LOG_WARN("[react_loop] #78 gate degraded after {} attempt(s)", attempt);
+    return GateResult::Degrade;
+}
+
+// ============================================================
 // run — ReAct 主循环
 // ============================================================
 
@@ -628,6 +713,7 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
     int review_grants = 0;             ///< 达上限评审"继续"已允许的次数
     bool graceful_stop = false;        ///< 内部评审 wrap_up 的优雅收尾（非硬错误）
     bool hard_budget_reached = false;  ///< 预算(含追加)真正耗尽且未产出 final_answer
+    int verify_attempts = 0;  ///< #78：本 run 已发生的验证失败次数（跨迭代累计，用于重试封顶）
     std::deque<ToolCallSignature> recent_calls;  ///< 停滞判定滑动窗口（记录最近已执行调用签名）
     std::vector<std::string> tool_history;  ///< 最近工具执行日志（评审喂入）
     constexpr size_t kMaxToolHistory = 6;   ///< 喂给评审器的工具日志条数上限
@@ -752,15 +838,28 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
                 messages.back().reasoning_content = thought.reasoning;
             }
 
-            result.final_answer = thought.content;
-            result.final_reasoning = thought.reasoning;
+            // === #78：FinalAnswer 前验证门禁 ===
+            // 放在 FinalAnswer 落地之前：被驳回（Retry）时本轮不写 final_answer、
+            // 也不记录 FinalAnswer 步骤，确保"未通过验证的答复"无法泄漏成结果，
+            // 更不会在预算耗尽时变成一条没有经过任何验证的最终输出。
+            const GateResult gate = run_verification_gate(thought.content, thought.reasoning,
+                                                          result, messages, iteration, budget,
+                                                          verify_attempts);
+            if (gate == GateResult::Retry) {
+                continue;  // 已回灌失败原因并完成预算记账 → 继续迭代
+            }
+            if (gate == GateResult::Pass) {
+                // Degrade 分支已在门禁内部连同警告写好 final_answer，这里不覆盖
+                result.final_answer = thought.content;
+                result.final_reasoning = thought.reasoning;
+            }
 
             // 记录 FinalAnswer 步骤
             {
                 ReActStep step;
                 step.type = ReActStepType::FinalAnswer;
                 step.step_number = ++step_counter;
-                step.thought_text = thought.content;
+                step.thought_text = result.final_answer;
                 step.reasoning = thought.reasoning;
                 step.duration_ms = thought_ms;
                 result.steps.push_back(step);

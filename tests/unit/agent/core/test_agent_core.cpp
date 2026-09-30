@@ -233,7 +233,7 @@ TEST_CASE("verdict: 缺少验证器/错误配置 → Failed", "[agent][verify]")
 // P1-1 / P2-1 安全加固验证（review R1 注入场景）
 // ============================================================
 
-TEST_CASE("P1-1: 白名单外的危险命令被拒绝执行", "[agent][verify][security]") {
+TEST_CASE("P1-1: 白名单外的危险命令被拒绝执行", "[agent][verify][security][issue78]") {
     const std::string dir = test_dir();
     fs::create_directories(dir);
 
@@ -255,7 +255,7 @@ TEST_CASE("P1-1: 白名单外的危险命令被拒绝执行", "[agent][verify][s
     fs::remove_all(dir);
 }
 
-TEST_CASE("P1-1: 白名单内命令仍可执行", "[agent][verify][security]") {
+TEST_CASE("P1-1: 白名单内命令仍可执行", "[agent][verify][security][issue78]") {
     const std::string dir = test_dir();
     fs::create_directories(dir);
 #ifdef _WIN32
@@ -284,6 +284,81 @@ TEST_CASE("P2-1: file_exists 路径逃逸目录被拒绝", "[agent][verify][secu
     abs_escape.path = "/etc/passwd";
     REQUIRE(check_goal(abs_escape, dir).status == GoalStatus::Failed);
     fs::remove_all(dir);
+}
+
+/// @brief #78 VF-06：构造注入向量的便捷别名（goal.command 是唯一会被自动执行的用户可控串）
+AgentGoal injected_goal(const std::string& command) {
+    AgentGoal g;
+    g.type = AgentGoal::CustomScript;
+    g.command = command;
+    return g;
+}
+
+// ============================================================
+// VF-06（Issue #78 安全前置）：goal.command 命令注入向量
+// ============================================================
+// 重要性：#78 落地后系统会**自动执行** agent.goal 声明的构建/测试命令。
+// 在此之前 commands 只在用户手工开 goal-guarded 时才跑；之后默认路径也会跑，
+// 攻击面从"需要用户主动启用"变成"配一次就一直执行"。
+// 因此 guard_command 是硬性前置，本组用例必须先于功能本体合入。
+
+TEST_CASE("VF-06: 命令分隔符注入在字符串级被拦截（不只看首个 token）",
+          "[agent][verify][security][issue78]") {
+    // 关键威胁：首命令在白名单内（cmake/ctest/echo），元字符之后的部分才是载荷。
+    // 只做首个 token 白名单校验会被绕过 —— shell 包装层会执行整串。
+    const std::string dir = test_dir();
+    fs::create_directories(dir);
+
+    for (const char* payload : {
+             "ctest --output-on-failure && whoami",  // &&
+             "ctest ; whoami",                       // ;
+             "ctest | grep secret",                  // 管道
+             "echo $(whoami)",                       // 命令替换
+             "echo ${HOME}",                         // 变量展开
+             "cmake --build . & echo leaked",        // 后台
+             "ctest > out.txt",                      // 重定向
+             "ctest `whoami`",                       // 反引号
+             "ctest\nwhoami",                        // 换行分隔
+         }) {
+        REQUIRE(guard_command(payload).empty());  // 直接被拒，不得执行
+        AgentGoal g = injected_goal(payload);
+        Verdict v = check_goal(g, dir);
+        REQUIRE(v.status == GoalStatus::Failed);  // 端到端同样拒绝
+        REQUIRE(v.detail.find("rejected") != std::string::npos);
+    }
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("VF-06: 白名单命令的正常调用形式不被误伤", "[agent][verify][security][issue78]") {
+    // 门禁要想真正被用起来，就不能把合法命令挡在门外；这条锁住"安全加固过度"的回归方向。
+    const char* allowed[] = {
+        "ctest --output-on-failure",
+        "cmake --build . --config Debug",
+        "pytest -k pattern -x",
+        "go build ./...",
+        "cargo test --release",
+    };
+    for (const char* cmd : allowed) {
+        REQUIRE_FALSE(guard_command(cmd).empty());
+    }
+}
+
+/// @brief #78 VF-07：全部可通过 agent.goal 声明的目标类型都必须有验证器
+/// @note MVP 无法区分"项目真的没有可用的测试命令"与"ctest 跑失败了"——
+///       两者都表现为验证未通过。这里的断言锁住的是类型覆盖本身，防止将来
+///       新增 goal 类型时忘了补 checker，导致门禁静默放行那一类目标。
+TEST_CASE("VF-07: 可声明的目标类型与 checker 覆盖一一对应", "[agent][verify][issue78]") {
+    REQUIRE(has_checker(AgentGoal::TestsPass));
+    REQUIRE(has_checker(AgentGoal::BuildClean));
+    REQUIRE(has_checker(AgentGoal::LintZero));
+    REQUIRE(has_checker(AgentGoal::FileExists));
+    REQUIRE(has_checker(AgentGoal::CustomScript));
+    // 多模式目标由专属 Loop 驱动，check_goal 不判定它们 —— 门禁须据此放行而非误判失败
+    REQUIRE_FALSE(has_checker(AgentGoal::None));
+    REQUIRE_FALSE(has_checker(AgentGoal::Script));
+    REQUIRE_FALSE(has_checker(AgentGoal::Batch));
+    REQUIRE_FALSE(has_checker(AgentGoal::Watch));
 }
 
 TEST_CASE("P2-3: file_exists 路径保留原始大小写", "[agent][goal][verify]") {

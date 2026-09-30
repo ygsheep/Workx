@@ -58,6 +58,19 @@ constexpr const char* AGENT_GOAL = "agent.goal";
 /// ReAct 循环每轮基础预算（最大迭代轮数）。预算耗尽时若启用内部评审器
 /// （agent.max_iterations + 停滞恢复），会评审"是否继续"并追加额外预算。
 constexpr const char* AGENT_MAX_ITERATIONS = "agent.max_iterations";
+
+// ---- #78：FinalAnswer 前强制验证闭环（PreCompletion 门禁）----
+/// 是否在给出 FinalAnswer 前用 agent.goal 声明的目标做强制验证。
+/// 仅在 agent.goal 非空且该目标类型有验证器时生效；未配置目标则不产生任何额外命令。
+/// 默认 false（交互式）；headless 评测入口默认 true —— 它是 #78 首个受益方，
+/// 且 headless 自建 ReActLoop，不走 GoalGuardedAgent 包壳（见 design-issue-78 §1.2）。
+constexpr const char* AGENT_VERIFY_BEFORE_FINISH = "agent.verify_before_finish";
+/// 验证未通过时，"回灌错误信息 → 让模型修复 → 重验"的重试上限。
+/// 成本控制：每次重试都可能触发一轮全量 ctest/build，必须封顶，否则
+/// 单次 turn 的成本可能放大数倍（见 design-issue-78 §5.2）。
+/// 单独设一个远小于 AgentGoal::max_attempts(50) 的值：那是外层包壳的轮预算，
+/// 套进单循环会把成本放大一个量级。取 <=0 时归一化为此默认值。
+constexpr const char* AGENT_VERIFY_MAX_ATTEMPTS = "agent.verify_max_attempts";
 /// #79：单次 AgentTool 调用允许派生的子 Agent 数量上限（tasks 数组长度上限）。
 /// 超限时整批拒绝并返回结构化错误，由模型自行拆分任务或缩减并行规模。
 /// 0 或负数表示不限制（不推荐）。默认 10。

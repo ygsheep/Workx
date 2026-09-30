@@ -173,6 +173,27 @@ void register_config_defaults(ConfigManager& cfg) {
                          .type = ConfigSchema::Type::Int,
                          .int_range = std::make_pair<int64_t, int64_t>(0, 10000)});
 
+    // #78：FinalAnswer 前强制验证闭环。默认关闭（交互式保持既有行为），
+    // headless 评测入口在 build_loop 里默认开启（#77 是 #78 首个受益方）。
+    // 注意：本开关只在 agent.goal 非空时才可能产生实际的验证命令执行。
+    cfg.register_schema({.key = keys::AGENT_VERIFY_BEFORE_FINISH,
+                         .description =
+                             "Run the agent.goal verification before accepting a FinalAnswer. "
+                             "Only takes effect when agent.goal declares a verifiable goal "
+                             "(tests_pass / build_clean / lint_zero / file_exists / cmd). "
+                             "Unverified answers are fed back to the model to retry; after the "
+                             "attempt cap the answer is emitted with a not-verified warning.",
+                         .default_value = false,
+                         .type = ConfigSchema::Type::Bool});
+    cfg.register_schema({.key = keys::AGENT_VERIFY_MAX_ATTEMPTS,
+                         .description =
+                             "Cap on verification failures re-injected to the model within one "
+                             "ReAct run. Each attempt may re-run the build/test command, so this "
+                             "bounds the cost amplification of the verification gate.",
+                         .default_value = 3,
+                         .type = ConfigSchema::Type::Int,
+                         .int_range = std::make_pair<int64_t, int64_t>(1, 50)});
+
     // === Plan Mode V2（#54：五阶段多 Agent 规划流程）===
     cfg.register_schema({.key = keys::PLAN_AUTO,
                          .description =
