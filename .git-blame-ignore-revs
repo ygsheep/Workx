@@ -1,0 +1,22 @@
+# git blame 时应忽略的提交
+#
+# 用途：这些提交是纯机械改动（全量格式化 / 批量重命名），不改变代码语义。
+# 若 blame 停在这些提交上，会遮蔽真正写下该逻辑的作者与日期。
+# 忽略后 git blame 会自动回溯到上一个"有意义"的提交。
+#
+# GitHub 网页端的 blame 视图会自动识别仓库根目录的这个文件，无需配置。
+# 本地命令行需执行一次（IDE 的 git 注解也会遵循）：
+#     git config --local blame.ignoreRevsFile .git-blame-ignore-revs
+# 如需临时查看"未过滤"的 blame：
+#     git blame --ignore-revs-file '' <file>
+#
+# 格式：# 开头的行是注释，其余每行一个 SHA。
+# 注意：必须写完整 40 位 SHA —— git 解析这个文件时短 SHA 会报
+# "fatal: invalid object name"。
+
+# 2026-09-30 全量 clang-format 格式化（430 文件，纯排版）
+# PR #91
+64780627744ca829a6008d081d0bf336fb618966
+
+# 2026-09-07 项目名 WorkX 统一为 Workx（README/docs/TUI 核心引用）
+d2f495871a8e4cd330b16f16938c09e8829b55a8
