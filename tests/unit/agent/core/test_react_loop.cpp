@@ -598,7 +598,66 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop handles null reader", "[react_loop
     auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
 
     REQUIRE(result.was_error);
-    REQUIRE(result.error_message.find("Stream error") != std::string::npos);
+    // #89：提交失败与流式错误此前共用同一条固定串，无法区分；现在给出具体详情。
+    // 无 HTTP 响应，状态码应为 0（不是 500/502 之类编造值）。
+    REQUIRE(result.error_message.find("submit_completion") != std::string::npos);
+    REQUIRE(result.http_status == 0);
+}
+
+// ============================================================
+// #89：HTTP 状态码透传（此前在流层被丢弃，上层只能拿到固定串）
+// ============================================================
+
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop propagates 429 from stream error",
+                 "[react_loop][error][89]") {
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->add_content_chunk("partial");
+    reader->set_error_at(1);
+    reader->set_error_payload(429, "HTTP error: 429 - rate limited");
+    provider->set_next_reader(reader);
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("q")};
+    auto loop = make_loop();
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.was_error);
+    // 修复前：http_status 恒为 0，429 与网络错误无法区分
+    REQUIRE(result.http_status == 429);
+    REQUIRE(result.error_message.find("429") != std::string::npos);
+    REQUIRE(result.partial_content == "partial");
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop propagates 4xx so it is distinguishable from 5xx",
+                 "[react_loop][error][89]") {
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->set_error_at(0);
+    reader->set_error_payload(401, "HTTP error: 401 - invalid api key");
+    provider->set_next_reader(reader);
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("q")};
+    auto loop = make_loop();
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.was_error);
+    REQUIRE(result.http_status == 401);
+    REQUIRE(result.error_message.find("401") != std::string::npos);
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop keeps http_status 0 when no HTTP response",
+                 "[react_loop][error][89]") {
+    // 网络错误（curl 传输失败）：无 HTTP 响应，状态码应保持 0 而非编造
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->set_error_at(0);
+    reader->set_error_payload(0, "Connection timed out");
+    provider->set_next_reader(reader);
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("q")};
+    auto loop = make_loop();
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.was_error);
+    REQUIRE(result.http_status == 0);
+    REQUIRE(result.error_message == "Connection timed out");
 }
 
 // ============================================================================

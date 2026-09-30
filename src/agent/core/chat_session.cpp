@@ -1676,9 +1676,13 @@ RetryDecision ChatSession::compute_retry(const ReActResult& react_result,
     }
 
     // 可重试判定：①未超 max_retries ②HttpRetryPolicy.is_retryable 通过
-    // http_status=0 表示业务错误（非 HTTP），由 error_message 内容判断
-    const bool can_retry = attempt < retry_policy.max_retries &&
-                           HttpRetryPolicy::is_retryable(0, react_result.error_message);
+    // #89：http_status 由 ReActResult 透传（此前硬编码 0，使 429/5xx 分支永不生效、
+    //      任何非空 message 都被当成网络错误重试，4xx 也照重试）。
+    //      仍为 0 时表示非 HTTP 错误（提交失败/网络错误），由 error_message 内容判断。
+    const bool can_retry =
+        attempt < retry_policy.max_retries &&
+        HttpRetryPolicy::is_retryable(static_cast<unsigned int>(react_result.http_status),
+                                      react_result.error_message);
 
     if (!can_retry) {
         return RetryDecision{RetryAction::Stop, 0};

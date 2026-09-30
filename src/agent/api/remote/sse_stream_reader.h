@@ -51,8 +51,19 @@ class SSEStreamReader : public IStreamReader {
     /// @param error 错误信息，空表示正常结束
     void finish(const std::string& error = "");
 
+    /// @brief #89：带 HTTP 状态码标记响应结束
+    /// @param http_code HTTP 状态码（0 表示无 HTTP 响应，如 curl 传输失败）
+    /// @param error 错误信息，空表示正常结束
+    /// @details 状态码此前被字符串化进 error 后丢弃，上层只能靠解析文本反推。
+    ///          现在单独承载，供重试与降级判定结构化读取。
+    void finish(long http_code, const std::string& error);
+
     /// @brief 是否已结束（包括正常结束和错误）
     bool is_finished() const { return m_finished.load(); }
+
+    // IStreamReader 错误通道（#89）
+    int http_status() const override;
+    std::string error_message() const override;
 
    private:
     void on_sse_event(const SSEEvent& event);
@@ -66,6 +77,7 @@ class SSEStreamReader : public IStreamReader {
     std::atomic<bool> m_cancelled{false};
     std::atomic<bool> m_finished{false};
     std::string m_finish_error;
+    std::atomic<int> m_finish_status{0};  ///< #89：终止时的 HTTP 状态码（0 = 无 HTTP 响应）
 
     SSEParser m_sse_parser;
 
