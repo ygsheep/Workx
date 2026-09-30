@@ -11,6 +11,7 @@
 
 #include <string>
 #include <string_view>
+#include <algorithm>
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -110,6 +111,75 @@ using TouchCallback = std::function<void(const std::string& path)>;
 ///          用于通知宿主失效文件索引（如 TUI @ 补全索引）等缓存。
 using FileSystemChangedCallback = std::function<void()>;
 
+/// @brief #79：子 Agent 派生被拒的原因（供调用方拼模型可读的错误文案）
+enum class SubAgentReject {
+    None,        ///< 未拒绝（预约成功）
+    BatchLimit,  ///< 单次批量数超过 max_batch
+    TotalLimit,  ///< 累计总数超过 max_total
+};
+
+/// @brief #79：单次 run 的子 Agent 派生预算（成本护栏）
+///
+/// @details 由 ReActLoop 在 run() 开始时按配置构造，经 ToolContext 注入工具；
+///          AgentTool 派生前调用 try_reserve(n) 原子预约额度，两级护栏：
+///          - n > max_batch：单次批量规模超限
+///          - 累计 + n > max_total：全程总量超限
+///
+///          拒绝时 AgentTool 返回结构化错误回灌模型（含上限与剩余额度），
+///          由模型自行拆分任务或缩减并行规模，而非静默截断——保留模型的可纠正性。
+///
+///          线程安全：Action 阶段并行执行多个 tool_use，同一轮可能有多个 AgentTool
+///          并发预约，故计数用 atomic + CAS 循环。
+///
+///          子 Agent 的工具集不含 AgentTool（防递归），预算无需向下传递。
+class SubAgentBudget {
+   public:
+    /// @param max_batch 单次批量上限（<=0 表示不限）
+    /// @param max_total 单次 run 累计上限（<=0 表示不限）
+    SubAgentBudget(int max_batch, int max_total)
+        : max_batch_(max_batch), max_total_(max_total) {}
+
+    /// @brief 尝试预约 n 个子 Agent 额度（成功则计数已扣除）
+    /// @param n 本次拟派生数量
+    /// @param[out] reject 被拒原因（成功时为 None）
+    /// @return true 允许派生；false 拒绝（计数不变）
+    bool try_reserve(int n, SubAgentReject& reject) {
+        reject = SubAgentReject::None;
+        if (n <= 0) return true;
+        if (max_batch_ > 0 && n > max_batch_) {
+            reject = SubAgentReject::BatchLimit;
+            return false;
+        }
+        if (max_total_ <= 0) {
+            launched_.fetch_add(n);
+            return true;
+        }
+        int cur = launched_.load();
+        while (true) {
+            if (cur + n > max_total_) {
+                reject = SubAgentReject::TotalLimit;
+                return false;
+            }
+            if (launched_.compare_exchange_weak(cur, cur + n)) return true;
+        }
+    }
+
+    int max_batch() const { return max_batch_; }
+    int max_total() const { return max_total_; }
+    int launched() const { return launched_.load(); }
+
+    /// @brief 剩余可派生额度（不限时返回 -1）
+    int remaining() const {
+        if (max_total_ <= 0) return -1;
+        return std::max(0, max_total_ - launched_.load());
+    }
+
+   private:
+    int max_batch_;
+    int max_total_;
+    std::atomic<int> launched_{0};
+};
+
 /// @brief 工具执行上下文
 ///
 /// 在工具执行过程中传递的运行时信息：
@@ -147,6 +217,11 @@ struct ToolContext {
     /// @details 由 ReActLoop 在 turn 开始时注入。ToolExecutor 依据该模式做
     ///          第二道守卫：Minimal 下仅允许白名单工具（幻觉工具名直接拒绝）。
     SessionMode session_mode{SessionMode::Standard};
+
+    /// @brief #79：单次 run 的子 Agent 派生预算（由 ReActLoop 在 run() 开头注入）
+    /// @details 可为 nullptr（如子 Agent 自身、或未走 ReActLoop 的测试路径），
+    ///          此时 AgentTool 视为不限——但生产路径下 ReActLoop 必定注入非空实例。
+    std::shared_ptr<SubAgentBudget> sub_agent_budget;
 
     /// @brief 权限模式变更回调类型（#28：EnterPlanMode/ExitPlanMode 注入路径）
     /// @details 工具通过 set_permission_mode() 请求模式切换，由宿主（ReActLoop）

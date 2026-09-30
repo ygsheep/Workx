@@ -58,6 +58,14 @@ constexpr const char* AGENT_GOAL = "agent.goal";
 /// ReAct 循环每轮基础预算（最大迭代轮数）。预算耗尽时若启用内部评审器
 /// （agent.max_iterations + 停滞恢复），会评审"是否继续"并追加额外预算。
 constexpr const char* AGENT_MAX_ITERATIONS = "agent.max_iterations";
+/// #79：单次 AgentTool 调用允许派生的子 Agent 数量上限（tasks 数组长度上限）。
+/// 超限时整批拒绝并返回结构化错误，由模型自行拆分任务或缩减并行规模。
+/// 0 或负数表示不限制（不推荐）。默认 10。
+constexpr const char* AGENT_SUB_AGENT_MAX_BATCH = "agent.sub_agent_max_batch";
+/// #79：单次 run 累计允许派生的子 Agent 总数上限（跨多次 AgentTool 调用累计）。
+/// 与 max_batch 形成两级护栏：单层规模 + 全程总量，防止成本无界增长。
+/// 0 或负数表示不限制（不推荐）。默认 50。
+constexpr const char* AGENT_SUB_AGENT_MAX_TOTAL = "agent.sub_agent_max_total";
 
 // Plan Mode V2（#54：五阶段多 Agent 规划流程）
 /// 进入 Plan 后是否自动触发 interview→explore→plan 全流程（false 仅保留原手动行为）
