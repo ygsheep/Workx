@@ -9,14 +9,18 @@
 #include <catch2/catch_test_macros.hpp>
 #include <atomic>
 #include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <thread>
 #include <vector>
 #include <string>
+#include <string_view>
 #include <memory>
 #include <deque>
 #include <optional>
 
 #include "agent/core/react_loop.h"
+#include "agent/config/app_config.h"  // #78：agent::keys::AGENT_GOAL 等门禁键
 #include "agent/api/i_completion_provider.h"
 #include "agent/api/i_stream_reader.h"
 #include "agent/api/chat_types.h"
@@ -29,6 +33,7 @@
 #include "agent/tool/PlanMode/exit_plan_mode_v2_tool.h"
 #include "core/config/config_manager.h"
 #include "core/events/agent_events.h"  // AskUserRequestEvent（ExitPlanModeV2 批准确认流）
+#include "helpers/mock_config_manager.h"  // #78 VF-04：门禁装配按入口做差异化默认值
 #include "helpers/mock_provider.h"
 #include "helpers/mock_event_bus.h"  // H-1：ExitPlanModeV2 批准确认通道
 
@@ -947,4 +952,283 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop at-limit reviewer wraps up gracefu
     REQUIRE(result.final_answer.find("enough progress") != std::string::npos);
     REQUIRE(result.total_iterations == 2);
     REQUIRE(echo_tool->call_count == 2);
+}
+
+// ============================================================================
+// Issue #78：FinalAnswer 前强制验证闭环（PreCompletion 门禁）
+// ============================================================================
+// 用 FileExists 目标驱动门禁：不依赖真实构建环境，结果确定且执行快。
+// 脚本化模型靠 MockCompletionProvider 的 reader 队列实现（每轮 run 消费一个），
+// 因此"多轮回灌"不需要额外的 scripted_model 基建。
+
+namespace {
+
+/// @brief #78：写"目标产物"的工具 —— 模拟模型真的照反馈去修了
+class WriteArtifactTool : public ITool {
+   public:
+    mutable int call_count = 0;
+    std::string path;
+
+    explicit WriteArtifactTool(std::string target) : path(std::move(target)) {}
+
+    const std::string& name() const override {
+        static const std::string n = "WriteArtifact";
+        return n;
+    }
+    const std::string& description() const override {
+        static const std::string d = "Writes the target artifact file";
+        return d;
+    }
+    const std::string& prompt() const override {
+        static const std::string p = "WriteArtifact tool for #78 gate testing";
+        return p;
+    }
+    nlohmann::json input_schema() const override {
+        return {{"type", "object"}, {"properties", {}}};
+    }
+    ResultV2<ToolResult> call(const nlohmann::json&, const ToolContext&) const override {
+        ++call_count;
+        std::ofstream(path) << "artifact";
+        return ResultV2<ToolResult>::ok(ToolResult::ok(std::string("artifact written")));
+    }
+};
+
+struct VerificationGateFixture : ReActLoopFixture {
+    std::string dir;       ///< 隔离工作目录（同时作为 loop 的 cwd）
+    std::string artifact;  ///< 待验证的目标产物路径
+    std::shared_ptr<WriteArtifactTool> writer;
+
+    VerificationGateFixture() {
+        namespace fs = std::filesystem;
+        dir = (fs::temp_directory_path() /
+               ("workx_vfgate_" +
+                std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())))
+                  .string();
+        fs::create_directories(dir);
+        artifact = dir + "/artifact.txt";
+        writer = std::make_shared<WriteArtifactTool>(artifact);
+        registry->register_tool(writer);
+    }
+
+    ~VerificationGateFixture() {
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+    }
+
+    /// @brief 门禁配置：以 "产物文件存在" 作为验证目标
+    ReActLoop::Config gate_config(int max_attempts) {
+        ReActLoop::Config cfg;
+        cfg.goal = parse_goal("file_exists:" + artifact);
+        cfg.verify_before_finish = true;
+        cfg.verify_max_attempts = max_attempts;
+        cfg.max_iterations = 10;
+        return cfg;
+    }
+
+    std::unique_ptr<ReActLoop> make_gate_loop(ReActLoop::Config config) {
+        return std::make_unique<ReActLoop>(provider.get(), registry, config,
+                                           &ConfigManager::instance(), nullptr, dir);
+    }
+
+    /// @brief 会话历史中是否存在一条含指定文本的 user 消息（回灌的验证失败信息）
+    bool injected_user_text(const std::vector<ChatMessage>& messages,
+                            std::string_view needle) const {
+        for (const auto& m : messages) {
+            if (m.role == ChatMessage::Role::User && m.content.find(needle) != std::string::npos) {
+                return true;
+            }
+        }
+        return false;
+    }
+};
+
+}  // namespace
+
+TEST_CASE_METHOD(VerificationGateFixture, "VF-01: 验证未通过时不产生无警告的最终答复",
+                 "[react_loop][issue78]") {
+    // max_attempts=1 → 首次失败即降级（不再回灌重试）
+    auto loop = make_gate_loop(gate_config(1));
+    make_text_reader("我认为已经完成了。");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("请实现这个功能")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.goal_status == GoalStatus::Failed);
+    // 原始答复保留（信息不丢），但必须带上未完成验证的警告
+    REQUIRE(result.final_answer.find("我认为已经完成了。") != std::string::npos);
+    REQUIRE(result.final_answer.find("未完成验证") != std::string::npos);
+    REQUIRE_FALSE(result.was_error);  // 降级不是错误，是"降级成功终止"
+}
+
+TEST_CASE_METHOD(VerificationGateFixture, "VF-02: 失败回灌后模型修复 → 重验通过",
+                 "[react_loop][issue78]") {
+    auto loop = make_gate_loop(gate_config(3));
+
+    make_text_reader("完成了。");                                        // 轮1：无据宣称完成
+    make_tool_call_reader("tu_1", "WriteArtifact", R"({})");            // 轮2：照反馈去补产物
+    make_text_reader("修复后重新验证过了，已完成。");                     // 轮3：验证通过
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("请实现这个功能")};
+    auto result = loop->run(messages, "", registry->get_all_schemas(), should_cancel);
+
+    REQUIRE(result.goal_status == GoalStatus::Achieved);
+    REQUIRE(result.final_answer == "修复后重新验证过了，已完成。");
+    REQUIRE(result.final_answer.find("未完成验证") == std::string::npos);
+    REQUIRE(writer->call_count == 1);  // 回灌确实驱动了动作，而不是空转
+    REQUIRE(result.total_iterations == 3);
+    // 回灌的失败信息进入了会话历史，且落在 user 角色（模型视角的纠偏指令）
+    REQUIRE(injected_user_text(messages, "验证未通过"));
+}
+
+TEST_CASE_METHOD(VerificationGateFixture, "VF-02: 达重试上限后降级为带警告终止",
+                 "[react_loop][issue78]") {
+    auto loop = make_gate_loop(gate_config(2));
+
+    make_text_reader("第一轮说完成。");  // 轮1：验证失败 → 回灌
+    make_text_reader("第二轮还说完成。");  // 轮2：验证仍失败 → 达上限 → 降级
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("请实现这个功能")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.goal_status == GoalStatus::Failed);
+    REQUIRE(result.final_answer.find("未完成验证") != std::string::npos);
+    REQUIRE(result.final_answer.find("第二轮还说完成。") != std::string::npos);
+    REQUIRE(provider->submit_count == 2);  // 恰好两次 Thought：回灌一次后仍未过 → 降级，不会无限重试
+}
+
+TEST_CASE_METHOD(VerificationGateFixture, "VF-02: 回灌必须消耗预算（不得静默死循环）",
+                 "[react_loop][issue78]") {
+    // §5.1 的核心风险：回灌分支的 continue 会跳过循环体末尾的 --budget/++iteration。
+    // 这里把预算压到 4、给足 10 个 reader，若记账漏了循环就跑不完 / 打满预算。
+    ReActLoop::Config cfg = gate_config(100);  // 重试上限放开，让预算成为唯一约束
+    cfg.max_iterations = 4;
+    auto loop = make_gate_loop(cfg);
+
+    for (int i = 0; i < 10; ++i) {
+        make_text_reader("还没做，先说完成。");  // 模型从不修复 → 每次都会被回灌
+    }
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("请实现这个功能")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    // 预算有限 ⇒ 必须在有限步内降级退出，且提交次数远小于提供的 reader 数
+    REQUIRE(result.goal_status == GoalStatus::Failed);
+    REQUIRE(result.final_answer.find("未完成验证") != std::string::npos);
+    REQUIRE(provider->submit_count < 10);
+    REQUIRE(result.total_iterations <= 4);
+}
+
+TEST_CASE_METHOD(VerificationGateFixture, "VF-03: 无可用验证器时门禁直接放行",
+                 "[react_loop][issue78]") {
+    // (a) 开关开启但未声明目标 → 不执行任何命令，goal_status 保持 Unknown
+    {
+        ReActLoop::Config cfg;
+        cfg.verify_before_finish = true;  // goal.type 仍是 None
+        auto loop = make_gate_loop(cfg);
+        make_text_reader("普通对话答复。");
+
+        std::vector<ChatMessage> messages = {ChatMessage::user("你好")};
+        auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+        REQUIRE(result.final_answer == "普通对话答复。");
+        REQUIRE(result.goal_status == GoalStatus::Unknown);  // 未经验证 ≠ 验证失败
+        REQUIRE(provider->submit_count == 1);
+    }
+    // (b) 声明了目标但该类型没有验证器（多模式目标）→ 同样放行，不得误判失败
+    {
+        ReActLoop::Config cfg;
+        cfg.verify_before_finish = true;
+        cfg.goal.type = AgentGoal::Batch;  // has_checker() == false
+        auto loop = make_gate_loop(cfg);
+        make_text_reader("多模式目标的答复。");
+
+        std::vector<ChatMessage> messages = {ChatMessage::user("跑批任务")};
+        auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+        REQUIRE(result.final_answer == "多模式目标的答复。");
+        REQUIRE(result.goal_status == GoalStatus::Unknown);
+    }
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "VF-04: apply_verification_gate 按入口正确装配门禁",
+                 "[react_loop][issue78]") {
+    MockConfigManager cfg_mgr;
+
+    // 交互式：未显式配置 → 关闭、无目标（MVP 不改变既有行为）
+    ReActLoop::Config interactive;
+    apply_verification_gate(interactive, cfg_mgr, /*enabled_by_default=*/false);
+    REQUIRE_FALSE(interactive.goal.has_goal());
+    REQUIRE(interactive.verify_before_finish == false);
+
+    // headless（评测入口）：未显式配置 → 默认开启
+    // 这是 #78 阶段 P2 的关键：headless 自建 ReActLoop，不走 GoalGuardedAgent，
+    // 漏掉这条接线评测链路就是零验证。
+    ReActLoop::Config headless;
+    apply_verification_gate(headless, cfg_mgr, /*enabled_by_default=*/true);
+    REQUIRE(headless.verify_before_finish == true);
+
+    // 配置了 goal → 必须解析进 Config，否则门禁永远不会真正验证任何东西
+    cfg_mgr.set_value(agent::keys::AGENT_GOAL, std::string("tests_pass"));
+    ReActLoop::Config with_goal;
+    apply_verification_gate(with_goal, cfg_mgr, true);
+    REQUIRE(with_goal.goal.type == AgentGoal::TestsPass);
+
+    // 显式开关优先于入口默认值
+    cfg_mgr.set_value(agent::keys::AGENT_VERIFY_BEFORE_FINISH, false);
+    ReActLoop::Config explicit_off;
+    apply_verification_gate(explicit_off, cfg_mgr, true);
+    REQUIRE(explicit_off.verify_before_finish == false);
+
+    // 非法值归一化为 >=1：0/负值会让重试封顶判定失去意义
+    cfg_mgr.set_value(agent::keys::AGENT_VERIFY_MAX_ATTEMPTS, 0);
+    ReActLoop::Config bad_cap;
+    apply_verification_gate(bad_cap, cfg_mgr, true);
+    REQUIRE(bad_cap.verify_max_attempts == 1);
+}
+
+TEST_CASE_METHOD(VerificationGateFixture, "VF-05: Stop hook 阻断不吞掉验证结论",
+                 "[react_loop][issue78][hook]") {
+    // Stop 的 blockingError 会把 final_answer 整个覆写掉（这是已知且刻意的行为），
+    // 但 goal_status 必须保留 —— 否则 #78 的验证结果会被 hook 静默抹掉。
+    auto hooks = std::make_shared<agent::hook::HookManager>();
+    hooks->set_provider(provider.get());
+    agent::hook::HookDefinition def;
+    def.event = agent::hook::HookEvent::Stop;
+    def.type = agent::hook::HookType::Prompt;
+    def.prompt = "audit the final answer";
+    hooks->register_hook(def);
+
+    ReActLoop::Config cfg = gate_config(1);
+    cfg.hooks = hooks;
+    auto loop = make_gate_loop(cfg);
+
+    make_text_reader("声明完成但其实没验证过。");  // reader[0]：主循环（→ 门禁降级）
+    auto hook_reader = std::make_shared<MockStreamReader>();
+    hook_reader->add_content_chunk(R"({"blockingError":"blocked-by-stop-hook"})");
+    provider->set_next_reader(hook_reader);  // reader[1]：Stop hook 判定
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("请实现这个功能")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.was_error);
+    REQUIRE(result.final_answer == "blocked-by-stop-hook");  // 覆写照旧
+    REQUIRE(result.goal_status == GoalStatus::Failed);       // 但验证结论存活
+}
+
+TEST_CASE_METHOD(VerificationGateFixture, "VF-09: 预算仅剩一轮时不再无效回灌，直接降级",
+                 "[react_loop][issue78]") {
+    // max_iterations=1 → budget==1，回灌后必然立刻退出，只会白丢一次机会。
+    // 因此门禁在此情形下直接产出降级答复，而不是留下一个未验证的空结果。
+    ReActLoop::Config cfg = gate_config(5);  // 重试上限很宽松，预算才是瓶颈
+    cfg.max_iterations = 1;
+    auto loop = make_gate_loop(cfg);
+    make_text_reader("完成。");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("请实现这个功能")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.goal_status == GoalStatus::Failed);
+    REQUIRE(result.final_answer.find("未完成验证") != std::string::npos);
+    REQUIRE(result.total_iterations == 1);
+    REQUIRE(provider->submit_count == 1);  // 没有多余的一次回灌
 }

@@ -98,6 +98,9 @@ ReActLoop::Config QueryEngine::make_react_config() const {
     ReActLoop::Config cfg;
     cfg.max_iterations =
         m_deps.config_manager->get_or<int>(agent::keys::AGENT_MAX_ITERATIONS, cfg.max_iterations);
+    // Issue #78：FinalAnswer 前验证门禁。交互式默认关闭，显式配置的
+    // agent.goal + agent.verify_before_finish 才启用（P3 之前不改变既有体验）。
+    apply_verification_gate(cfg, *m_deps.config_manager, /*enabled_by_default=*/false);
     // Issue #50：构建通用 Hook 事件系统（复用装配 helper；受 hooks.enabled 门控，
     // 空定义为空 manager）。循环级 HookManager 经 ReActLoop 注入 ToolContext，
     // 供工具线程触发 PermissionRequest / Subagent* 事件；agent 类型从中派生态
