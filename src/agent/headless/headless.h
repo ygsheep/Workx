@@ -60,10 +60,13 @@ HeadlessResult run_headless(IConfigManager& cfg, ITaskManager& task_manager, IEv
 ///          驱动主流程（否则只能依赖真实 API 配置，主流程不可测）。
 ///          除后端来源外，其余分支（权限模式 / 工具注册 / 输出序列化 / 退出码）共用同一实现。
 ///
+/// @note 不接收 IEventBus：headless 从不向工具注入 event_bus（build_loop 固定传
+///       nullptr，AskUserTool 因此自动拒绝提问，避免无人值守阻塞），故该形参无意义。
+///
 /// @param provider 后端指针，**不接管所有权**，生命周期由调用方保证
 /// @return 执行结果；provider 为 nullptr 时 exit_code == 2
 HeadlessResult run_headless_with_provider(IConfigManager& cfg, ITaskManager& task_manager,
-                                          IEventBus& event_bus, const HeadlessOptions& opts,
+                                          const HeadlessOptions& opts,
                                           ICompletionProvider* provider);
 
 }  // namespace agent

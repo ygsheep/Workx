@@ -81,29 +81,10 @@ class MockGitRepo {
         return f.good();
     }
 
-    /// @brief 删除仓库内文件
-    bool remove_file(const std::string& rel) const {
-        std::error_code ec;
-        return std::filesystem::remove(dir_ / rel, ec);
-    }
-
     /// @brief 暂存全部改动并提交
     bool commit_all(const std::string& message) const {
         if (sh({"add", "-A"}) != 0) return false;
         return sh({"commit", "-q", "-m", "\"" + message + "\""}) == 0;
-    }
-
-    /// @brief 当前 HEAD 的完整 sha（失败返回空串）
-    std::string head_sha() const {
-        const std::string cmd = "git -C \"" + path_str() + "\" rev-parse HEAD 2>&1";
-        FILE* pipe = _popen(cmd.c_str(), "r");
-        if (!pipe) return {};
-        char buf[128] = {0};
-        std::string out;
-        if (std::fgets(buf, sizeof(buf), pipe) != nullptr) out = buf;
-        _pclose(pipe);
-        while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) out.pop_back();
-        return out;
     }
 
    private:

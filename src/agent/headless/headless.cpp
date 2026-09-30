@@ -18,8 +18,8 @@
 #include "agent/core/react_loop.h"
 #include "agent/factory.h"
 #include "agent/headless/headless_internal.h"  // #77：内部可测件声明（@internal）
-#include "agent/util/git_checkpoint.h"  // #81：git 基线检查点（收尾改动清单）
-#include "agent/model/provider_config.h"  // load_provider_configs
+#include "agent/util/git_checkpoint.h"         // #81：git 基线检查点（收尾改动清单）
+#include "agent/model/provider_config.h"       // load_provider_configs
 #include "agent/model/provider_preset.h"
 #include "agent/tool/context.h"
 #include "agent/tool/registry.h"
@@ -264,12 +264,8 @@ HeadlessResult run_headless(IConfigManager& cfg, ITaskManager& task_manager, IEv
 }
 
 HeadlessResult run_headless_with_provider(IConfigManager& cfg, ITaskManager& task_manager,
-                                          IEventBus& event_bus, const HeadlessOptions& opts,
+                                          const HeadlessOptions& opts,
                                           ICompletionProvider* provider) {
-    // event_bus 语义与 run_headless 保持一致（headless 不向工具注入 event_bus，
-    // 由 build_loop 固定传 nullptr）；此形参仅为对齐调用签名。
-    (void)event_bus;
-
     if (provider == nullptr) {
         HeadlessResult result;
         result.exit_code = 2;

@@ -50,8 +50,8 @@ class HeadlessFixture {
     HeadlessFixture() {
         saved_cwd_ = std::filesystem::current_path();
         const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-        sandbox_ = std::filesystem::temp_directory_path() /
-                   ("workx_headless_ut_" + std::to_string(stamp));
+        sandbox_ =
+            std::filesystem::temp_directory_path() / ("workx_headless_ut_" + std::to_string(stamp));
 
         std::error_code ec;
         std::filesystem::create_directories(sandbox_, ec);
@@ -80,7 +80,8 @@ class HeadlessFixture {
     }
 
     /// @brief 排队一个工具调用回复
-    std::shared_ptr<MockStreamReader> queue_tool_call(const std::string& id, const std::string& name,
+    std::shared_ptr<MockStreamReader> queue_tool_call(const std::string& id,
+                                                      const std::string& name,
                                                       const std::string& input_json) {
         auto reader = std::make_shared<MockStreamReader>();
         reader->add_content_chunk("Let me use the tool.");
@@ -93,7 +94,7 @@ class HeadlessFixture {
 
     /// @brief 以注入后端执行一次 headless
     HeadlessResult run(const HeadlessOptions& opts) {
-        return run_headless_with_provider(cfg, tm, EventBus::instance(), opts, &provider);
+        return run_headless_with_provider(cfg, tm, opts, &provider);
     }
 
    private:
@@ -102,8 +103,7 @@ class HeadlessFixture {
 };
 
 /// @brief 构造基础选项
-HeadlessOptions make_opts(const std::string& task = "do it",
-                          const std::string& format = "text") {
+HeadlessOptions make_opts(const std::string& task = "do it", const std::string& format = "text") {
     HeadlessOptions o;
     o.task = task;
     o.output_format = format;
@@ -192,7 +192,8 @@ TEST_CASE_METHOD(HeadlessFixture, "HL-06 任务失败 was_error 返回 exit 1", 
     REQUIRE(r.exit_code == 1);
 }
 
-TEST_CASE_METHOD(HeadlessFixture, "HL-07 被中断 was_interrupted 返回 exit 1", "[headless][issue77]") {
+TEST_CASE_METHOD(HeadlessFixture, "HL-07 被中断 was_interrupted 返回 exit 1",
+                 "[headless][issue77]") {
     auto reader = std::make_shared<MockStreamReader>();
     reader->add_content_chunk("partial");
     reader->set_cancel_after(1);  // 消费 1 个 chunk 后流返回 Cancelled
@@ -252,14 +253,12 @@ TEST_CASE_METHOD(HeadlessFixture, "HL-10 空任务不崩溃且走正常流程", 
 // HL-11 ~ HL-12：无人值守 / 跨模块耦合
 // ============================================================================
 
-TEST_CASE_METHOD(HeadlessFixture, "HL-11 无人值守：AskUser 被调用时不阻塞",
-                 "[headless][issue77]") {
+TEST_CASE_METHOD(HeadlessFixture, "HL-11 无人值守：AskUser 被调用时不阻塞", "[headless][issue77]") {
     // headless 的 build_loop 固定传 event_bus=nullptr
     // → AskUserTool 内 ctx.event_bus() 抛 logic_error → 被 ToolExecutor 捕获为工具错误
     // → 不进入 5 分钟等待；错误作为 observation 回灌，循环继续到第 2 轮。
-    const std::string ask_json =
-        R"({"questions":[{"question":"Pick one?","header":"Pick",)"
-        R"("options":[{"label":"A"},{"label":"B"}]}]})";
+    const std::string ask_json = R"({"questions":[{"question":"Pick one?","header":"Pick",)"
+                                 R"("options":[{"label":"A"},{"label":"B"}]}]})";
     queue_tool_call("call_1", "AskUser", ask_json);
     queue_text("done after ask");
 
@@ -275,8 +274,7 @@ TEST_CASE_METHOD(HeadlessFixture, "HL-11 无人值守：AskUser 被调用时不�
     REQUIRE(r.output.find("done after ask") != std::string::npos);
 }
 
-TEST_CASE_METHOD(HeadlessFixture, "HL-12 git 仓库且有改动时输出改动清单",
-                 "[headless][issue77]") {
+TEST_CASE_METHOD(HeadlessFixture, "HL-12 git 仓库且有改动时输出改动清单", "[headless][issue77]") {
     MockGitRepo repo("hl12");
     if (!repo.ok()) SKIP("git 不可用，跳过 HL-12");
 
