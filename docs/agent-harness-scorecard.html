@@ -191,8 +191,8 @@
   <div class="find-h"><span class="tag t-p1">NEW</span>P0 落地后新暴露的风险</div>
   <ul>
     <li><b>headless 零测试</b><span> — 唯一合入即零覆盖的 P0 模块，且失败模式是「静默输出错内容」而非崩溃（最难发现）。用例方案见 <code>docs/p0-test-plan.md</code> 的 HL-01~12。</span></li>
-    <li><b>headless 无法注入 mock 后端</b><span> — <code>run_headless()</code> 内部直连 <code>create_backend(cfg,...)</code>，测试拿不到 <code>MockCompletionProvider</code>；需先抽 <code>run_headless_with_provider()</code> 重载，否则 HL 用例只能测纯函数。</span></li>
-    <li><b>schema 校验只测了纯函数</b><span> — 现有 8 条用例未覆盖「执行侧真的接入」与「错误回灌后自纠」，等于 #80 只验证了一半（JS-15/JS-16）。</span></li>
+    <li><b>headless 无法注入 mock 后端</b><span> — <code>run_headless()</code> 内部直连 <code>create_backend(cfg,...)</code>，测试拿不到 <code>MockCompletionProvider</code>；需先抽 <code>run_headless_with_provider()</code> 重载。<br>→ ⚠️ <b>且不止主流程</b>：<code>parse_permission_mode</code> / <code>result_text</code> / <code>step_json</code> 位于<b>匿名 namespace</b>，<code>resolve_backend</code> / <code>build_loop</code> / <code>render_output</code> / <code>derive_exit_code</code> / <code>execute_task</code> <b>未在 headless.h 声明</b> → 测试<b>连「纯函数」也拿不到</b>，HL 用例目前一条都写不了。<br>（此前记的「只能测纯函数」低估了缺口。）</span></li>
+    <li><b>schema 执行侧接入已覆盖</b><span> — ✅ <b>更正</b>：<code>test_json_schema.cpp:160</code> 的 <code>[json_schema][executor]</code>（PR #90 <code>d34d44a</code>，与另 7 条同批引入）已真调 <code>ToolExecutor::execute()</code> 验证「执行侧真的接入」：缺必填 → <code>MissingArgument</code>、类型错 → <code>InvalidInput</code>、合法 → ok。<br>→ 此前记的「8 条只测纯函数」把第 8 条漏看了，与自身引用的「8 条」自相矛盾。<br>→ 真缺口只剩 <b>JS-16「错误回灌后自纠」</b>。</span></li>
   </ul>
 </div>
 

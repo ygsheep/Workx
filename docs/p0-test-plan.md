@@ -21,7 +21,7 @@
 | Issue | 功能 | GitHub 状态 | develop 合并提交 | 现有测试 | 可开工 |
 |---|---|---|---|---|---|
 | #77 | headless 非交互模式 | CLOSED | `d34d44a`（PR #90） | ❌ **零覆盖** | ✅ 最高优先 |
-| #80 | json_schema 通用参数校验 | CLOSED | `d34d44a`（PR #90） | ⚠️ 8 用例，`test_json_schema.cpp` | ✅ |
+| #80 | json_schema 通用参数校验 | CLOSED | `d34d44a`（PR #90） | ✅ 8 用例，`test_json_schema.cpp`（含 1 条执行侧集成 `:160`） | ✅（JS-16 待补） |
 | #79 | 子 Agent 派生护栏 | CLOSED | `67ea633`（PR #92） | 5 用例，`test_sub_agent_budget.cpp` | ✅ |
 | #81 | git 检查点与回滚 | CLOSED | `b2d41ca`（PR #93） | 7 用例，`test_git_checkpoint.cpp` | ✅ |
 | #78 | 强制验证闭环 / PreCompletion 门禁 | **OPEN**（部分落地） | ✅ `9a2de19`（PR #98，P1+P2） | ✅ **13 条 `[issue78]` 用例全绿**（`test_react_loop.cpp` 8 条 + `test_agent_core.cpp` 5 条） | ⚠️ P1 / P2 已完成；P3 / P4 与 VF-08 待做 |
@@ -33,8 +33,8 @@
 
 **新暴露的三个风险**（P0 落地后才出现，已计入本方案）：
 1. **headless 零测试** —— 唯一合入即零覆盖的 P0 模块，失败模式是「静默输出错内容」而非崩溃；
-2. **headless 无法注入 mock 后端** —— 阻塞 HL 用例主流程（见 §0.3）；
-3. **#80 只测了纯函数** —— 未覆盖「执行侧真的接入」与「错误回灌自纠」，等于验证了一半。
+2. **headless 无法注入 mock 后端** —— 阻塞 HL 用例主流程（见 §0.3）；**且缺口比初判更大**：`parse_permission_mode` / `result_text` / `step_json` 在**匿名 namespace**，`resolve_backend` / `build_loop` / `render_output` / `derive_exit_code` / `execute_task` **未在 `headless.h` 声明** → 测试**连「纯函数」也拿不到**；
+3. ~~**#80 只测了纯函数**~~ → **更正（2026-09-30）**：执行侧接入（JS-15）**已由 `test_json_schema.cpp:160` 的 `[json_schema][executor]` 覆盖**——该用例与另 7 条**同属 PR #90（`d34d44a`）**，真调 `ToolExecutor::execute()` 验证缺必填 → `MissingArgument`、类型错 → `InvalidInput`。此前判定把第 8 条漏看了。**真缺口只剩 JS-16（错误回灌自纠）**。
 
 ### 0.2 技术栈与基建假设（已核实，非假设）
 
@@ -52,7 +52,8 @@
 ### 0.3 需要新增的基建（否则部分用例写不了）
 
 1. **`mock_git_repo.h`**：RAII 临时 git 仓库 fixture（init / commit / 改 / 删 / 未跟踪 / rename）。#81 的真仓库用例需要。
-2. **headless 后端注入口**：`run_headless()` 内部直接调 `create_backend(cfg, ...)` 建真实后端，**测试无法注入 `MockCompletionProvider`**。需抽出内部重载（如 `run_headless_with_provider(cfg, task_manager, provider, opts)`），否则 #77 只能测输出序列化纯函数，测不到主流程。
+2. **headless 后端注入口**：`run_headless()` 内部直接调 `create_backend(cfg, ...)` 建真实后端，**测试无法注入 `MockCompletionProvider`**。需抽出内部重载（如 `run_headless_with_provider(cfg, task_manager, provider, opts)`）。
+   → ⚠️ **缺口不止主流程**：`parse_permission_mode` / `result_text` / `step_json` 在**匿名 namespace**，`resolve_backend` / `build_loop` / `render_output` / `derive_exit_code` / `execute_task` **未在 `headless.h` 声明** → 测试**连纯函数也拿不到**（初判「只能测输出序列化纯函数」低估了缺口）。需一并把可测件以 `@internal` 区块导出。
    → 这是 #77 用例能否落地的**阻塞项**，建议与用例同 PR 提交。
 3. **`scripted_model.h`（可选）**：把「第 N 轮返回指定 tool_call / 文本」封装成一行 DSL，供多轮脚本化用例复用。✅ #78 落地时**未新增**该基建，而是以 `VerificationGateFixture` 等价实现（见 §1.2 E）。
 
@@ -105,7 +106,7 @@
 | JS-12 | P3 | 深层嵌套 object | 递归受限，不栈溢出 |
 | JS-13 | P2 | 多错误聚合 | `errors.size() > 1`；`to_string()` 全部包含 |
 | JS-14 | P2 | `is_missing` 标记 | 缺必填 → `is_missing == true`（供 MissingArgument 映射） |
-| JS-15 | **P1** | **执行侧真的调用了校验** | 通过 `ToolRegistry` 执行一次带错参的工具调用 → 返回 schema 错误，**不落到工具实现**。当前 8 条只测了纯函数，没测「接入」，等于 #80 只做了一半 |
+| JS-15 | **P1** | **执行侧真的调用了校验** | 通过 `ToolRegistry` 执行一次带错参的工具调用 → 返回 schema 错误，**不落到工具实现**。✅ **已覆盖**：`test_json_schema.cpp:160` 的 `[json_schema][executor]`（与另 7 条**同属 PR #90 `d34d44a`**）即此用例——真调 `ToolExecutor::execute()`，验 `MissingArgument` / `InvalidInput` / ok 三分支。~~「当前 8 条只测了纯函数，等于 #80 只做了一半」~~ 系把第 8 条漏看所致 |
 | JS-16 | **P1** | **错误回灌后自纠** | 脚本化两轮：第 1 轮坏参数 → 第 2 轮好参数 → 工具最终执行成功 |
 
 #### C. #81 git checkpoint（现有 7 条，补 8 条）
@@ -226,7 +227,7 @@ tests/
 │   │   │   └── test_headless_output.cpp    # #77  L1：输出序列化纯函数（可选拆出）
 │   │   ├── util/
 │   │   │   ├── test_json_schema.cpp        # #80  已存在（8 条）
-│   │   │   ├── test_json_schema_wiring.cpp # #80  新增：JS-15/16 执行侧接入
+│   │   │   ├── test_json_schema_wiring.cpp # #80  新增：JS-16 错误回灌自纠（JS-15 已由 test_json_schema.cpp:160 覆盖）
 │   │   │   ├── test_git_checkpoint.cpp     # #81  已存在（分支上）纯逻辑
 │   │   │   └── test_git_checkpoint_repo.cpp# #81  新增：真仓库，[git] 标签
 │   │   ├── tool/
@@ -299,7 +300,7 @@ TEST_CASE("headless: 未知权限模式返回 exit 2", "[headless][error][issue7
 |---|---|---|---|
 | **0** | ① `helpers/mock_git_repo.h` ② headless 后端注入重载 ③（可选）`scripted_model.h` | 无 | 可测性基建 |
 | **1** | HL-01 ~ HL-12 | 阶段 0 ② | #77 从零覆盖 → 12 条 |
-| **2** | JS-09 ~ JS-16（重点 JS-15/JS-16） | 无 | #80 补齐执行侧接入验证 |
+| **2** | JS-09 ~ JS-16（**JS-15 已覆盖**，重点 JS-16） | 无 | #80 补齐错误回灌自纠 |
 | **3** | SA-06 ~ SA-13 | ✅ 无（#79 已合入 `67ea633`） | #79 护栏完整 |
 | **4** | GC-08 ~ GC-15 | ✅ 无（#81 已合入 `b2d41ca`） | #81 完整 |
 | **5** | VF-01 ~ VF-09 | ✅ 无（#78 的 P1 / P2 已落地 `9a2de19`；仅 VF-08 依赖 #77 集成基建） | 验证闭环 |
@@ -307,7 +308,7 @@ TEST_CASE("headless: 未知权限模式返回 exit 2", "[headless][error][issue7
 
 **排序理由**：
 - #77 第一 —— 唯一零覆盖，且是整条评测链路的入口，失败模式是「静默错」最难发现；
-- #80 第二 —— JS-15/JS-16 是 issue 本意（执行侧校验），现有 8 条只覆盖了一半，补它最便宜；
+- #80 第二 —— ~~JS-15/JS-16 是 issue 本意（执行侧校验），现有 8 条只覆盖了一半~~ → **更正**：JS-15（执行侧接入）已由 `test_json_schema.cpp:160` 覆盖，仅剩 JS-16；仍是最便宜的一条；
 - #79 / #81 第三/四 —— 实现与基础用例已在 develop，只需补边界与回归；
 - #78 最后 —— ✅ **P1 / P2 已落地**（`9a2de19`：门禁进主循环 + headless 默认开启），仅剩 VF-08 待补；
   P3（交互式默认开启）/ P4（命令自适应探测）按设计文档后续推进，不再阻塞阶段 5。
@@ -400,7 +401,7 @@ Refs #77
 ## 附录：验收标准（本案完成时）
 
 - [ ] #77 用例数 ≥ 12，且能 `ctest -L issue77` 单独跑通（**当前 0，最高优先**）
-- [ ] #80 补齐 JS-15 / JS-16（执行侧接入验证 + 错误回灌自纠）
+- [ ] #80 补齐 JS-16（错误回灌自纠）；JS-15 已于 PR #90（`test_json_schema.cpp:160`）覆盖
 - [ ] #79 补齐 SA-06 ~ SA-13（含并发不超发 SA-10、防递归回归 SA-13）
 - [ ] #81 补齐 GC-08 ~ GC-15（含真仓库用例与 `[git]` 标签守卫）
 - [x] #78 验收规格已挂到 issue（2026-09-30 已回帖）
