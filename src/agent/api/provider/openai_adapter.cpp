@@ -26,9 +26,9 @@ std::string base64_encode(const std::string& data) {
     out.reserve((data.size() + 2) / 3 * 4);
     size_t i = 0;
     while (i + 2 < data.size()) {
-        uint32_t v = (static_cast<unsigned char>(data[i]) << 16)
-                   | (static_cast<unsigned char>(data[i + 1]) << 8)
-                   | static_cast<unsigned char>(data[i + 2]);
+        uint32_t v = (static_cast<unsigned char>(data[i]) << 16) |
+                     (static_cast<unsigned char>(data[i + 1]) << 8) |
+                     static_cast<unsigned char>(data[i + 2]);
         out.push_back(kTable[(v >> 18) & 0x3F]);
         out.push_back(kTable[(v >> 12) & 0x3F]);
         out.push_back(kTable[(v >> 6) & 0x3F]);
@@ -43,8 +43,8 @@ std::string base64_encode(const std::string& data) {
         out.push_back('=');
         out.push_back('=');
     } else if (remain == 2) {
-        uint32_t v = (static_cast<unsigned char>(data[i]) << 16)
-                   | (static_cast<unsigned char>(data[i + 1]) << 8);
+        uint32_t v = (static_cast<unsigned char>(data[i]) << 16) |
+                     (static_cast<unsigned char>(data[i + 1]) << 8);
         out.push_back(kTable[(v >> 18) & 0x3F]);
         out.push_back(kTable[(v >> 12) & 0x3F]);
         out.push_back(kTable[(v >> 6) & 0x3F]);
@@ -77,20 +77,23 @@ std::string build_image_data_uri(const std::string& path) {
 }
 
 /// @brief 从 OpenAI usage 对象提取缓存命中 token 数
-/// @details OpenAI 标准缓存字段为 usage.prompt_tokens_details.cached_tokens（Azure/OpenAI/多数兼容网关）。
-///          部分厂商（如 DeepSeek 官方）额外提供 prompt_cache_hit_tokens / prompt_cache_miss_tokens，
-///          格式不同，优先读取厂商私有字段，缺失时回退到 OpenAI 标准 cached_tokens。
+/// @details OpenAI 标准缓存字段为
+/// usage.prompt_tokens_details.cached_tokens（Azure/OpenAI/多数兼容网关）。
+///          部分厂商（如 DeepSeek 官方）额外提供 prompt_cache_hit_tokens /
+///          prompt_cache_miss_tokens， 格式不同，优先读取厂商私有字段，缺失时回退到 OpenAI 标准
+///          cached_tokens。
 /// @param usage usage JSON 对象
 /// @param hit 输出：命中 token 数（私有字段优先，否则取 cached_tokens）
 /// @param miss 输出：未命中 token 数（私有字段，否则为 prompt_tokens - cached_tokens）
 void parse_cached_tokens(const nlohmann::json& usage, int32_t& hit, int32_t& miss) {
     // DeepSeek 私有字段：prompt_cache_hit_tokens / prompt_cache_miss_tokens
-    if (usage.contains("prompt_cache_hit_tokens") && usage["prompt_cache_hit_tokens"].is_number_integer()) {
+    if (usage.contains("prompt_cache_hit_tokens") &&
+        usage["prompt_cache_hit_tokens"].is_number_integer()) {
         hit = usage["prompt_cache_hit_tokens"].get<int32_t>();
-        miss = usage.contains("prompt_cache_miss_tokens")
-                   && usage["prompt_cache_miss_tokens"].is_number_integer()
-               ? usage["prompt_cache_miss_tokens"].get<int32_t>()
-               : 0;
+        miss = usage.contains("prompt_cache_miss_tokens") &&
+                       usage["prompt_cache_miss_tokens"].is_number_integer()
+                   ? usage["prompt_cache_miss_tokens"].get<int32_t>()
+                   : 0;
         return;
     }
     // OpenAI 标准：usage.prompt_tokens_details.cached_tokens
@@ -98,16 +101,17 @@ void parse_cached_tokens(const nlohmann::json& usage, int32_t& hit, int32_t& mis
         const auto& details = usage["prompt_tokens_details"];
         if (details.contains("cached_tokens") && details["cached_tokens"].is_number_integer()) {
             hit = details["cached_tokens"].get<int32_t>();
-            int32_t prompt = usage.contains("prompt_tokens") && usage["prompt_tokens"].is_number_integer()
-                                 ? usage["prompt_tokens"].get<int32_t>()
-                                 : 0;
+            int32_t prompt =
+                usage.contains("prompt_tokens") && usage["prompt_tokens"].is_number_integer()
+                    ? usage["prompt_tokens"].get<int32_t>()
+                    : 0;
             miss = (prompt > hit) ? (prompt - hit) : 0;
             return;
         }
     }
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 std::string OpenAIAdapter::build_url(const std::string& base_url) const {
     std::string url = base_url;
@@ -124,7 +128,6 @@ std::string OpenAIAdapter::build_url(const std::string& base_url) const {
 
 std::vector<std::pair<std::string, std::string>> OpenAIAdapter::build_headers(
     const std::string& api_key) const {
-
     std::vector<std::pair<std::string, std::string>> headers;
     headers.emplace_back("Content-Type", "application/json");
     if (!api_key.empty()) {
@@ -134,7 +137,7 @@ std::vector<std::pair<std::string, std::string>> OpenAIAdapter::build_headers(
 }
 
 std::string OpenAIAdapter::build_request_body(const CompletionRequest& request,
-                                               const std::string& model_name) const {
+                                              const std::string& model_name) const {
     nlohmann::json j;
     j["model"] = model_name;
     j["stream"] = request.stream;
@@ -149,10 +152,18 @@ std::string OpenAIAdapter::build_request_body(const CompletionRequest& request,
     for (const auto& msg : request.messages) {
         nlohmann::json m;
         switch (msg.role) {
-            case ChatMessage::Role::System:    m["role"] = "system"; break;
-            case ChatMessage::Role::User:      m["role"] = "user"; break;
-            case ChatMessage::Role::Assistant: m["role"] = "assistant"; break;
-            case ChatMessage::Role::Tool:      m["role"] = "tool"; break;
+            case ChatMessage::Role::System:
+                m["role"] = "system";
+                break;
+            case ChatMessage::Role::User:
+                m["role"] = "user";
+                break;
+            case ChatMessage::Role::Assistant:
+                m["role"] = "assistant";
+                break;
+            case ChatMessage::Role::Tool:
+                m["role"] = "tool";
+                break;
         }
         // content：assistant 带 tool_calls 时 content 可能为空，用 null 而非空字符串
         // Tool 角色 + is_error=true：用 <tool_use_error> 标签包裹，对齐 Claude Code 语义，
@@ -166,13 +177,11 @@ std::string OpenAIAdapter::build_request_body(const CompletionRequest& request,
             for (const auto& path : msg.image_paths) {
                 std::string uri = build_image_data_uri(path);
                 if (uri.empty()) continue;
-                content.push_back({
-                    {"type", "image_url"},
-                    {"image_url", {{"url", uri}}}
-                });
+                content.push_back({{"type", "image_url"}, {"image_url", {{"url", uri}}}});
             }
             m["content"] = std::move(content);
-        } else if (msg.role == ChatMessage::Role::Assistant && !msg.tool_uses.empty() && msg.content.empty()) {
+        } else if (msg.role == ChatMessage::Role::Assistant && !msg.tool_uses.empty() &&
+                   msg.content.empty()) {
             m["content"] = nullptr;
         } else if (msg.role == ChatMessage::Role::Tool && msg.is_error) {
             m["content"] = "<tool_use_error>" + msg.content + "</tool_use_error>";
@@ -182,8 +191,8 @@ std::string OpenAIAdapter::build_request_body(const CompletionRequest& request,
         // DS_CACHE P2：reasoning_content 可选往返
         // 默认不发送（非标准字段，会干扰 Gemma 等模型）
         // 开启时（DeepSeek-reasoner 等 thinking 模型）：把 CoT 作为前缀发送，提升多轮缓存命中
-        if (m_send_reasoning_content && msg.role == ChatMessage::Role::Assistant
-            && !msg.reasoning_content.empty()) {
+        if (m_send_reasoning_content && msg.role == ChatMessage::Role::Assistant &&
+            !msg.reasoning_content.empty()) {
             m["reasoning_content"] = msg.reasoning_content;
         }
         if (msg.role == ChatMessage::Role::Tool) {
@@ -196,33 +205,31 @@ std::string OpenAIAdapter::build_request_body(const CompletionRequest& request,
         if (msg.role == ChatMessage::Role::Assistant && !msg.tool_uses.empty()) {
             nlohmann::json tool_calls = nlohmann::json::array();
             for (const auto& tu : msg.tool_uses) {
-                tool_calls.push_back({
-                    {"id", tu.id},
-                    {"type", "function"},
-                    {"function", {
-                        {"name", tu.name},
-                        {"arguments", tu.input.is_null() ? "{}" : tu.input.dump()}
-                    }}
-                });
+                tool_calls.push_back(
+                    {{"id", tu.id},
+                     {"type", "function"},
+                     {"function",
+                      {{"name", tu.name},
+                       {"arguments", tu.input.is_null() ? "{}" : tu.input.dump()}}}});
             }
             m["tool_calls"] = std::move(tool_calls);
         }
         messages.push_back(m);
     }
 
-    // tools 转换：内部格式 {name, description, input_schema} → OpenAI {type:"function", function:{...}}
+    // tools 转换：内部格式 {name, description, input_schema} → OpenAI {type:"function",
+    // function:{...}}
     if (request.has_tools()) {
         nlohmann::json tools_arr = nlohmann::json::array();
         for (const auto& tool : request.tools) {
-            tools_arr.push_back({
-                {"type", "function"},
-                {"function", {
-                    {"name", tool.value("name", "")},
-                    {"description", tool.value("description", "")},
-                    {"parameters", tool.contains("input_schema") && !tool["input_schema"].is_null()
-                        ? tool["input_schema"] : nlohmann::json::object()}
-                }}
-            });
+            tools_arr.push_back(
+                {{"type", "function"},
+                 {"function",
+                  {{"name", tool.value("name", "")},
+                   {"description", tool.value("description", "")},
+                   {"parameters", tool.contains("input_schema") && !tool["input_schema"].is_null()
+                                      ? tool["input_schema"]
+                                      : nlohmann::json::object()}}}});
         }
         j["tools"] = std::move(tools_arr);
         // 显式声明 tool_choice=auto：部分本地推理后端（lm-studio / llama.cpp）
@@ -246,9 +253,8 @@ std::string OpenAIAdapter::build_request_body(const CompletionRequest& request,
     return j.dump();
 }
 
-bool OpenAIAdapter::parse_sse_event(const std::string& /*event_type*/,
-                                     const std::string& data,
-                                     StreamChunk& out) const {
+bool OpenAIAdapter::parse_sse_event(const std::string& /*event_type*/, const std::string& data,
+                                    StreamChunk& out) const {
     // OpenAI [DONE] 标记
     if (data == "[DONE]") {
         out.is_final = true;
@@ -275,7 +281,8 @@ bool OpenAIAdapter::parse_sse_event(const std::string& /*event_type*/,
                 out.prompt_tokens = usage.value("prompt_tokens", 0);
                 out.generated_tokens = usage.value("completion_tokens", 0);
                 // 缓存命中字段：DeepSeek 私有字段或 OpenAI 标准 prompt_tokens_details.cached_tokens
-                parse_cached_tokens(usage, out.prompt_cache_hit_tokens, out.prompt_cache_miss_tokens);
+                parse_cached_tokens(usage, out.prompt_cache_hit_tokens,
+                                    out.prompt_cache_miss_tokens);
                 return true;  // 仅更新 usage，不算 final
             }
             return false;
@@ -304,8 +311,8 @@ bool OpenAIAdapter::parse_sse_event(const std::string& /*event_type*/,
                 // 首次出现：带 id 和/或 function.name
                 // （标准 OpenAI 格式带 id；部分兼容模型如 Gemma 可能只有 function.name）
                 const bool has_id = tc.contains("id") && !tc["id"].is_null();
-                const bool has_name = func.contains("name") && !func["name"].is_null()
-                                      && !func["name"].get<std::string>().empty();
+                const bool has_name = func.contains("name") && !func["name"].is_null() &&
+                                      !func["name"].get<std::string>().empty();
                 if (has_id || has_name) {
                     out.is_tool_use_start = true;
                     if (has_id) {
@@ -344,8 +351,10 @@ bool OpenAIAdapter::parse_sse_event(const std::string& /*event_type*/,
                     const auto& usage = json_obj.value("usage", nlohmann::json::object());
                     out.prompt_tokens = usage.value("prompt_tokens", 0);
                     out.generated_tokens = usage.value("completion_tokens", 0);
-                    // 缓存命中字段：DeepSeek 私有字段或 OpenAI 标准 prompt_tokens_details.cached_tokens
-                    parse_cached_tokens(usage, out.prompt_cache_hit_tokens, out.prompt_cache_miss_tokens);
+                    // 缓存命中字段：DeepSeek 私有字段或 OpenAI 标准
+                    // prompt_tokens_details.cached_tokens
+                    parse_cached_tokens(usage, out.prompt_cache_hit_tokens,
+                                        out.prompt_cache_miss_tokens);
                 }
             }
         }
@@ -364,4 +373,4 @@ IProviderAdapter::ModelEndpointResult OpenAIAdapter::get_models_endpoint() const
     return {true, "/v1/models"};
 }
 
-} // namespace agent
+}  // namespace agent

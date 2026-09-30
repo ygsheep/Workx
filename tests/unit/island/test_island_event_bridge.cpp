@@ -37,15 +37,15 @@ void publish_raw_sync(const auto& ev) {
 
 std::string unique_endpoint() {
 #ifdef _WIN32
-    return "\\\\.\\pipe\\workx-island-bridge-test"
-         + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count() % 1000000);
+    return "\\\\.\\pipe\\workx-island-bridge-test" +
+           std::to_string(std::chrono::steady_clock::now().time_since_epoch().count() % 1000000);
 #else
-    return "/tmp/workx-island-bridge-test-"
-         + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    return "/tmp/workx-island-bridge-test-" +
+           std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
 #endif
 }
 
-} // namespace
+}  // namespace
 
 TEST_CASE("bridge: user input emits task_started (local command skipped)", "[island][bridge]") {
     auto& bus = EventBus::instance();

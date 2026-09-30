@@ -36,17 +36,16 @@ uint32_t current_pid() {
 
 /// @brief 测试端点：默认端点 + 随机后缀（避免多测试并发冲突）
 std::string unique_endpoint() {
-    const auto suffix = static_cast<uint64_t>(
-        std::chrono::steady_clock::now().time_since_epoch().count());
-    return island::ipc::default_endpoint(current_pid()) + "-t"
-         + std::to_string(suffix % 1000000);
+    const auto suffix =
+        static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+    return island::ipc::default_endpoint(current_pid()) + "-t" + std::to_string(suffix % 1000000);
 }
 
 std::string as_string(std::span<std::byte> bytes) {
     return std::string(reinterpret_cast<const char*>(bytes.data()), bytes.size());
 }
 
-} // namespace
+}  // namespace
 
 TEST_CASE("ipc: listener/connector echo round trip", "[island][ipc]") {
     auto listener = island::ipc::create_listener();
@@ -61,7 +60,8 @@ TEST_CASE("ipc: listener/connector echo round trip", "[island][ipc]") {
         const auto n = listener->read(buf);
         REQUIRE(n > 0);
         server_msg = as_string(std::span(buf).first(static_cast<size_t>(n)));
-        REQUIRE(listener->write(std::span(buf).first(static_cast<size_t>(n))) > 0);  // echo 回客户端
+        REQUIRE(listener->write(std::span(buf).first(static_cast<size_t>(n))) >
+                0);  // echo 回客户端
     });
 
     auto connector = island::ipc::create_connector();
@@ -69,8 +69,7 @@ TEST_CASE("ipc: listener/connector echo round trip", "[island][ipc]") {
     REQUIRE(connector->connect(ep));
 
     const std::string msg = "hello island";
-    REQUIRE(connector->write(std::as_bytes(std::span(msg))) ==
-            static_cast<ssize_t>(msg.size()));
+    REQUIRE(connector->write(std::as_bytes(std::span(msg))) == static_cast<ssize_t>(msg.size()));
 
     std::vector<std::byte> buf(64);
     const auto n = connector->read(buf);

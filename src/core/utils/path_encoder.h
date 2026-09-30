@@ -21,4 +21,4 @@ namespace core::util {
 ///          /home/user/workx → -home-user-workx
 std::string encode_project_path(const std::filesystem::path& path);
 
-} // namespace core::util
+}  // namespace core::util

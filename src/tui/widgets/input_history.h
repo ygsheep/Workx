@@ -16,7 +16,7 @@ namespace ftxtui {
 
 /// @brief 输入历史：内存导航 + JSON 文件持久化
 class InputHistory {
-public:
+   public:
     /// @brief 从磁盘加载（文件缺失/损坏时静默回退为空）
     void load(const std::filesystem::path& path);
     /// @brief 保存到磁盘（创建父目录；失败静默）
@@ -35,7 +35,7 @@ public:
 
     size_t size() const { return m_entries.size(); }
 
-private:
+   private:
     std::vector<std::string> m_entries;  ///< 旧 → 新
     size_t m_pos = 0;                    ///< 导航位置（== size() 为草稿位）
     std::string m_draft;                 ///< 离开草稿位前的输入

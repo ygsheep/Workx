@@ -25,16 +25,13 @@ namespace agent::tool {
 ///          相比 AskUserTool：输入为单个 question + status 语义，专门用于
 ///          "开工前确认 / 临门一脚确认"等需要强制用户把关的场景。
 class BriefTool : public ITool {
-public:
+   public:
     const std::string& name() const override;
     const std::string& description() const override;
     const std::string& prompt() const override;
     nlohmann::json input_schema() const override;
 
-    ResultV2<ToolResult> call(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    ResultV2<ToolResult> call(const nlohmann::json& input, const ToolContext& ctx) const override;
 };
 
-} // namespace agent::tool
+}  // namespace agent::tool

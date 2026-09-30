@@ -12,10 +12,8 @@ using namespace agent::command;
 
 namespace {
 
-std::shared_ptr<PromptCommand> make_cmd(const std::string& name,
-                                        const std::string& description,
-                                        LoadSource source,
-                                        bool disable_model = false,
+std::shared_ptr<PromptCommand> make_cmd(const std::string& name, const std::string& description,
+                                        LoadSource source, bool disable_model = false,
                                         std::optional<std::string> when_to_use = std::nullopt) {
     auto cmd = std::make_shared<PromptCommand>(name, description);
     cmd->set_loaded_from(source);
@@ -24,7 +22,7 @@ std::shared_ptr<PromptCommand> make_cmd(const std::string& name,
     return cmd;
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 TEST_CASE("empty registry produces empty section", "[skill][prompt]") {
     CommandRegistry registry;
@@ -44,8 +42,8 @@ TEST_CASE("skills are listed with name and description", "[skill][prompt]") {
 
 TEST_CASE("when_to_use is appended when present", "[skill][prompt]") {
     CommandRegistry registry;
-    registry.register_command(make_cmd("review", "Reviews code", LoadSource::Skills,
-                                       false, std::string("When doing code review")));
+    registry.register_command(make_cmd("review", "Reviews code", LoadSource::Skills, false,
+                                       std::string("When doing code review")));
 
     const auto section = build_skills_prompt_section(registry);
 
@@ -54,8 +52,8 @@ TEST_CASE("when_to_use is appended when present", "[skill][prompt]") {
 
 TEST_CASE("description-empty skill uses when_to_use", "[skill][prompt]") {
     CommandRegistry registry;
-    registry.register_command(make_cmd("debug", "", LoadSource::Skills,
-                                       false, std::string("When debugging")));
+    registry.register_command(
+        make_cmd("debug", "", LoadSource::Skills, false, std::string("When debugging")));
 
     const auto section = build_skills_prompt_section(registry);
 

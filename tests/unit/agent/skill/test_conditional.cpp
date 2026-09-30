@@ -31,7 +31,7 @@ std::shared_ptr<PromptCommand> make_skill_with_paths(const std::string& name,
     return cmd;
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 TEST_CASE("frontmatter parses paths as array and comma list", "[skill][conditional]") {
     const auto parsed = parse_skill_content(
@@ -92,7 +92,8 @@ TEST_CASE("TouchCollector is thread-safe", "[skill][conditional]") {
     for (int t = 0; t < 8; ++t) {
         threads.emplace_back([&collector, t]() {
             for (int i = 0; i < 100; ++i) {
-                collector.add("c:/proj/src/file" + std::to_string(t) + "_" + std::to_string(i) + ".cpp");
+                collector.add("c:/proj/src/file" + std::to_string(t) + "_" + std::to_string(i) +
+                              ".cpp");
             }
         });
     }
@@ -168,7 +169,8 @@ TEST_CASE("loader attaches paths from frontmatter", "[skill][conditional]") {
         "---\n"
         "body\n",
         "cond");
-    auto cmd = std::make_shared<PromptCommand>(parsed.frontmatter.name, parsed.frontmatter.description);
+    auto cmd =
+        std::make_shared<PromptCommand>(parsed.frontmatter.name, parsed.frontmatter.description);
     if (!parsed.frontmatter.paths.empty()) cmd->set_paths(parsed.frontmatter.paths);
 
     REQUIRE(cmd->paths().size() == 1);

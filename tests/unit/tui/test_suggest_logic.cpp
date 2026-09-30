@@ -27,8 +27,8 @@ namespace {
 
 /// @brief 把组件渲染到固定尺寸 Screen（面板默认去噪行为验证用）
 std::string render_comp(const ftxui::Component& c, int cols = 80, int rows = 20) {
-    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(cols),
-                                        ftxui::Dimension::Fixed(rows));
+    auto screen =
+        ftxui::Screen::Create(ftxui::Dimension::Fixed(cols), ftxui::Dimension::Fixed(rows));
     ftxui::Render(screen, c->Render());
     std::string out;
     for (int y = 0; y < rows; ++y) {
@@ -236,7 +236,8 @@ TEST_CASE("filter_search_entries keywords field participates", "[palette][filter
     REQUIRE(hits[0] == 0);
 }
 
-TEST_CASE("filter_search_entries mode selector entries match by title/keywords", "[palette][filter][mode]") {
+TEST_CASE("filter_search_entries mode selector entries match by title/keywords",
+          "[palette][filter][mode]") {
     // 模式选择面板条目（标准/计划/极简 + 介绍副标题）
     std::vector<SearchEntry> entries;
     auto push = [&](std::string title, std::string desc, std::string kw, bool active) {
@@ -358,16 +359,16 @@ TEST_CASE("search palette restrict_default hides feature/file on empty query",
         make_entry(SearchCategory::Setting, "自动滚动"),
     };
     bool open = true;
-    auto win = make_search_palette(entries, [](int) {}, open, nullptr, "", /*restrict_default=*/true);
+    auto win =
+        make_search_palette(entries, [](int) {}, open, nullptr, "", /*restrict_default=*/true);
     const auto text = render_comp(win);
-    REQUIRE(text.find("切换模型") == std::string::npos);  // 功能隐藏
-    REQUIRE(text.find("app.cpp") == std::string::npos);   // 文件隐藏
-    REQUIRE(text.find("昨天的工作") != std::string::npos); // 会话保留
-    REQUIRE(text.find("自动滚动") != std::string::npos);   // 设置保留
+    REQUIRE(text.find("切换模型") == std::string::npos);    // 功能隐藏
+    REQUIRE(text.find("app.cpp") == std::string::npos);     // 文件隐藏
+    REQUIRE(text.find("昨天的工作") != std::string::npos);  // 会话保留
+    REQUIRE(text.find("自动滚动") != std::string::npos);    // 设置保留
 }
 
-TEST_CASE("search palette restrict_default lifts on typed query",
-          "[palette][filter][default]") {
+TEST_CASE("search palette restrict_default lifts on typed query", "[palette][filter][default]") {
     std::vector<SearchEntry> entries = {
         make_entry(SearchCategory::Feature, "切换模型"),
         make_entry(SearchCategory::File, "app.cpp"),
@@ -375,7 +376,8 @@ TEST_CASE("search palette restrict_default lifts on typed query",
         make_entry(SearchCategory::Setting, "自动滚动"),
     };
     bool open = true;
-    auto win = make_search_palette(entries, [](int) {}, open, nullptr, "", /*restrict_default=*/true);
+    auto win =
+        make_search_palette(entries, [](int) {}, open, nullptr, "", /*restrict_default=*/true);
     // 空查询默认只显示会话/设置
     REQUIRE(render_comp(win).find("切换模型") == std::string::npos);
     // 输入搜索词后恢复全类搜索，功能条目重新可见
@@ -392,8 +394,9 @@ TEST_CASE("search palette no restrict_default shows all on empty query",
         make_entry(SearchCategory::Setting, "自动滚动"),
     };
     bool open = true;
-    auto win = make_search_palette(entries, [](int) {}, open, nullptr, "", /*restrict_default=*/false);
+    auto win =
+        make_search_palette(entries, [](int) {}, open, nullptr, "", /*restrict_default=*/false);
     const auto text = render_comp(win);
-    REQUIRE(text.find("切换模型") != std::string::npos); // 默认 false 不影响 /model /resume
+    REQUIRE(text.find("切换模型") != std::string::npos);  // 默认 false 不影响 /model /resume
     REQUIRE(text.find("app.cpp") != std::string::npos);
 }

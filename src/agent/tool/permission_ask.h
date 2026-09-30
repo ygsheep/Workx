@@ -20,10 +20,7 @@ namespace agent::tool {
 /// @param question 展示给用户的问题
 /// @param timeout_ms 等待时长（默认 60s；超时视为拒绝）
 /// @return true=用户允许；false=拒绝/超时/无确认通道
-bool ask_user_confirm(
-    const ToolContext& ctx,
-    const std::string& question,
-    int timeout_ms = 60000);
+bool ask_user_confirm(const ToolContext& ctx, const std::string& question, int timeout_ms = 60000);
 
 /// @brief 是否计划（只读）模式
 bool is_plan_mode(PermissionMode mode) noexcept;
@@ -43,4 +40,4 @@ bool deny_execute_by_mode(PermissionMode mode) noexcept;
 ///          大小写不敏感，子串匹配。
 bool is_dangerous_command(const std::string& command) noexcept;
 
-} // namespace agent::tool
+}  // namespace agent::tool

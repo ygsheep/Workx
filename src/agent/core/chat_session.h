@@ -18,7 +18,7 @@
 #include <condition_variable>
 #include <functional>
 #include <unordered_set>
-#include <utility>   // C-1：std::pair
+#include <utility>  // C-1：std::pair
 #include "agent/api/i_completion_provider.h"
 #include "agent/api/chat_types.h"
 #include "agent/api/retry.h"  // H-3：HttpRetryPolicy
@@ -31,27 +31,35 @@
 #include "agent/tool/registry.h"
 #include "agent/tool/executor.h"
 #include "agent/tool/context.h"  // #45：PermissionMode / SessionMode（会话级权限 + 工作模式）
-#include "agent/compact/prefix_shape.h"  // DS_CACHE: 前缀形状追踪
+#include "agent/compact/prefix_shape.h"           // DS_CACHE: 前缀形状追踪
 #include "agent/compact/cache_aware_compactor.h"  // DS_CACHE H-3: 跨 turn 持久化的压缩器
-#include "agent/session/session_store.h"  // 项目会话恢复：JSONL 持久化
+#include "agent/session/session_store.h"          // 项目会话恢复：JSONL 持久化
 #include "agent/skill/inclaude/conditional.h"  // conditional skills：TouchCollector（按值成员）
 #include "core/task/task_manager.h"
 
 // #54：Plan Mode V2 会话语义级协调器（五阶段多 Agent 规划）
 // 注意：实现位于 agent::plan，前向声明必须进同名命名空间，
 //       否则 ChatSession 成员 unique_ptr<plan::PlanCoordinator> 会误绑定到 ::plan 占位。
-namespace agent::plan { class PlanCoordinator; }
+namespace agent::plan {
+class PlanCoordinator;
+}
 
 namespace agent {
 
 // 前向声明（conditional skills 支持）
-namespace command { class CommandRegistry; }
+namespace command {
+class CommandRegistry;
+}
 
 // #56 方案 D：MCP 连接管理器前向声明（shared_ptr 成员）
-namespace mcp { class McpClientManager; }
+namespace mcp {
+class McpClientManager;
+}
 
 // #50：会话级 HookManager 前向声明（shared_ptr 成员）
-namespace hook { class HookManager; }
+namespace hook {
+class HookManager;
+}
 
 /// @brief 后端接口前向声明（供 ChatSession::backend() 返回类型使用）
 class IBackend;
@@ -59,9 +67,9 @@ class IBackend;
 /// @brief H-7：重试决策动作
 /// @details compute_retry() 纯函数的返回类型，描述下一步动作
 enum class RetryAction {
-    Continue,   ///< 不重试，继续执行（无错误或不可重试错误）
-    Stop,       ///< 不可重试错误，发布终止事件
-    Sleep       ///< 可重试，sleep delay_ms 后递归调用 run_completion
+    Continue,  ///< 不重试，继续执行（无错误或不可重试错误）
+    Stop,      ///< 不可重试错误，发布终止事件
+    Sleep      ///< 可重试，sleep delay_ms 后递归调用 run_completion
 };
 
 /// @brief H-7：重试决策
@@ -73,15 +81,16 @@ struct RetryDecision {
 
 /// @brief 对话会话
 /// @details 由外部驱动（main.cpp），通过 send_message() 提交文本，
-///          后台 Task 调用 ICompletionProvider，发布 StreamTokenEvent/StepDoneEvent/StreamDoneEvent。
-///          支持工具调用（function calling）：LLM 返回 tool_use → 执行工具 → tool_result → 继续推理
+///          后台 Task 调用 ICompletionProvider，发布
+///          StreamTokenEvent/StepDoneEvent/StreamDoneEvent。 支持工具调用（function calling）：LLM
+///          返回 tool_use → 执行工具 → tool_result → 继续推理
 class WORKX_API ChatSession {
-public:
+   public:
     /// @brief ReAct 循环事件发布器（3.2 IReActObserver 实现）
     /// @details 将 ReActLoop 步骤事件转换为 IEventBus 异步事件，
     ///          使 ReActLoop 可脱离 EventBus 体系独立使用与测试。
     class ReActEventPublisher : public IReActObserver {
-    public:
+       public:
         explicit ReActEventPublisher(IEventBus& bus, std::string session_id);
         ~ReActEventPublisher() override = default;
 
@@ -92,7 +101,7 @@ public:
         void on_token(const std::string& content_delta,
                       const std::string& reasoning_delta) override;
 
-    private:
+       private:
         IEventBus& m_bus;
         std::string m_session_id;
     };
@@ -103,12 +112,9 @@ public:
     /// @param config_manager 配置管理器（H-4：DI 必须显式注入，无默认实参回退单例）
     /// @param retry_delay_ms 重试初始延迟（毫秒），会被 backend.retry_delay_ms 覆盖
     /// @param session_id 会话标识（用于事件流区分多会话，默认 "default"）
-    explicit ChatSession(std::unique_ptr<ICompletionProvider> provider,
-                         ITaskManager& task_manager,
-                         IEventBus& event_bus,
-                         IConfigManager& config_manager,
-                         int retry_delay_ms = 1000,
-                         std::string session_id = "default");
+    explicit ChatSession(std::unique_ptr<ICompletionProvider> provider, ITaskManager& task_manager,
+                         IEventBus& event_bus, IConfigManager& config_manager,
+                         int retry_delay_ms = 1000, std::string session_id = "default");
 
     ~ChatSession();
 
@@ -205,10 +211,8 @@ public:
     /// @param cwd 当前工作目录
     /// @param model 模型名
     /// @param git_branch git 分支
-    void configure_session_store(const std::string& project_dir,
-                                  const std::string& cwd,
-                                  const std::string& model,
-                                  const std::string& git_branch);
+    void configure_session_store(const std::string& project_dir, const std::string& cwd,
+                                 const std::string& model, const std::string& git_branch);
 
     /// @brief 从 JSONL 文件加载历史会话消息
     /// @param file_path JSONL 文件路径
@@ -373,8 +377,8 @@ public:
     ///          公开为 public 以便单元测试直接验证反序列化逻辑。
     /// @param j JSON 对象（来自 load_session 读取的文件）
     /// @return 成功返回 (messages, system_prompt)；失败返回错误信息
-    static Result<std::pair<std::vector<ChatMessage>, std::string>, std::string>
-    deserialize_state(const nlohmann::json& j);
+    static Result<std::pair<std::vector<ChatMessage>, std::string>, std::string> deserialize_state(
+        const nlohmann::json& j);
 
     /// @brief C-1：提交反序列化结果到成员状态（加锁一次性写入）
     /// @details 将 deserialize_state 返回的 (messages, system_prompt) 原子提交。
@@ -393,21 +397,19 @@ public:
     /// @return RetryDecision：Continue（无错误）/ Sleep（可重试）/ Stop（不可重试或超上限）
     /// C-3：移除 noexcept —— delay_ms 不再 noexcept，且调用链含 std::format 可能抛
     static RetryDecision compute_retry(const ReActResult& react_result,
-                                       const HttpRetryPolicy& retry_policy,
-                                       int attempt);
+                                       const HttpRetryPolicy& retry_policy, int attempt);
 
     // H-8：移除 backend() 方法。
     // 原设计暴露完整 IBackend* 给 UI 层，违反接口隔离（UI 可误调 shutdown() 等
     // IBackendAdmin 方法）。UI 层应通过 factory 独立注入的 IBackendAdmin* 调用
     // list_models / set_model_name 等管理方法。
 
-private:
+   private:
     /// @brief 执行推理（在后台线程中运行，含 agent 循环）
     /// @param user_text 用户输入文本
     /// @param images 图片附件绝对路径（仅首次请求使用，重试沿用已入列的图片消息）
     /// @param retry_attempt 当前重试次数（0=首次请求）
-    void run_completion(const std::string& user_text,
-                        const std::vector<std::string>& images = {},
+    void run_completion(const std::string& user_text, const std::vector<std::string>& images = {},
                         int retry_attempt = 0);
 
     /// @brief 订阅中断事件
@@ -500,8 +502,8 @@ private:
     /// @brief 系统提示词重建回调（方案 A，由 m_state_mutex 保护）
     /// @details 模式切换时按目标模式重建提示词（极简只拼白名单工具说明）；nullptr 不重建。
     std::function<std::string(tool::SessionMode)> m_system_prompt_builder;
-    std::string m_session_id;           ///< 会话标识（switch_session 可变更，由 m_state_mutex 保护）
-    std::string m_cwd;                  ///< 会话启动时的工作目录（构造时捕获，注入到 ReActLoop）
+    std::string m_session_id;  ///< 会话标识（switch_session 可变更，由 m_state_mutex 保护）
+    std::string m_cwd;  ///< 会话启动时的工作目录（构造时捕获，注入到 ReActLoop）
 
     // #45：会话级权限模式（两态 UI：Default/Plan/Bypass，由 m_state_mutex 保护）
     tool::PermissionMode m_permission_mode{tool::PermissionMode::Default};
@@ -601,4 +603,4 @@ private:
     std::atomic<bool> m_flush_requested{false};
 };
 
-} // namespace agent
+}  // namespace agent

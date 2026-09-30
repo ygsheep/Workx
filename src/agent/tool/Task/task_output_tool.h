@@ -18,7 +18,7 @@ namespace agent::tool {
 /// block=true（默认）时最多等待 timeout_ms 毫秒直到任务结束；
 /// 任务不存在返回错误。
 class TaskOutputTool : public ITool {
-public:
+   public:
     const std::string& name() const override;
     const std::string& description() const override;
     const std::string& prompt() const override;
@@ -26,10 +26,7 @@ public:
     /// @brief 只读工具（无副作用）
     bool is_read_only() const override { return true; }
 
-    ResultV2<ToolResult> call(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    ResultV2<ToolResult> call(const nlohmann::json& input, const ToolContext& ctx) const override;
 };
 
-} // namespace agent::tool
+}  // namespace agent::tool

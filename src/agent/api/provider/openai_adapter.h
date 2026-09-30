@@ -15,7 +15,7 @@ namespace agent {
 /// @brief OpenAI 协议适配器
 /// @details 支持 OpenAI 官方 API 及兼容 API（DeepSeek、Groq、Together 等）
 class OpenAIAdapter : public IProviderAdapter {
-public:
+   public:
     ProviderType type() const override { return ProviderType::OpenAI; }
 
     std::string build_url(const std::string& base_url) const override;
@@ -26,8 +26,7 @@ public:
     std::string build_request_body(const CompletionRequest& request,
                                    const std::string& model_name) const override;
 
-    bool parse_sse_event(const std::string& event_type,
-                         const std::string& data,
+    bool parse_sse_event(const std::string& event_type, const std::string& data,
                          StreamChunk& out) const override;
 
     /// @brief OpenAI 支持 /v1/models 端点
@@ -41,8 +40,8 @@ public:
     void set_send_reasoning_content(bool enabled) { m_send_reasoning_content = enabled; }
     bool send_reasoning_content() const { return m_send_reasoning_content; }
 
-private:
+   private:
     bool m_send_reasoning_content = false;  ///< DS_CACHE P2：是否往返 reasoning_content
 };
 
-} // namespace agent
+}  // namespace agent

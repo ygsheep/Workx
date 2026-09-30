@@ -24,18 +24,18 @@ namespace agent {
 struct VerdictRecord {
     int attempt = 0;                          ///< 1-based 尝试轮数
     GoalStatus status = GoalStatus::Unknown;  ///< 验证终态（Pending/Achieved/Failed）
-    std::string detail;                       ///< 验证器人可读说明（测试失败数/缺失路径等）
+    std::string detail;  ///< 验证器人可读说明（测试失败数/缺失路径等）
 };
 
 /// @brief 一轮查询记录
 struct QueryRecord {
-    AgentType agent_type = AgentType::Unknown;   ///< 实际执行的 Agent 类型
-    std::string goal_spec;                       ///< agent.goal 原文（空 = 普通对话）
-    std::vector<VerdictRecord> verdict_history;  ///< 目标验证历史（GoalGuarded 才有）
+    AgentType agent_type = AgentType::Unknown;      ///< 实际执行的 Agent 类型
+    std::string goal_spec;                          ///< agent.goal 原文（空 = 普通对话）
+    std::vector<VerdictRecord> verdict_history;     ///< 目标验证历史（GoalGuarded 才有）
     GoalStatus final_status = GoalStatus::Unknown;  ///< 终态（仅目标守卫有意义）
-    std::string final_answer;                    ///< 最终回复摘要
-    int64_t started_ms = 0;                      ///< 本轮起点（steady_clock ms）
-    int64_t finished_ms = 0;                     ///< 本轮终点
+    std::string final_answer;                       ///< 最终回复摘要
+    int64_t started_ms = 0;                         ///< 本轮起点（steady_clock ms）
+    int64_t finished_ms = 0;                        ///< 本轮终点
 
     bool has_goal() const noexcept { return !goal_spec.empty(); }
 };
@@ -43,7 +43,7 @@ struct QueryRecord {
 /// @brief 查询跟踪器（里程碑要求：QueryEngine → queryTracking 调用链）
 /// @details 保留最近 m_capacity 条历史（默认 50，环形去头），engine 单线程调用。
 class QueryTracker {
-public:
+   public:
     /// @brief 开始一轮查询（普通对话 goal_spec 传空）
     void begin(AgentType type, std::string goal_spec) {
         m_history.push_back(QueryRecord{});
@@ -96,11 +96,10 @@ public:
 
     void clear() { m_history.clear(); }
 
-private:
+   private:
     void trim() {
         if (m_history.size() > m_capacity) {
-            m_history.erase(m_history.begin(),
-                            m_history.begin() + (m_history.size() - m_capacity));
+            m_history.erase(m_history.begin(), m_history.begin() + (m_history.size() - m_capacity));
         }
     }
     static int64_t now_ms() {
@@ -112,4 +111,4 @@ private:
     size_t m_capacity = 50;
 };
 
-} // namespace agent
+}  // namespace agent

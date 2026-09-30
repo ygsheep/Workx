@@ -53,7 +53,8 @@ TEST_CASE("name defaults to directory name", "[skill][frontmatter]") {
     REQUIRE(parsed.frontmatter.name == "dir-name");
 }
 
-TEST_CASE("no frontmatter: whole content is body, description derived from first line", "[skill][frontmatter]") {
+TEST_CASE("no frontmatter: whole content is body, description derived from first line",
+          "[skill][frontmatter]") {
     const std::string content = "# Plain Skill\nsome body\n";
 
     const auto parsed = parse_skill_content(content, "dir-name");

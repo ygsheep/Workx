@@ -27,7 +27,7 @@
 namespace agent {
 
 class ThreadPool {
-public:
+   public:
     /// @brief 构造线程池并启动工作线程
     /// @param num_threads 工作线程数；0 视为 hardware_concurrency()，仍为 0 则退化为 1
     explicit ThreadPool(size_t num_threads = 0) {
@@ -42,9 +42,7 @@ public:
         LOG_INFO("[thread_pool] started, workers={}", num_threads);
     }
 
-    ~ThreadPool() {
-        shutdown();
-    }
+    ~ThreadPool() { shutdown(); }
 
     ThreadPool(const ThreadPool&) = delete;
     ThreadPool& operator=(const ThreadPool&) = delete;
@@ -67,14 +65,12 @@ public:
     }
 
     /// @brief 投递带返回值任务，返回 future 供调用方等待结果
-    template<typename F, typename... Args>
-    auto enqueue_with_result(F&& f, Args&&... args)
-        -> std::future<std::invoke_result_t<F, Args...>>
-    {
+    template <typename F, typename... Args>
+    auto enqueue_with_result(F&& f,
+                             Args&&... args) -> std::future<std::invoke_result_t<F, Args...>> {
         using ResultType = std::invoke_result_t<F, Args...>;
         auto task_ptr = std::make_shared<std::packaged_task<ResultType()>>(
-            std::bind(std::forward<F>(f), std::forward<Args>(args)...)
-        );
+            std::bind(std::forward<F>(f), std::forward<Args>(args)...));
         std::future<ResultType> fut = task_ptr->get_future();
         enqueue([task_ptr]() { (*task_ptr)(); });
         return fut;
@@ -111,16 +107,12 @@ public:
     }
 
     /// @brief 当前正在执行的任务数（活跃工作线程数）
-    [[nodiscard]] size_t active_count() const {
-        return m_active.load(std::memory_order_relaxed);
-    }
+    [[nodiscard]] size_t active_count() const { return m_active.load(std::memory_order_relaxed); }
 
     /// @brief 工作线程总数
-    [[nodiscard]] size_t worker_count() const noexcept {
-        return m_workers.size();
-    }
+    [[nodiscard]] size_t worker_count() const noexcept { return m_workers.size(); }
 
-private:
+   private:
     void worker_loop() {
         while (true) {
             std::function<void()> task;
@@ -133,8 +125,7 @@ private:
             }
             m_active.fetch_add(1, std::memory_order_relaxed);
             LOG_DEBUG("[thread_pool] task dequeue, active={}, pending={}",
-                      m_active.load(std::memory_order_relaxed),
-                      pending_count());
+                      m_active.load(std::memory_order_relaxed), pending_count());
             try {
                 task();
             } catch (const std::exception& e) {
@@ -155,4 +146,4 @@ private:
     std::atomic<size_t> m_active{0};
 };
 
-} // namespace agent
+}  // namespace agent

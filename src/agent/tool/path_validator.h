@@ -27,10 +27,8 @@ namespace agent::tool {
 ///          2. 敏感文件/目录硬编码拦截（.env、.ssh、.git/hooks、credentials 等）
 ///          3. CWD 边界：存在时 canonical（解析 symlink）双重检查，
 ///             不存在时 weakly_canonical 检查，均须落在 cwd 或 allowlist 内
-ResultV2<void> validate_path_access(
-    std::string_view path,
-    std::string_view cwd,
-    const std::vector<std::string>& allowlist = {});
+ResultV2<void> validate_path_access(std::string_view path, std::string_view cwd,
+                                    const std::vector<std::string>& allowlist = {});
 
 /// @brief Windows 可疑路径模式检测（UNC/8.3 短名/ADS/长路径前缀/尾点空格）
 /// @details 跨平台纯函数（非 Windows 平台同样按 Windows 规则检测，
@@ -48,10 +46,8 @@ bool is_absolutely_forbidden_path(std::string_view path);
 /// @brief 路径是否位于 cwd 或 allowlist 边界内
 /// @param path 绝对路径（应已规范化）
 /// @details 前缀比较，path == root 或 path 以 root + 分隔符开头均算边界内。
-bool is_within_allowed_root(
-    std::string_view path,
-    std::string_view cwd,
-    const std::vector<std::string>& allowlist = {});
+bool is_within_allowed_root(std::string_view path, std::string_view cwd,
+                            const std::vector<std::string>& allowlist = {});
 
 /// @brief 构造额外允许根列表（git 仓库根目录）
 /// @details cwd 已由 validate_path_access 默认包含；此处仅补充 git 仓库根，
@@ -63,4 +59,4 @@ inline std::vector<std::string> repo_root_allowlist(std::string_view git_repo_ro
     return roots;
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

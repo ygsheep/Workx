@@ -24,7 +24,7 @@ namespace agent {
 
 /// @brief 文件/事件监控 Agent（无需 LLM）
 class WORKX_API WatchAgent {
-public:
+   public:
     explicit WatchAgent(GoalAgentDeps deps);
     WatchAgent(const WatchAgent&) = delete;
     WatchAgent& operator=(const WatchAgent&) = delete;
@@ -35,11 +35,10 @@ public:
     /// @param messages  会话历史
     /// @param observer  观察者（透传，可空）
     ReActResult run(const AgentGoal& goal, const std::string& goal_spec,
-                    std::vector<ChatMessage>& messages,
-                    IReActObserver* observer);
+                    std::vector<ChatMessage>& messages, IReActObserver* observer);
 
-private:
+   private:
     GoalAgentDeps m_deps;
 };
 
-} // namespace agent
+}  // namespace agent

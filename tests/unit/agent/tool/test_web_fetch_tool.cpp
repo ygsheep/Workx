@@ -74,9 +74,10 @@ TEST_CASE("html_to_markdown 解码常见 HTML entity", "[web_fetch][html2md]") {
 TEST_CASE("html_to_markdown 保留标题层级与段落换行", "[web_fetch][html2md]") {
     const std::string html = R"(<h1>Title</h1><h2>Sub</h2><h3>Sub</h3><p>P1.</p><p>P2.</p>)";
     auto md = WebFetchTool::html_to_markdown(html);
-    // 第三方库可能输出 Setext 风格 (Title + -----) 或 ATX (# Title)，这里放宽：至少同时存在 Title 与层级标识
+    // 第三方库可能输出 Setext 风格 (Title + -----) 或 ATX (# Title)，这里放宽：至少同时存在 Title
+    // 与层级标识
     REQUIRE_THAT(md, Catch::Matchers::ContainsSubstring("Title"));
-    REQUIRE_THAT(md, Catch::Matchers::ContainsSubstring("### Sub"));   // H3 基本都是 ATX
+    REQUIRE_THAT(md, Catch::Matchers::ContainsSubstring("### Sub"));  // H3 基本都是 ATX
     REQUIRE_THAT(md, Catch::Matchers::ContainsSubstring("P1."));
     REQUIRE_THAT(md, Catch::Matchers::ContainsSubstring("P2."));
 }
@@ -149,7 +150,7 @@ TEST_CASE("WebFetch call 拦截内网/回环/链路本地 URL（SSRF）", "[web_
         "http://10.0.0.1/",
         "http://192.168.1.1/",
         "http://172.16.0.1/",
-        "http://169.254.169.254/latest/meta-data/",   // 云元数据端点
+        "http://169.254.169.254/latest/meta-data/",  // 云元数据端点
         "http://localhost/",
         "http://[::1]/",
         "http://[fd00::1]/",

@@ -60,14 +60,13 @@ jobs:
           fi
 
           # 新增(A) / 新增或修改(AM) 的 C++ 文件
-          ADDED=$(git diff --diff-filter=A --name-only "$BASE" HEAD -- \
-            'src/**/*.cpp' 'src/**/*.h' \
-            'lib/**/*.cpp' 'lib/**/*.h' \
-            'tests/**/*.cpp' 'tests/**/*.h' | tr '\n' ' ')
-          CHANGED=$(git diff --diff-filter=AM --name-only "$BASE" HEAD -- \
-            'src/**/*.cpp' 'src/**/*.h' \
-            'lib/**/*.cpp' 'lib/**/*.h' \
-            'tests/**/*.cpp' 'tests/**/*.h' | tr '\n' ' ')
+          # 扩展名含 .hpp / .cxx（仓库里有 sse_parser.hpp、web_live_probe.cxx），
+          # 不能只匹配 .cpp/.h，否则这两类文件既不受门禁约束也不进报告。
+          FILE_RE='\.(cpp|h|hpp|cxx)$'
+          ADDED=$(git diff --diff-filter=A --name-only "$BASE" HEAD -- src lib tests \
+            | grep -E "$FILE_RE" | tr '\n' ' ')
+          CHANGED=$(git diff --diff-filter=AM --name-only "$BASE" HEAD -- src lib tests \
+            | grep -E "$FILE_RE" | tr '\n' ' ')
 
           echo "added=$ADDED" >> "$GITHUB_OUTPUT"
           echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
@@ -182,7 +181,8 @@ jobs:
 
       - name: Full format scan
         run: |
-          FILES=$(find src lib tests -name '*.cpp' -o -name '*.h' | tr '\n' ' ')
+          FILES=$(find src lib tests \( -name '*.cpp' -o -name '*.h' -o -name '*.hpp' \
+            -o -name '*.cxx' \) | tr '\n' ' ')
           clang-format --dry-run --Werror $FILES 2>&1 | tee format-report.txt || true
           echo "=== 不符合格式的文件数 ==="
           grep -c "^+++" format-report.txt || echo 0

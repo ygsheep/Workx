@@ -12,7 +12,6 @@ namespace agent::log {
 // Logger 实现
 // ============================================================================
 
-
 void Logger::enable_file_output(const std::string& filename, bool enable) {
     std::lock_guard<std::mutex> lock(m_file_mutex);
 
@@ -59,8 +58,7 @@ void Logger::enable_file_output(const std::string& filename, bool enable) {
     }
 }
 
-void Logger::log(LogLevel level, const std::string& message,
-                 const char* file, int line) {
+void Logger::log(LogLevel level, const std::string& message, const char* file, int line) {
     if (static_cast<int>(level) < m_level.load(std::memory_order_relaxed)) {
         return;
     }
@@ -91,8 +89,8 @@ bool Logger::is_duplicate(const std::string& message, const char* file, int line
     std::string key = std::format("{}:{}:{}", file, line, message);
 
     auto now = std::chrono::steady_clock::now();
-    auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        now.time_since_epoch()).count();
+    auto now_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
 
     std::lock_guard<std::mutex> lock(m_duplicate_mutex);
 
@@ -108,12 +106,11 @@ bool Logger::is_duplicate(const std::string& message, const char* file, int line
     return false;
 }
 
-std::string Logger::format_message(LogLevel level, const std::string& message,
-                                   const char* file, int line) const noexcept {
+std::string Logger::format_message(LogLevel level, const std::string& message, const char* file,
+                                   int line) const noexcept {
     auto now = std::chrono::system_clock::now();
     auto time_t = std::chrono::system_clock::to_time_t(now);
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        now.time_since_epoch()) % 1000;
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
 
     // 使用 localtime_s (Windows) 或 localtime_r (Linux)
     std::tm tm_buf;
@@ -125,11 +122,9 @@ std::string Logger::format_message(LogLevel level, const std::string& message,
 
     // 使用 stringstream 格式化
     std::ostringstream ss;
-    ss << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S") << "."
-       << std::setfill('0') << std::setw(3) << ms.count()
-       << "] [" << Detail::to_string(level)
-       << "] [" << Detail::extract_filename(file) << ":" << line
-       << "] " << message;
+    ss << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S") << "." << std::setfill('0') << std::setw(3)
+       << ms.count() << "] [" << Detail::to_string(level) << "] [" << Detail::extract_filename(file)
+       << ":" << line << "] " << message;
     return "[" + ss.str();
 }
 
@@ -205,4 +200,4 @@ void Logger::maybe_rotate_locked() {
     m_file_stream.open(base, std::ios::app);
 }
 
-} // namespace agent::log
+}  // namespace agent::log

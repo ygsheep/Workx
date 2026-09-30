@@ -30,7 +30,7 @@ namespace agent::test {
 /// @details 线程安全（内部互斥锁）。所有数据存内存，load_from_file/save_to_file
 ///          默认返回成功但不实际 I/O，可通过 set_load_error 注入错误场景。
 class MockConfigManager final : public IConfigManager {
-public:
+   public:
     MockConfigManager() = default;
     ~MockConfigManager() override = default;
 
@@ -44,21 +44,17 @@ public:
         return m_values.count(key) > 0;
     }
 
-    [[nodiscard]] ResultV2<ConfigValue> get_value(
-        const std::string& key) const override {
+    [[nodiscard]] ResultV2<ConfigValue> get_value(const std::string& key) const override {
         std::lock_guard<std::mutex> lock(m_mutex);
         auto it = m_values.find(key);
         if (it == m_values.end()) {
-            return ResultV2<ConfigValue>::err(
-                Error::Code::ConfigMissing,
-                "Key not found: " + key,
-                key);
+            return ResultV2<ConfigValue>::err(Error::Code::ConfigMissing, "Key not found: " + key,
+                                              key);
         }
         return ResultV2<ConfigValue>::ok(it->second);
     }
 
-    ResultV2<void> set_value(
-        const std::string& key, ConfigValue value) override {
+    ResultV2<void> set_value(const std::string& key, ConfigValue value) override {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_values[key] = std::move(value);
         return ResultV2<void>::ok();
@@ -70,22 +66,18 @@ public:
         return ResultV2<void>::ok();
     }
 
-    ResultV2<void> load_from_file(
-        const std::filesystem::path& /*path*/) override {
+    ResultV2<void> load_from_file(const std::filesystem::path& /*path*/) override {
         std::lock_guard<std::mutex> lock(m_mutex);
         if (m_load_error) {
-            return ResultV2<void>::err(
-                Error::Code::ConfigParseFailed, *m_load_error);
+            return ResultV2<void>::err(Error::Code::ConfigParseFailed, *m_load_error);
         }
         return ResultV2<void>::ok();
     }
 
-    ResultV2<void> save_to_file(
-        const std::filesystem::path& /*path*/) override {
+    ResultV2<void> save_to_file(const std::filesystem::path& /*path*/) override {
         std::lock_guard<std::mutex> lock(m_mutex);
         if (m_save_error) {
-            return ResultV2<void>::err(
-                Error::Code::ConfigParseFailed, *m_save_error);
+            return ResultV2<void>::err(Error::Code::ConfigParseFailed, *m_save_error);
         }
         return ResultV2<void>::ok();
     }
@@ -103,7 +95,7 @@ public:
     // === 测试辅助 API ===
 
     /// @brief 预设配置值（类型安全，便于测试构造）
-    template<typename T>
+    template <typename T>
     void set(const std::string& key, T value) {
         set_value(key, ConfigValue(std::move(value)));
     }
@@ -134,11 +126,11 @@ public:
         return m_values.size();
     }
 
-private:
+   private:
     mutable std::mutex m_mutex;
     std::map<std::string, ConfigValue> m_values;
     std::optional<std::string> m_load_error;
     std::optional<std::string> m_save_error;
 };
 
-} // namespace agent::test
+}  // namespace agent::test

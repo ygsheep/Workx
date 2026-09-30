@@ -60,10 +60,19 @@ void fill_ctx(ToolContext& ctx, MockEventBus& bus, ITaskManager& tm, IConfigMana
 
 /// @brief Stub 只读工具（模拟 Read，is_read_only() = true）
 class StubReadOnlyTool : public ITool {
-public:
-    const std::string& name() const override { static const std::string n{"Read"}; return n; }
-    const std::string& description() const override { static const std::string d{"read"}; return d; }
-    const std::string& prompt() const override { static const std::string p; return p; }
+   public:
+    const std::string& name() const override {
+        static const std::string n{"Read"};
+        return n;
+    }
+    const std::string& description() const override {
+        static const std::string d{"read"};
+        return d;
+    }
+    const std::string& prompt() const override {
+        static const std::string p;
+        return p;
+    }
     nlohmann::json input_schema() const override { return {{"type", "object"}}; }
     bool is_read_only() const override { return true; }
     ResultV2<ToolResult> call(const nlohmann::json&, const ToolContext&) const override {
@@ -73,10 +82,19 @@ public:
 
 /// @brief Stub 可写工具（模拟 Bash，is_read_only() = false）
 class StubWriteTool : public ITool {
-public:
-    const std::string& name() const override { static const std::string n{"Bash"}; return n; }
-    const std::string& description() const override { static const std::string d{"write"}; return d; }
-    const std::string& prompt() const override { static const std::string p; return p; }
+   public:
+    const std::string& name() const override {
+        static const std::string n{"Bash"};
+        return n;
+    }
+    const std::string& description() const override {
+        static const std::string d{"write"};
+        return d;
+    }
+    const std::string& prompt() const override {
+        static const std::string p;
+        return p;
+    }
     nlohmann::json input_schema() const override { return {{"type", "object"}}; }
     ResultV2<ToolResult> call(const nlohmann::json&, const ToolContext&) const override {
         return ResultV2<ToolResult>::ok(ToolResult::ok(std::string("write-ok")));
@@ -85,17 +103,26 @@ public:
 
 /// @brief Stub Agent 工具（模拟 AgentTool 本体，name = "Agent"），供防递归测试
 class StubAgentTool : public ITool {
-public:
-    const std::string& name() const override { static const std::string n{"Agent"}; return n; }
-    const std::string& description() const override { static const std::string d{"agent"}; return d; }
-    const std::string& prompt() const override { static const std::string p; return p; }
+   public:
+    const std::string& name() const override {
+        static const std::string n{"Agent"};
+        return n;
+    }
+    const std::string& description() const override {
+        static const std::string d{"agent"};
+        return d;
+    }
+    const std::string& prompt() const override {
+        static const std::string p;
+        return p;
+    }
     nlohmann::json input_schema() const override { return {{"type", "object"}}; }
     ResultV2<ToolResult> call(const nlohmann::json&, const ToolContext&) const override {
         return ResultV2<ToolResult>::ok(ToolResult::ok(std::string("agent-ok")));
     }
 };
 
-} // namespace
+}  // namespace
 
 // ============================================================
 // Task 输出缓冲 + TaskOutputEvent
@@ -106,9 +133,7 @@ TEST_CASE("Task append_output accumulates output and publishes TaskOutputEvent",
     bus.set_dispatch_enabled(true);
 
     std::vector<std::string> lines;
-    bus.subscribe<TaskOutputEvent>([&lines](const TaskOutputEvent& e) {
-        lines.push_back(e.line);
-    });
+    bus.subscribe<TaskOutputEvent>([&lines](const TaskOutputEvent& e) { lines.push_back(e.line); });
 
     auto task = std::make_shared<Task>("t1", [](const std::atomic<bool>&) {}, bus);
     task->append_output("hello");
@@ -151,7 +176,8 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool requires provider", "[agent_tool]"
     REQUIRE(r.is_err());
 }
 
-TEST_CASE_METHOD(TaskToolsFixture, "AgentTool launches sub-agent in background and writes output", "[agent_tool]") {
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool launches sub-agent in background and writes output",
+                 "[agent_tool]") {
     MockEventBus bus;
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -181,14 +207,15 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool launches sub-agent in background a
     REQUIRE(task->output().find("done result") != std::string::npos);
 }
 
-TEST_CASE_METHOD(TaskToolsFixture, "AgentTool background completion publishes SubAgentCompletedEvent", "[agent_tool][review]") {
+TEST_CASE_METHOD(TaskToolsFixture,
+                 "AgentTool background completion publishes SubAgentCompletedEvent",
+                 "[agent_tool][review]") {
     MockEventBus bus;
     bus.set_dispatch_enabled(true);  // 同步派发，便于断言
 
     std::vector<SubAgentCompletedEvent> completions;
-    bus.subscribe<SubAgentCompletedEvent>([&completions](const SubAgentCompletedEvent& e) {
-        completions.push_back(e);
-    });
+    bus.subscribe<SubAgentCompletedEvent>(
+        [&completions](const SubAgentCompletedEvent& e) { completions.push_back(e); });
 
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -217,14 +244,14 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool background completion publishes Su
     REQUIRE_FALSE(completions[0].was_error);
 }
 
-TEST_CASE_METHOD(TaskToolsFixture, "AgentTool streams sub-agent progress events incrementally", "[agent_tool][review]") {
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool streams sub-agent progress events incrementally",
+                 "[agent_tool][review]") {
     MockEventBus bus;
     bus.set_dispatch_enabled(true);  // 同步派发，便于断言
 
     std::vector<SubAgentProgressEvent> progress;
-    bus.subscribe<SubAgentProgressEvent>([&progress](const SubAgentProgressEvent& e) {
-        progress.push_back(e);
-    });
+    bus.subscribe<SubAgentProgressEvent>(
+        [&progress](const SubAgentProgressEvent& e) { progress.push_back(e); });
 
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -254,14 +281,17 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool streams sub-agent progress events 
     bool saw_thought = false;
     bool saw_final = false;
     for (const auto& e : progress) {
-        if (e.step_type == "thought" && e.content.find("progress result") != std::string::npos) saw_thought = true;
-        if (e.step_type == "final" && e.content.find("Final: progress result") != std::string::npos) saw_final = true;
+        if (e.step_type == "thought" && e.content.find("progress result") != std::string::npos)
+            saw_thought = true;
+        if (e.step_type == "final" && e.content.find("Final: progress result") != std::string::npos)
+            saw_final = true;
     }
     REQUIRE(saw_thought);
     REQUIRE(saw_final);
 }
 
-TEST_CASE_METHOD(TaskToolsFixture, "AgentTool synchronous mode returns completed result", "[agent_tool]") {
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool synchronous mode returns completed result",
+                 "[agent_tool]") {
     MockEventBus bus;
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -280,7 +310,8 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool synchronous mode returns completed
     REQUIRE(r.value().text.find("sync answer") != std::string::npos);
 }
 
-TEST_CASE_METHOD(TaskToolsFixture, "AgentTool inherits parent permission mode (Plan read-only)", "[agent_tool][review]") {
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool inherits parent permission mode (Plan read-only)",
+                 "[agent_tool][review]") {
     MockEventBus bus;
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -306,7 +337,8 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool inherits parent permission mode (P
     REQUIRE(tasks[0]->isFinished());
 }
 
-TEST_CASE_METHOD(TaskToolsFixture, "AgentTool Plan mode gives sub-agent read-only tool set", "[agent_tool][review]") {
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool Plan mode gives sub-agent read-only tool set",
+                 "[agent_tool][review]") {
     MockEventBus bus;
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -359,8 +391,9 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool applies tools whitelist", "[agent_
     ctx.tool_registry = registry;
 
     AgentTool tool;
-    auto r = tool.call(nlohmann::json{
-        {"prompt", "task"}, {"tools", nlohmann::json::array({"Read", "Bash"})}}, ctx);
+    auto r = tool.call(
+        nlohmann::json{{"prompt", "task"}, {"tools", nlohmann::json::array({"Read", "Bash"})}},
+        ctx);
     REQUIRE(r.is_ok());
 
     auto tasks = tm.getTasks();
@@ -379,7 +412,8 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool applies tools whitelist", "[agent_
     REQUIRE(std::find(got.begin(), got.end(), "Bash") != got.end());
 }
 
-TEST_CASE_METHOD(TaskToolsFixture, "AgentTool excludes Agent tool to prevent recursion", "[agent_tool][review]") {
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool excludes Agent tool to prevent recursion",
+                 "[agent_tool][review]") {
     MockEventBus bus;
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -399,8 +433,9 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool excludes Agent tool to prevent rec
     ctx.tool_registry = registry;
 
     AgentTool tool;
-    auto r = tool.call(nlohmann::json{
-        {"prompt", "task"}, {"tools", nlohmann::json::array({"Agent", "Read", "Bash"})}}, ctx);
+    auto r = tool.call(nlohmann::json{{"prompt", "task"},
+                                      {"tools", nlohmann::json::array({"Agent", "Read", "Bash"})}},
+                       ctx);
     REQUIRE(r.is_ok());
 
     auto tasks = tm.getTasks();
@@ -416,7 +451,8 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool excludes Agent tool to prevent rec
     }
 }
 
-TEST_CASE_METHOD(TaskToolsFixture, "AgentTool launches batch of sub-agents in parallel", "[agent_tool][review]") {
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool launches batch of sub-agents in parallel",
+                 "[agent_tool][review]") {
     MockEventBus bus;
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -432,12 +468,11 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool launches batch of sub-agents in pa
     fill_ctx(ctx, bus, tm, cfg, provider.get());
 
     AgentTool tool;
-    auto r = tool.call(nlohmann::json{
-        {"tasks", nlohmann::json::array({
-            {{"prompt", "task A"}},
-            {{"prompt", "task B"}},
-        })}
-    }, ctx);
+    auto r = tool.call(nlohmann::json{{"tasks", nlohmann::json::array({
+                                                    {{"prompt", "task A"}},
+                                                    {{"prompt", "task B"}},
+                                                })}},
+                       ctx);
     REQUIRE(r.is_ok());
 
     // 后台模式：返回消息包含数量与全部 task_id
@@ -460,16 +495,17 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool launches batch of sub-agents in pa
     REQUIRE(all.find("result B") != std::string::npos);
 }
 
-TEST_CASE_METHOD(TaskToolsFixture, "AgentTool batch with busy provider reports failure via completion events", "[agent_tool][review]") {
+TEST_CASE_METHOD(TaskToolsFixture,
+                 "AgentTool batch with busy provider reports failure via completion events",
+                 "[agent_tool][review]") {
     // 评审 #49 H-1 回归：模拟单活跃 provider（第二个 submit 返回 nullptr）。
     // 并行子任务中失败者不得挂起，必须通过完成事件（was_error=true）收尾。
     MockEventBus bus;
     bus.set_dispatch_enabled(true);  // 同步派发，便于断言
 
     std::vector<SubAgentCompletedEvent> completions;
-    bus.subscribe<SubAgentCompletedEvent>([&completions](const SubAgentCompletedEvent& e) {
-        completions.push_back(e);
-    });
+    bus.subscribe<SubAgentCompletedEvent>(
+        [&completions](const SubAgentCompletedEvent& e) { completions.push_back(e); });
 
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -483,12 +519,11 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool batch with busy provider reports f
     fill_ctx(ctx, bus, tm, cfg, provider.get());
 
     AgentTool tool;
-    auto r = tool.call(nlohmann::json{
-        {"tasks", nlohmann::json::array({
-            {{"prompt", "task A"}},
-            {{"prompt", "task B"}},
-        })}
-    }, ctx);
+    auto r = tool.call(nlohmann::json{{"tasks", nlohmann::json::array({
+                                                    {{"prompt", "task A"}},
+                                                    {{"prompt", "task B"}},
+                                                })}},
+                       ctx);
     REQUIRE(r.is_ok());
 
     auto tasks = tm.getTasks();
@@ -502,8 +537,10 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool batch with busy provider reports f
     bool saw_success = false;
     bool saw_error = false;
     for (const auto& e : completions) {
-        if (e.was_error) saw_error = true;
-        else saw_success = true;
+        if (e.was_error)
+            saw_error = true;
+        else
+            saw_success = true;
     }
     REQUIRE(saw_success);
     REQUIRE(saw_error);
@@ -517,25 +554,24 @@ TEST_CASE_METHOD(TaskToolsFixture, "TaskStopTool stops a running task", "[task_s
     fill_ctx(ctx, bus, tm, cfg);
     TaskStopTool tool;
 
-    auto task = tm.launch("agent-run-1",
-        [](const std::atomic<bool>&) {
-            std::this_thread::sleep_for(std::chrono::seconds(5));
-        });
+    auto task = tm.launch("agent-run-1", [](const std::atomic<bool>&) {
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+    });
 
     // 等待任务进入运行态
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
     auto r = tool.call(nlohmann::json{{"task_id", "agent-run-1"}}, ctx);
     REQUIRE(r.is_ok());
-    REQUIRE(r.value().text.find("Successfully stopped task: agent-run-1")
-            != std::string::npos);
+    REQUIRE(r.value().text.find("Successfully stopped task: agent-run-1") != std::string::npos);
 
     // 任务最终进入 Cancelled
     tm.wait(task);
     REQUIRE(task->getStatus() == TaskStatus::Cancelled);
 }
 
-TEST_CASE_METHOD(TaskToolsFixture, "TaskStopTool rejects unknown and finished tasks", "[task_stop]") {
+TEST_CASE_METHOD(TaskToolsFixture, "TaskStopTool rejects unknown and finished tasks",
+                 "[task_stop]") {
     MockEventBus bus;
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -573,7 +609,8 @@ TEST_CASE_METHOD(TaskToolsFixture, "TaskStopTool rejects missing task_id", "[tas
 // TaskOutputTool
 // ============================================================
 
-TEST_CASE_METHOD(TaskToolsFixture, "TaskOutputTool reads output of finished task", "[task_output]") {
+TEST_CASE_METHOD(TaskToolsFixture, "TaskOutputTool reads output of finished task",
+                 "[task_output]") {
     MockEventBus bus;
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -586,7 +623,8 @@ TEST_CASE_METHOD(TaskToolsFixture, "TaskOutputTool reads output of finished task
     task->append_output("Final: answer");
     tm.wait(task);
 
-    auto r = tool.call(nlohmann::json{{"task_id", "agent-out-1"}, {"block", true}, {"timeout", 2000}}, ctx);
+    auto r = tool.call(
+        nlohmann::json{{"task_id", "agent-out-1"}, {"block", true}, {"timeout", 2000}}, ctx);
     REQUIRE(r.is_ok());
     REQUIRE(r.value().text.find("\"status\":\"completed\"") != std::string::npos);
     REQUIRE(r.value().text.find("step one") != std::string::npos);
@@ -601,12 +639,12 @@ TEST_CASE_METHOD(TaskToolsFixture, "TaskOutputTool waits for running task", "[ta
     fill_ctx(ctx, bus, tm, cfg);
     TaskOutputTool tool;
 
-    auto task = tm.launch("agent-slow",
-        [](const std::atomic<bool>&) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        });
+    auto task = tm.launch("agent-slow", [](const std::atomic<bool>&) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    });
 
-    auto r = tool.call(nlohmann::json{{"task_id", "agent-slow"}, {"block", true}, {"timeout", 3000}}, ctx);
+    auto r = tool.call(
+        nlohmann::json{{"task_id", "agent-slow"}, {"block", true}, {"timeout", 3000}}, ctx);
     REQUIRE(r.is_ok());
     REQUIRE(r.value().text.find("\"status\":\"completed\"") != std::string::npos);
 }
@@ -619,12 +657,12 @@ TEST_CASE_METHOD(TaskToolsFixture, "TaskOutputTool times out on long task", "[ta
     fill_ctx(ctx, bus, tm, cfg);
     TaskOutputTool tool;
 
-    auto task = tm.launch("agent-long",
-        [](const std::atomic<bool>&) {
-            std::this_thread::sleep_for(std::chrono::seconds(5));
-        });
+    auto task = tm.launch("agent-long", [](const std::atomic<bool>&) {
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+    });
 
-    auto r = tool.call(nlohmann::json{{"task_id", "agent-long"}, {"block", true}, {"timeout", 200}}, ctx);
+    auto r = tool.call(nlohmann::json{{"task_id", "agent-long"}, {"block", true}, {"timeout", 200}},
+                       ctx);
     REQUIRE(r.is_ok());
     REQUIRE(r.value().text.find("\"timed_out\":true") != std::string::npos);
 
@@ -632,7 +670,8 @@ TEST_CASE_METHOD(TaskToolsFixture, "TaskOutputTool times out on long task", "[ta
     tm.cancel(task);
 }
 
-TEST_CASE_METHOD(TaskToolsFixture, "TaskOutputTool rejects unknown and missing task_id", "[task_output]") {
+TEST_CASE_METHOD(TaskToolsFixture, "TaskOutputTool rejects unknown and missing task_id",
+                 "[task_output]") {
     MockEventBus bus;
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -656,13 +695,12 @@ TEST_CASE_METHOD(TaskToolsFixture, "TaskOutputTool rejects unknown and missing t
 namespace {
 
 /// @brief 构造一个来源为 Skills 的 PromptCommand（模拟加载的 skill）
-std::shared_ptr<command::PromptCommand> make_skill_cmd(
-    const std::string& name, std::vector<std::string> text_blocks) {
+std::shared_ptr<command::PromptCommand> make_skill_cmd(const std::string& name,
+                                                       std::vector<std::string> text_blocks) {
     auto cmd = command::make_prompt_command(name, "skill description");
     cmd->set_loaded_from(command::LoadSource::Skills);
     cmd->set_prompt_generator(
-        [text_blocks = std::move(text_blocks)](const std::string&,
-                                               const command::CommandContext&) {
+        [text_blocks = std::move(text_blocks)](const std::string&, const command::CommandContext&) {
             std::vector<command::PromptBlock> blocks;
             for (const auto& t : text_blocks) {
                 blocks.push_back({command::PromptBlockType::Text, t});
@@ -672,9 +710,10 @@ std::shared_ptr<command::PromptCommand> make_skill_cmd(
     return cmd;
 }
 
-} // namespace
+}  // namespace
 
-TEST_CASE("AgentTool build_skill_preload_messages 注入初始 system 消息", "[agent_tool][skill_preload]") {
+TEST_CASE("AgentTool build_skill_preload_messages 注入初始 system 消息",
+          "[agent_tool][skill_preload]") {
     command::CommandRegistry registry;
     registry.register_command(
         make_skill_cmd("review", {"你是资深 C++ 评审员。", "关注正确性与回归风险。"}));
@@ -694,7 +733,8 @@ TEST_CASE("AgentTool build_skill_preload_messages 注入初始 system 消息", "
     REQUIRE(first < second);
 }
 
-TEST_CASE("AgentTool build_skill_preload_messages 多 skill 按序各生成一条", "[agent_tool][skill_preload]") {
+TEST_CASE("AgentTool build_skill_preload_messages 多 skill 按序各生成一条",
+          "[agent_tool][skill_preload]") {
     command::CommandRegistry registry;
     registry.register_command(make_skill_cmd("alpha", {"alpha body"}));
     registry.register_command(make_skill_cmd("beta", {"beta body"}));
@@ -708,7 +748,8 @@ TEST_CASE("AgentTool build_skill_preload_messages 多 skill 按序各生成一�
     REQUIRE(msgs[1].content.find("beta body") != std::string::npos);
 }
 
-TEST_CASE("AgentTool build_skill_preload_messages 忽略未知名/非技能/非 prompt", "[agent_tool][skill_preload]") {
+TEST_CASE("AgentTool build_skill_preload_messages 忽略未知名/非技能/非 prompt",
+          "[agent_tool][skill_preload]") {
     command::CommandRegistry registry;
 
     // 未知名称 → 跳过（不阻断）

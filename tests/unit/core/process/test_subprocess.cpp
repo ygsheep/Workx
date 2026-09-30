@@ -45,7 +45,7 @@ constexpr const char* kShell = "cmd.exe";
 constexpr const char* kShell = "/bin/sh";
 #endif
 
-} // namespace
+}  // namespace
 
 // ============================================================
 // 基本执行与 stdout 捕获
@@ -193,7 +193,8 @@ TEST_CASE("subprocess cancels via is_cancelled callback", "[subprocess][cancel]"
 }
 
 #ifndef _WIN32
-TEST_CASE("subprocess cancel kills descendant processes via process group", "[subprocess][cancel][posix]") {
+TEST_CASE("subprocess cancel kills descendant processes via process group",
+          "[subprocess][cancel][posix]") {
     // #23 P1：取消应杀整个进程组（setpgid + kill(-pid)），
     // 而非只杀 shell 直接 pid。验证 bash -c 的子孙（sleep）也被一并销毁。
     auto pidfile = fs::temp_directory_path() / "workx_subprocess_child_pid.txt";
@@ -208,8 +209,7 @@ TEST_CASE("subprocess cancel kills descendant processes via process group", "[su
 
     // shell 后台派生 sleep（子孙进程）并记录其 pid，再 wait 等待
     ExecOptions opts;
-    opts.args = {"-c",
-        "sleep 30 & echo $! > '" + pidfile.string() + "'; wait"};
+    opts.args = {"-c", "sleep 30 & echo $! > '" + pidfile.string() + "'; wait"};
     opts.is_cancelled = [&cancel_flag]() { return cancel_flag.load(); };
     auto r = exec(kShell, opts);
     canceler.join();
@@ -233,7 +233,7 @@ TEST_CASE("subprocess cancel kills descendant processes via process group", "[su
     REQUIRE(alive == -1);
     REQUIRE(errno == ESRCH);
 }
-#endif // !_WIN32
+#endif  // !_WIN32
 
 // ============================================================
 // 参数转义（多参数传递给非 shell 命令）

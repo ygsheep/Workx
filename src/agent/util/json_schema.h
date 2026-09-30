@@ -25,11 +25,11 @@ namespace agent::util {
 
 /// @brief 单条 schema 校验错误（结构化，供 LLM 回灌自纠）
 struct SchemaError {
-    std::string tool;       ///< 工具名
-    std::string param;      ///< 出错参数路径（JSON Pointer 风格，如 "/content"）
-    std::string expected;   ///< 期望值（如 "string"、"one of [a,b,c]"）
-    std::string actual;     ///< 实际值描述（如 "number"、具体值）
-    std::string hint;       ///< 可读提示
+    std::string tool;      ///< 工具名
+    std::string param;     ///< 出错参数路径（JSON Pointer 风格，如 "/content"）
+    std::string expected;  ///< 期望值（如 "string"、"one of [a,b,c]"）
+    std::string actual;    ///< 实际值描述（如 "number"、具体值）
+    std::string hint;      ///< 可读提示
 
     /// @brief 是否为"缺必填"类错误（用于映射 MissingArgument 错误码）
     bool is_missing = false;
@@ -53,8 +53,7 @@ struct SchemaResult {
 /// @param input  工具收到的实际输入参数
 /// @param tool_name 工具名（填入错误上下文字段）
 /// @return 校验结果；schema 为空 / 非 object 时不校验（返回 ok）
-SchemaResult validate_schema(const nlohmann::json& schema,
-                             const nlohmann::json& input,
+SchemaResult validate_schema(const nlohmann::json& schema, const nlohmann::json& input,
                              const std::string& tool_name);
 
-} // namespace agent::util
+}  // namespace agent::util

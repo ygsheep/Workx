@@ -35,11 +35,12 @@ std::string lower(std::string_view s) {
 /// @brief 敏感文件名（命中即拦截）
 const std::unordered_set<std::string>& sensitive_files() {
     static const std::unordered_set<std::string> k = {
-        ".env", ".gitconfig", ".git-credentials", ".netrc", ".npmrc", ".pypirc",
-        ".bashrc", ".bash_profile", ".zshrc", ".zprofile", ".profile",
-        "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519",
-        "authorized_keys", "known_hosts", "credentials", "passwd", "shadow",
-        "sam", "ntuser.dat",
+        ".env",        ".gitconfig",  ".git-credentials", ".netrc",
+        ".npmrc",      ".pypirc",     ".bashrc",          ".bash_profile",
+        ".zshrc",      ".zprofile",   ".profile",         "id_rsa",
+        "id_dsa",      "id_ecdsa",    "id_ed25519",       "authorized_keys",
+        "known_hosts", "credentials", "passwd",           "shadow",
+        "sam",         "ntuser.dat",
     };
     return k;
 }
@@ -115,7 +116,7 @@ bool is_short_name(std::string_view seg) {
     return true;
 }
 
-} // namespace
+}  // namespace
 
 bool has_suspicious_windows_pattern(std::string_view path) {
     if (path.empty()) return false;
@@ -148,17 +149,14 @@ bool has_suspicious_windows_pattern(std::string_view path) {
     return false;
 }
 
-bool matches_sensitive_path(std::string_view path) {
-    return path_contains_sensitive(path);
-}
+bool matches_sensitive_path(std::string_view path) { return path_contains_sensitive(path); }
 
 bool is_absolutely_forbidden_path(std::string_view path) {
     // 评审 #2：绝对禁止（私钥/凭据/系统账户文件）——不可用户确认放行
     static const std::unordered_set<std::string> kForbiddenFiles = {
-        "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519",
-        "authorized_keys", "known_hosts", "credentials",
-        ".git-credentials", ".netrc",
-        "passwd", "shadow", "sam", "ntuser.dat",
+        "id_rsa",      "id_dsa",      "id_ecdsa",         "id_ed25519", "authorized_keys",
+        "known_hosts", "credentials", ".git-credentials", ".netrc",     "passwd",
+        "shadow",      "sam",         "ntuser.dat",
     };
     // 存私钥/凭据的目录：绝对禁止
     static const std::unordered_set<std::string> kForbiddenDirs = {
@@ -180,11 +178,8 @@ bool is_absolutely_forbidden_path(std::string_view path) {
     return false;
 }
 
-bool is_within_allowed_root(
-    std::string_view path,
-    std::string_view cwd,
-    const std::vector<std::string>& allowlist
-) {
+bool is_within_allowed_root(std::string_view path, std::string_view cwd,
+                            const std::vector<std::string>& allowlist) {
     // 评审 #4：Windows 文件系统大小写不敏感，前缀比较前统一小写，避免
     // 合法路径（cwd 与解析结果大小写不一致）被误判为越界。
     // 同时统一分隔符：canonical.generic_string() 产出正斜杠，而 cwd/expand_path
@@ -217,14 +212,10 @@ bool is_within_allowed_root(
     return false;
 }
 
-ResultV2<void> validate_path_access(
-    std::string_view path,
-    std::string_view cwd,
-    const std::vector<std::string>& allowlist
-) {
+ResultV2<void> validate_path_access(std::string_view path, std::string_view cwd,
+                                    const std::vector<std::string>& allowlist) {
     if (path.empty()) {
-        return ResultV2<void>::err(Error::Code::PermissionDenied,
-                                   "Path is empty");
+        return ResultV2<void>::err(Error::Code::PermissionDenied, "Path is empty");
     }
     if (has_suspicious_windows_pattern(path)) {
         return ResultV2<void>::err(
@@ -246,9 +237,8 @@ ResultV2<void> validate_path_access(
     const fs::path canonical = fs::canonical(p, ec);
     if (!ec) {
         if (!is_within_allowed_root(canonical.generic_string(), cwd, allowlist)) {
-            return ResultV2<void>::err(
-                Error::Code::PermissionDenied,
-                "Path is outside the allowed working directory");
+            return ResultV2<void>::err(Error::Code::PermissionDenied,
+                                       "Path is outside the allowed working directory");
         }
         return ResultV2<void>::ok();
     }
@@ -256,9 +246,8 @@ ResultV2<void> validate_path_access(
     const fs::path weakly = fs::weakly_canonical(p, ec);
     if (!ec) {
         if (!is_within_allowed_root(weakly.generic_string(), cwd, allowlist)) {
-            return ResultV2<void>::err(
-                Error::Code::PermissionDenied,
-                "Path escapes the allowed working directory");
+            return ResultV2<void>::err(Error::Code::PermissionDenied,
+                                       "Path escapes the allowed working directory");
         }
         return ResultV2<void>::ok();
     }
@@ -268,9 +257,8 @@ ResultV2<void> validate_path_access(
     if (ec == std::errc::no_such_file_or_directory) {
         return ResultV2<void>::ok();
     }
-    return ResultV2<void>::err(
-        Error::Code::PermissionDenied,
-        "Unable to resolve path for boundary/environment check");
+    return ResultV2<void>::err(Error::Code::PermissionDenied,
+                               "Unable to resolve path for boundary/environment check");
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

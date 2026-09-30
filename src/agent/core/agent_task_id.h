@@ -22,8 +22,9 @@ namespace agent {
 ///          确定性输出（P3-1）导致的弱熵。
 inline std::mt19937& global_task_id_gen() {
     static std::random_device rd;
-    static std::mt19937 gen(rd() ^ static_cast<unsigned>(
-            std::chrono::high_resolution_clock::now().time_since_epoch().count()));
+    static std::mt19937 gen(
+        rd() ^ static_cast<unsigned>(
+                   std::chrono::high_resolution_clock::now().time_since_epoch().count()));
     return gen;
 }
 
@@ -32,7 +33,7 @@ inline std::mt19937& global_task_id_gen() {
 inline std::string generate_agent_task_id(char prefix) {
     static constexpr char kAlphabet[] = "0123456789abcdefghijklmnopqrstuvwxyz";
     // L-2：std::mt19937 与 uniform_int_distribution 均非线程安全，加锁保护
-    //（inline 函数静态局部在全部 TU 间仅一份，线程安全）。
+    // （inline 函数静态局部在全部 TU 间仅一份，线程安全）。
     static std::mutex s_mutex;
     std::lock_guard<std::mutex> lock(s_mutex);
     std::uniform_int_distribution<std::size_t> dist(0, sizeof(kAlphabet) - 2);
@@ -44,4 +45,4 @@ inline std::string generate_agent_task_id(char prefix) {
     return id;
 }
 
-} // namespace agent
+}  // namespace agent

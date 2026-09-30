@@ -32,7 +32,7 @@ namespace agent::test {
 /// @details 线程安全（内部互斥锁）。默认不派发回调，仅记录操作；
 ///          调用 set_dispatch_enabled(true) 后 publish_raw 会同步派发。
 class MockEventBus final : public IEventBus {
-public:
+   public:
     MockEventBus() = default;
     ~MockEventBus() override = default;
 
@@ -54,8 +54,10 @@ public:
         auto it = m_subscribers.find(type);
         if (it == m_subscribers.end()) return;
         auto& vec = it->second;
-        vec.erase(std::remove_if(vec.begin(), vec.end(),
-            [&](const Subscriber& s) { return s.token.get_id() == token.get_id(); }), vec.end());
+        vec.erase(
+            std::remove_if(vec.begin(), vec.end(),
+                           [&](const Subscriber& s) { return s.token.get_id() == token.get_id(); }),
+            vec.end());
         ++m_unsubscribe_count;
     }
 
@@ -83,8 +85,7 @@ public:
         }
     }
 
-    void publish_async_raw(std::type_index type,
-                           std::function<void()> emitter) override {
+    void publish_async_raw(std::type_index type, std::function<void()> emitter) override {
         // auto-flush 模式：模拟宿主即时响应（工具阻塞等待 result_promise 时用）
         if (m_async_auto_flush) {
             emitter();  // 锁外调用：emitter 内部 publish_raw 会自行加锁
@@ -144,7 +145,7 @@ public:
     }
 
     /// @brief 获取某类型事件的发布次数
-    template<typename T>
+    template <typename T>
     [[nodiscard]] size_t published_count() const {
         std::lock_guard<std::mutex> lock(m_mutex);
         auto target = std::type_index(typeid(T));
@@ -158,7 +159,7 @@ public:
     }
 
     /// @brief 获取某类型事件的订阅者数量
-    template<typename T>
+    template <typename T>
     [[nodiscard]] size_t subscriber_count_typed() const {
         std::lock_guard<std::mutex> lock(m_mutex);
         auto it = m_subscribers.find(std::type_index(typeid(T)));
@@ -171,14 +172,14 @@ public:
         return m_unsubscribe_count;
     }
 
-protected:
+   protected:
     [[nodiscard]] size_t subscriber_count_typed(std::type_index type) const override {
         std::lock_guard<std::mutex> lock(m_mutex);
         auto it = m_subscribers.find(type);
         return it == m_subscribers.end() ? 0 : it->second.size();
     }
 
-private:
+   private:
     struct Subscriber {
         EventToken token;
         std::function<void(const void*)> callback;
@@ -203,4 +204,4 @@ private:
     }
 };
 
-} // namespace agent::test
+}  // namespace agent::test

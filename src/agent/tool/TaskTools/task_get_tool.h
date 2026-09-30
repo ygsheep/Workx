@@ -14,17 +14,14 @@ namespace agent::tool {
 
 /// @brief TaskGetTool — 按 taskId 读取任务；不存在返回 null（非错误）
 class TaskGetTool : public ITool {
-public:
+   public:
     const std::string& name() const override;
     const std::string& description() const override;
     const std::string& prompt() const override;
     nlohmann::json input_schema() const override;
     bool is_read_only() const override { return true; }
 
-    ResultV2<ToolResult> call(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    ResultV2<ToolResult> call(const nlohmann::json& input, const ToolContext& ctx) const override;
 };
 
-} // namespace agent::tool
+}  // namespace agent::tool

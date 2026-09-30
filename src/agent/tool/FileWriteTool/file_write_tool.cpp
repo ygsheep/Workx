@@ -110,15 +110,12 @@ std::string read_file_lf_normalized(const fs::path& path) {
     if (!file.is_open()) return {};
 
     // 花括号初始化避免 most vexing parse（圆括号会被解析为函数声明）
-    std::string raw{
-        std::istreambuf_iterator<char>(file),
-        std::istreambuf_iterator<char>()
-    };
+    std::string raw{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 
     return lf_normalize(std::move(raw));
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 // ============================================================
 // 元数据方法
@@ -143,15 +140,18 @@ const std::string& FileWriteTool::prompt() const {
         "\n"
         "Usage:\n"
         "- This tool will overwrite the existing file if there is one at the provided path.\n"
-        "- If this is an existing file, you MUST use the Read tool first to read the file's contents. "
+        "- If this is an existing file, you MUST use the Read tool first to read the file's "
+        "contents. "
         "This tool will fail if you did not read the file first.\n"
         "- Prefer the Edit tool for modifying existing files \xe2\x80\x94 it only sends the diff. "
         "Only use this tool to create new files or for complete rewrites.\n"
-        "- NEVER create documentation files (*.md) or README files unless explicitly requested by the User.\n"
-        "- Only use emojis if the user explicitly requests it. Avoid writing emojis to files unless asked.\n"
-        "- The file_path parameter should be an absolute path (e.g., /home/user/file.txt or C:\\Users\\user\\file.txt); "
-        "relative paths are resolved against the current working directory."
-    };
+        "- NEVER create documentation files (*.md) or README files unless explicitly requested by "
+        "the User.\n"
+        "- Only use emojis if the user explicitly requests it. Avoid writing emojis to files "
+        "unless asked.\n"
+        "- The file_path parameter should be an absolute path (e.g., /home/user/file.txt or "
+        "C:\\Users\\user\\file.txt); "
+        "relative paths are resolved against the current working directory."};
     return p;
 }
 
@@ -159,32 +159,25 @@ nlohmann::json FileWriteTool::input_schema() const {
     // 对齐 Claude Code z.strictObject → additionalProperties: false
     return {
         {"type", "object"},
-        {"properties", {
-            {"file_path", {
-                {"type", "string"},
-                {"description", "The absolute path to the file to write"}
-            }},
-            {"content", {
-                {"type", "string"},
-                {"description", "The content to write to the file"}
-            }}
-        }},
+        {"properties",
+         {{"file_path",
+           {{"type", "string"}, {"description", "The absolute path to the file to write"}}},
+          {"content", {{"type", "string"}, {"description", "The content to write to the file"}}}}},
         {"required", {"file_path", "content"}},
-        {"additionalProperties", false}
-    };
+        {"additionalProperties", false}};
 }
 
 // ============================================================
 // 输入验证
 // ============================================================
 
-ValidationResult FileWriteTool::validate_input(
-    const nlohmann::json& input,
-    const ToolContext& /*ctx*/
+ValidationResult FileWriteTool::validate_input(const nlohmann::json& input,
+                                               const ToolContext& /*ctx*/
 ) const {
     // file_path 校验
     if (!input.contains("file_path") || !input["file_path"].is_string()) {
-        return ValidationResult::err(Error::Code::MissingArgument, "Missing required field: file_path");
+        return ValidationResult::err(Error::Code::MissingArgument,
+                                     "Missing required field: file_path");
     }
     const std::string path_str = input["file_path"].get<std::string>();
     if (path_str.empty()) {
@@ -194,7 +187,8 @@ ValidationResult FileWriteTool::validate_input(
     // （对齐 Claude Code CLI expandPath() 行为，避免弱模型/用户输入相对路径被拒）
     // content 校验（允许空字符串，空文件合法）
     if (!input.contains("content") || !input["content"].is_string()) {
-        return ValidationResult::err(Error::Code::MissingArgument, "Missing required field: content");
+        return ValidationResult::err(Error::Code::MissingArgument,
+                                     "Missing required field: content");
     }
     // #40：写入内容密钥扫描（拒绝把密钥写进文件）
     const std::string content = input["content"].get<std::string>();
@@ -209,44 +203,38 @@ ValidationResult FileWriteTool::validate_input(
 // 权限检查
 // ============================================================
 
-PermissionResult FileWriteTool::check_permissions(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+PermissionResult FileWriteTool::check_permissions(const nlohmann::json& input,
+                                                  const ToolContext& ctx) const {
     // #36：Bypass 模式完全放行
     if (is_bypass_mode(ctx.permission_mode)) {
         return PermissionResult::ok();
     }
     // #36：Plan 模式禁止写文件
     if (deny_write_by_mode(ctx.permission_mode)) {
-        return PermissionResult::err(
-            Error::Code::PermissionDenied,
-            "Write operations are not allowed in plan mode. "
-            "Switch to default mode to edit files.");
+        return PermissionResult::err(Error::Code::PermissionDenied,
+                                     "Write operations are not allowed in plan mode. "
+                                     "Switch to default mode to edit files.");
     }
     // #34：路径边界 + 敏感路径拦截
     const std::string path_str = input.value("file_path", "");
     if (path_str.empty()) return PermissionResult::ok();  // 空路径由 validate_input 拦截
     try {
         const std::string expanded = expand_path(path_str, ctx.cwd);
-        auto res = validate_path_access(expanded, ctx.cwd,
-                                        repo_root_allowlist(ctx.git_repo_root));
+        auto res = validate_path_access(expanded, ctx.cwd, repo_root_allowlist(ctx.git_repo_root));
         if (res.is_err()) {
             // 评审 #2：绝对禁止（私钥/凭据）不可确认；越界/可确认敏感路径由用户确认放行
             if (!is_absolutely_forbidden_path(expanded) &&
-                ask_user_confirm(ctx, std::format(
-                    "Write access requires your approval:\n\n```\n{}\n```\n\n"
-                    "Allow writing to this path?", path_str))) {
+                ask_user_confirm(
+                    ctx, std::format("Write access requires your approval:\n\n```\n{}\n```\n\n"
+                                     "Allow writing to this path?",
+                                     path_str))) {
                 return PermissionResult::ok();
             }
-            return PermissionResult::err(
-                Error::Code::PermissionDenied,
-                res.error().message);
+            return PermissionResult::err(Error::Code::PermissionDenied, res.error().message);
         }
     } catch (const std::exception& e) {
-        return PermissionResult::err(
-            Error::Code::PermissionDenied,
-            std::string("Write path error: ") + e.what());
+        return PermissionResult::err(Error::Code::PermissionDenied,
+                                     std::string("Write path error: ") + e.what());
     }
     return PermissionResult::ok();
 }
@@ -255,21 +243,19 @@ PermissionResult FileWriteTool::check_permissions(
 // 私有辅助：Pre-read + Staleness 检查
 // ============================================================
 
-ValidationResult FileWriteTool::check_pre_read_and_staleness(
-    const std::string& canonical_path,
-    const fs::path& file_path
-) {
+ValidationResult FileWriteTool::check_pre_read_and_staleness(const std::string& canonical_path,
+                                                             const fs::path& file_path) {
     // 1. Pre-read 强制检查
     auto state = FileReadStateTracker::instance().get_state(canonical_path);
     if (!state.has_value()) {
-        return ValidationResult::err(Error::Code::PermissionDenied,
-            "File has not been read yet. Read it first before writing to it."
-        );
+        return ValidationResult::err(
+            Error::Code::PermissionDenied,
+            "File has not been read yet. Read it first before writing to it.");
     }
     if (state->is_partial_view) {
-        return ValidationResult::err(Error::Code::PermissionDenied,
-            "File was only partially read. Read the full file before writing to it."
-        );
+        return ValidationResult::err(
+            Error::Code::PermissionDenied,
+            "File was only partially read. Read the full file before writing to it.");
     }
 
     // 2. Staleness 检查：mtime 对比
@@ -285,10 +271,10 @@ ValidationResult FileWriteTool::check_pre_read_and_staleness(
         // Windows 下云同步/杀毒等可能改 mtime 但内容未变，避免误判
         const auto current_content = read_file_lf_normalized(file_path);
         if (current_content != state->content) {
-            return ValidationResult::err(Error::Code::InternalError,
+            return ValidationResult::err(
+                Error::Code::InternalError,
                 "File has been modified since read, either by the user or by a linter. "
-                "Read it again before attempting to write it."
-            );
+                "Read it again before attempting to write it.");
         }
         // 内容相同：放行（不更新 state.mtime，让下次走相同对比路径）
     }
@@ -307,10 +293,9 @@ ValidationResult FileWriteTool::create_backup(const fs::path& file_path) {
     std::error_code ec;
     fs::copy_file(file_path, bak_path, fs::copy_options::overwrite_existing, ec);
     if (ec) {
-        return ValidationResult::err(Error::Code::InternalError,
-            std::format("Failed to create backup '{}': {}",
-                        bak_path.string(), ec.message())
-        );
+        return ValidationResult::err(
+            Error::Code::InternalError,
+            std::format("Failed to create backup '{}': {}", bak_path.string(), ec.message()));
     }
     return ValidationResult::ok();
 }
@@ -319,10 +304,8 @@ ValidationResult FileWriteTool::create_backup(const fs::path& file_path) {
 // 执行管道
 // ============================================================
 
-ResultV2<ToolResult> FileWriteTool::call(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+ResultV2<ToolResult> FileWriteTool::call(const nlohmann::json& input,
+                                         const ToolContext& ctx) const {
     // 1. 解析输入（已在 validate_input 中校验，此处安全访问）
     FileWriteInput write_input;
     try {
@@ -355,9 +338,8 @@ ResultV2<ToolResult> FileWriteTool::call(
             fs::create_directories(parent_dir, ec);
             if (ec) {
                 return ResultV2<ToolResult>::err(Error::Code::InternalError,
-                    std::format("Failed to create directory '{}': {}",
-                                parent_dir.string(), ec.message())
-                );
+                                                 std::format("Failed to create directory '{}': {}",
+                                                             parent_dir.string(), ec.message()));
             }
         }
     }
@@ -366,17 +348,14 @@ ResultV2<ToolResult> FileWriteTool::call(
     bool is_update = fs::exists(file_path, ec);
     if (ec) {
         return ResultV2<ToolResult>::err(Error::Code::InternalError,
-            std::format("Failed to check file existence '{}': {}",
-                        file_path.string(), ec.message())
-        );
+                                         std::format("Failed to check file existence '{}': {}",
+                                                     file_path.string(), ec.message()));
     }
 
     // 5. 安全检查（update 模式）：Pre-read + Staleness + .bak 备份
     if (is_update) {
         // 5a. Pre-read 强制检查 + Staleness 检测
-        auto check = check_pre_read_and_staleness(
-            file_path.generic_string(), file_path
-        );
+        auto check = check_pre_read_and_staleness(file_path.generic_string(), file_path);
         if (check.is_err()) {
             return check.error();
         }
@@ -393,10 +372,8 @@ ResultV2<ToolResult> FileWriteTool::call(
     if (is_update) {
         std::ifstream old_file(file_path, std::ios::binary);
         if (old_file.is_open()) {
-            old_content = std::string(
-                std::istreambuf_iterator<char>(old_file),
-                std::istreambuf_iterator<char>()
-            );
+            old_content = std::string(std::istreambuf_iterator<char>(old_file),
+                                      std::istreambuf_iterator<char>());
         }
         // 读取失败不中断：old_content 为空，diff 会显示全部新增
     }
@@ -421,9 +398,9 @@ ResultV2<ToolResult> FileWriteTool::call(
                 // 写入失败，删除临时文件
                 std::error_code rm_ec;
                 fs::remove(tmp_path, rm_ec);
-                return ResultV2<ToolResult>::err(Error::Code::InternalError,
-                    std::format("Failed to write file: {}", write_input.file_path)
-                );
+                return ResultV2<ToolResult>::err(
+                    Error::Code::InternalError,
+                    std::format("Failed to write file: {}", write_input.file_path));
             }
             atomic_ok = true;
         }
@@ -434,9 +411,9 @@ ResultV2<ToolResult> FileWriteTool::call(
         if (ctx.is_cancelled()) {
             std::error_code rm_ec;
             fs::remove(tmp_path, rm_ec);
-            return ResultV2<ToolResult>::err(Error::Code::Cancelled,
-                std::format("File write cancelled for: {}", write_input.file_path)
-            );
+            return ResultV2<ToolResult>::err(
+                Error::Code::Cancelled,
+                std::format("File write cancelled for: {}", write_input.file_path));
         }
 
         // fsync（POSIX 用 fsync，Windows 用 _commit）
@@ -459,25 +436,25 @@ ResultV2<ToolResult> FileWriteTool::call(
         // 回退路径：直接写入（保留原 .bak 备份兜底）
         // 取消点：fallback 直接 trunc 原文件，已取消则避免触碰
         if (ctx.is_cancelled()) {
-            return ResultV2<ToolResult>::err(Error::Code::Cancelled,
-                std::format("File write cancelled for: {}", write_input.file_path)
-            );
+            return ResultV2<ToolResult>::err(
+                Error::Code::Cancelled,
+                std::format("File write cancelled for: {}", write_input.file_path));
         }
 
         std::ofstream out(file_path, std::ios::binary | std::ios::trunc);
         if (!out.is_open()) {
-            return ResultV2<ToolResult>::err(Error::Code::InternalError,
-                std::format("Failed to open file for writing: {}", write_input.file_path)
-            );
+            return ResultV2<ToolResult>::err(
+                Error::Code::InternalError,
+                std::format("Failed to open file for writing: {}", write_input.file_path));
         }
         out << write_input.content;
         out.flush();
         out.close();
 
         if (out.fail()) {
-            return ResultV2<ToolResult>::err(Error::Code::InternalError,
-                std::format("Failed to write file: {}", write_input.file_path)
-            );
+            return ResultV2<ToolResult>::err(
+                Error::Code::InternalError,
+                std::format("Failed to write file: {}", write_input.file_path));
         }
     }
 
@@ -486,8 +463,7 @@ ResultV2<ToolResult> FileWriteTool::call(
         std::error_code mtime_ec;
         const auto new_mtime = fs::last_write_time(file_path, mtime_ec);
         FileReadStateTracker::instance().update_after_write(
-            file_path.generic_string(),
-            lf_normalize(write_input.content),
+            file_path.generic_string(), lf_normalize(write_input.content),
             mtime_ec ? std::filesystem::file_time_type{} : new_mtime,
             false  // 写后视为完整视图
         );
@@ -504,8 +480,7 @@ ResultV2<ToolResult> FileWriteTool::call(
         auto diff_lines = generate_line_diff(old_content, write_input.content);
         std::string diff_text = format_diff(file_path.string(), diff_lines);
 
-        std::string result_text =
-            std::format("File {} has been updated.\n", file_path.string());
+        std::string result_text = std::format("File {} has been updated.\n", file_path.string());
         if (!diff_text.empty()) {
             result_text += "\n" + diff_text;
         } else {
@@ -516,9 +491,8 @@ ResultV2<ToolResult> FileWriteTool::call(
     }
 
     // create 模式
-    return ResultV2<ToolResult>::ok(ToolResult::ok(
-        std::format("File created successfully at: {}", file_path.string())
-    ));
+    return ResultV2<ToolResult>::ok(
+        ToolResult::ok(std::format("File created successfully at: {}", file_path.string())));
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

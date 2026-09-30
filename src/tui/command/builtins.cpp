@@ -20,77 +20,69 @@ using agent::command::CommandRegistry;
 using agent::command::CommandResult;
 using agent::command::LocalCommand;
 
-void register_ftx_builtins(CommandRegistry& registry,
-                           const FtuiCommandCallbacks& cb) {
-    auto help_cmd =
-        agent::command::make_local_command("help", std::string(str::kCmdHelpDesc));
+void register_ftx_builtins(CommandRegistry& registry, const FtuiCommandCallbacks& cb) {
+    auto help_cmd = agent::command::make_local_command("help", std::string(str::kCmdHelpDesc));
     help_cmd->set_argument_hint("/help");
     help_cmd->set_call(
         [reg_ptr = &registry](const std::string&, const CommandContext&) -> CommandResult {
             std::string output = std::string(str::kHelpIntro);
             for (const auto& cmd : reg_ptr->get_user_invocable_commands()) {
                 output += "  /" + cmd->name();
-                if (!cmd->description().empty())
-                    output += " - " + cmd->description();
+                if (!cmd->description().empty()) output += " - " + cmd->description();
                 output += "\n";
             }
             return CommandResult::ok(std::move(output));
         });
     registry.register_command(help_cmd);
 
-    auto exit_cmd =
-        agent::command::make_local_command("exit", std::string(str::kCmdExitDesc));
+    auto exit_cmd = agent::command::make_local_command("exit", std::string(str::kCmdExitDesc));
     exit_cmd->set_argument_hint("/exit");
-    exit_cmd->set_call([on_exit = cb.on_exit](const std::string&,
-                                              const CommandContext&) -> CommandResult {
-        if (on_exit) on_exit();
-        return CommandResult::ok("");
-    });
+    exit_cmd->set_call(
+        [on_exit = cb.on_exit](const std::string&, const CommandContext&) -> CommandResult {
+            if (on_exit) on_exit();
+            return CommandResult::ok("");
+        });
     registry.register_command(exit_cmd);
 
     // quit：exit 别名
-    auto quit_cmd =
-        agent::command::make_local_command("quit", std::string(str::kCmdQuitDesc));
+    auto quit_cmd = agent::command::make_local_command("quit", std::string(str::kCmdQuitDesc));
     quit_cmd->set_argument_hint("/quit");
-    quit_cmd->set_call([on_exit = cb.on_exit](const std::string&,
-                                              const CommandContext&) -> CommandResult {
-        if (on_exit) on_exit();
-        return CommandResult::ok("");
-    });
+    quit_cmd->set_call(
+        [on_exit = cb.on_exit](const std::string&, const CommandContext&) -> CommandResult {
+            if (on_exit) on_exit();
+            return CommandResult::ok("");
+        });
     registry.register_command(quit_cmd);
 
-    auto clear_cmd =
-        agent::command::make_local_command("clear", std::string(str::kCmdClearDesc));
+    auto clear_cmd = agent::command::make_local_command("clear", std::string(str::kCmdClearDesc));
     clear_cmd->set_argument_hint("/clear");
-    clear_cmd->set_call([on_clear = cb.on_clear](const std::string&,
-                                                 const CommandContext&) -> CommandResult {
-        if (on_clear) on_clear();
-        return CommandResult::ok("");
-    });
+    clear_cmd->set_call(
+        [on_clear = cb.on_clear](const std::string&, const CommandContext&) -> CommandResult {
+            if (on_clear) on_clear();
+            return CommandResult::ok("");
+        });
     registry.register_command(clear_cmd);
 
-    auto new_cmd =
-        agent::command::make_local_command("new", std::string(str::kCmdNewDesc));
+    auto new_cmd = agent::command::make_local_command("new", std::string(str::kCmdNewDesc));
     new_cmd->set_argument_hint("/new");
-    new_cmd->set_call([on_new = cb.on_new](const std::string&,
-                                           const CommandContext&) -> CommandResult {
-        if (on_new) on_new();
-        return CommandResult::ok("");
-    });
+    new_cmd->set_call(
+        [on_new = cb.on_new](const std::string&, const CommandContext&) -> CommandResult {
+            if (on_new) on_new();
+            return CommandResult::ok("");
+        });
     registry.register_command(new_cmd);
 
     auto compact_cmd =
         agent::command::make_local_command("compact", std::string(str::kCmdCompactDesc));
     compact_cmd->set_argument_hint("/compact");
-    compact_cmd->set_call([on_compact = cb.on_compact](
-                              const std::string&, const CommandContext&) -> CommandResult {
-        if (on_compact) on_compact();
-        return CommandResult::ok("");
-    });
+    compact_cmd->set_call(
+        [on_compact = cb.on_compact](const std::string&, const CommandContext&) -> CommandResult {
+            if (on_compact) on_compact();
+            return CommandResult::ok("");
+        });
     registry.register_command(compact_cmd);
 
-    auto model_cmd =
-        agent::command::make_local_command("model", std::string(str::kCmdModelDesc));
+    auto model_cmd = agent::command::make_local_command("model", std::string(str::kCmdModelDesc));
     model_cmd->set_argument_hint("/model");
     model_cmd->set_call([on_model_select = cb.on_model_select](
                             const std::string&, const CommandContext&) -> CommandResult {
@@ -129,40 +121,36 @@ void register_ftx_builtins(CommandRegistry& registry,
     });
     registry.register_command(rename_cmd);
 
-    auto view_cmd =
-        agent::command::make_local_command("view", std::string(str::kCmdViewDesc));
+    auto view_cmd = agent::command::make_local_command("view", std::string(str::kCmdViewDesc));
     view_cmd->set_argument_hint("/view <file>");
-    view_cmd->set_call([on_view = cb.on_view](const std::string& args,
-                                              const CommandContext&) -> CommandResult {
-        if (on_view) on_view(args);
-        return CommandResult::ok("");
-    });
+    view_cmd->set_call(
+        [on_view = cb.on_view](const std::string& args, const CommandContext&) -> CommandResult {
+            if (on_view) on_view(args);
+            return CommandResult::ok("");
+        });
     registry.register_command(view_cmd);
 
-    auto edit_cmd =
-        agent::command::make_local_command("edit", std::string(str::kCmdEditDesc));
+    auto edit_cmd = agent::command::make_local_command("edit", std::string(str::kCmdEditDesc));
     edit_cmd->set_argument_hint("/edit <file>");
-    edit_cmd->set_call([on_edit = cb.on_edit](const std::string& args,
-                                              const CommandContext&) -> CommandResult {
-        if (on_edit) on_edit(args);
-        return CommandResult::ok("");
-    });
+    edit_cmd->set_call(
+        [on_edit = cb.on_edit](const std::string& args, const CommandContext&) -> CommandResult {
+            if (on_edit) on_edit(args);
+            return CommandResult::ok("");
+        });
     registry.register_command(edit_cmd);
 
-    auto nvim_cmd =
-        agent::command::make_local_command("nvim", std::string(str::kCmdNvimDesc));
+    auto nvim_cmd = agent::command::make_local_command("nvim", std::string(str::kCmdNvimDesc));
     nvim_cmd->set_argument_hint("/nvim [<file>]");
-    nvim_cmd->set_call([on_nvim = cb.on_nvim](const std::string& args,
-                                              const CommandContext&) -> CommandResult {
-        if (on_nvim) on_nvim(args);
-        return CommandResult::ok("");
-    });
+    nvim_cmd->set_call(
+        [on_nvim = cb.on_nvim](const std::string& args, const CommandContext&) -> CommandResult {
+            if (on_nvim) on_nvim(args);
+            return CommandResult::ok("");
+        });
     registry.register_command(nvim_cmd);
 
     // /Test: 前缀测试命令：弹出 AskUser 提问弹窗（便于开发调试 TUI 渲染/交互）
     auto test_askuser_cmd =
-        agent::command::make_local_command("Test:askuser",
-                                           std::string(str::kCmdTestAskUserDesc));
+        agent::command::make_local_command("Test:askuser", std::string(str::kCmdTestAskUserDesc));
     test_askuser_cmd->set_argument_hint("/Test:askuser");
     test_askuser_cmd->set_call([on_test_askuser = cb.on_test_askuser](
                                    const std::string&, const CommandContext&) -> CommandResult {

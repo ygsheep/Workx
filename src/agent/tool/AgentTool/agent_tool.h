@@ -18,7 +18,9 @@
 #include "agent/tool/itool.h"
 #include "agent/tool/context.h"  // #54：PermissionMode 定义 + ITaskManager/IEventBus/ToolRegistry 等前向声明
 
-namespace agent { class Task; }
+namespace agent {
+class Task;
+}
 
 namespace agent::tool {
 
@@ -31,16 +33,13 @@ inline constexpr const char* kAgentToolName = "Agent";
 /// - 支持指定 prompt 和工具集
 /// - 子 Agent 独立运行并返回结果
 class AgentTool : public ITool {
-public:
+   public:
     const std::string& name() const override;
     const std::string& description() const override;
     const std::string& prompt() const override;
     nlohmann::json input_schema() const override;
 
-    ResultV2<ToolResult> call(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    ResultV2<ToolResult> call(const nlohmann::json& input, const ToolContext& ctx) const override;
 
     /// @brief 预加载 skill 到子 Agent 初始消息（#56 方案 C）
     /// @details 对每个 skill 名从 registry 解析出 PromptCommand，用 build_skill_full_text
@@ -51,8 +50,7 @@ public:
     /// @param cctx 执行上下文（cwd/model/session），用于技能内展开；缺省用调用方注入
     /// @return 预加载的初始 system 消息（顺序 = skills 顺序，逐条过滤可用项）
     static std::vector<agent::ChatMessage> build_skill_preload_messages(
-        const std::vector<std::string>& skills,
-        const command::CommandRegistry* registry,
+        const std::vector<std::string>& skills, const command::CommandRegistry* registry,
         const command::CommandContext& cctx = {});
 
     /// @brief 子 Agent MCP 作用域构建结果（#56 方案 D）
@@ -60,8 +58,9 @@ public:
     ///          - 字符串引用：从父管理器复用已 memoized client（owned_clients 不含，不 cleanup）
     ///          - inline 对象：connect_one_off 新建独立连接并入 owned_clients（子结束需 dispose）
     struct McpScopeBuildResult {
-        std::shared_ptr<mcp::McpClientManager> scope;      ///< 子作用域管理器（可能为空，empty() 判定）
-        std::vector<std::shared_ptr<mcp::McpClient>> owned_clients;  ///< inline 私有 client（需 dispose）
+        std::shared_ptr<mcp::McpClientManager> scope;  ///< 子作用域管理器（可能为空，empty() 判定）
+        std::vector<std::shared_ptr<mcp::McpClient>>
+            owned_clients;  ///< inline 私有 client（需 dispose）
     };
 
     /// @brief 构建子 Agent 的 MCP 作用域管理器和需清理的 client（#56 方案 D）
@@ -79,12 +78,13 @@ public:
 /// @brief 子 Agent 启动参数（聚合，避免长参数列表）
 /// @details #54 起作为公共 API，供 AgentTool::call 与 Plan Mode V2 explore 并行启动复用。
 struct SubAgentLaunchOptions {
-    std::string task_id;                         ///< 任务 id（AgentTool 生成 'a'+8 随机；Plan 用 "pa-N"）
-    std::string prompt;                          ///< 子 Agent 任务 prompt
-    std::vector<std::string> tool_whitelist;     ///< 工具白名单（空 → 全部已注册工具）
-    std::vector<std::string> skills;             ///< #56 方案 C：预加载到初始消息的 skill 名
-    const command::CommandRegistry* command_registry = nullptr;  ///< #56 方案 C：按名取 skill 全文（非拥有）
-    ICompletionProvider* provider = nullptr;     ///< LLM provider（宿主保证存活于会话周期）
+    std::string task_id;  ///< 任务 id（AgentTool 生成 'a'+8 随机；Plan 用 "pa-N"）
+    std::string prompt;   ///< 子 Agent 任务 prompt
+    std::vector<std::string> tool_whitelist;  ///< 工具白名单（空 → 全部已注册工具）
+    std::vector<std::string> skills;  ///< #56 方案 C：预加载到初始消息的 skill 名
+    const command::CommandRegistry* command_registry =
+        nullptr;  ///< #56 方案 C：按名取 skill 全文（非拥有）
+    ICompletionProvider* provider = nullptr;  ///< LLM provider（宿主保证存活于会话周期）
     std::shared_ptr<ToolRegistry> sub_registry;  ///< 父会话工具注册表（构建子 Agent 独立工具集）
     IConfigManager* config_manager = nullptr;
     ITaskManager* task_manager = nullptr;
@@ -92,9 +92,11 @@ struct SubAgentLaunchOptions {
     std::string cwd;
     std::string session_id;  ///< #30：父会话 ID（注入子 Agent ToolContext.session_id，审计关联）
     tool::PermissionMode permission_mode = tool::PermissionMode::Default;
-    std::shared_ptr<agent::hook::HookManager> hook_manager;  ///< #50：父循环 HookManager（SubagentStart/Stop 派发）
-    nlohmann::json mcp_servers;                  ///< #56 方案 D：mcpServers 数组（字符串引用 / inline 对象）
-    mcp::McpClientManager* parent_mcp_manager = nullptr;  ///< #56 方案 D：父全局 MCP 管理器（复用来源，非拥有）
+    std::shared_ptr<agent::hook::HookManager>
+        hook_manager;            ///< #50：父循环 HookManager（SubagentStart/Stop 派发）
+    nlohmann::json mcp_servers;  ///< #56 方案 D：mcpServers 数组（字符串引用 / inline 对象）
+    mcp::McpClientManager* parent_mcp_manager =
+        nullptr;  ///< #56 方案 D：父全局 MCP 管理器（复用来源，非拥有）
 };
 
 /// @brief 启动单个子 Agent 任务
@@ -105,4 +107,4 @@ struct SubAgentLaunchOptions {
 /// @return 已启动的 Task
 std::shared_ptr<agent::Task> launch_sub_agent(const SubAgentLaunchOptions& options);
 
-} // namespace agent::tool
+}  // namespace agent::tool

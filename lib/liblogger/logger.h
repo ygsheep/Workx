@@ -55,12 +55,12 @@ namespace agent::log {
  * @note 枚举值带 LOG_ 前缀，避免与 Windows 头文件的 ERROR 宏冲突
  */
 enum class LogLevel : int {
-    LOG_TRACE = 0,    ///< 详细跟踪信息
-    LOG_DEBUG = 1,    ///< 调试信息
-    LOG_INFO = 2,     ///< 一般信息
-    LOG_WARN = 3,     ///< 警告信息
-    LOG_ERROR = 4,    ///< 错误信息
-    LOG_FATAL = 5     ///< 致命错误信息
+    LOG_TRACE = 0,  ///< 详细跟踪信息
+    LOG_DEBUG = 1,  ///< 调试信息
+    LOG_INFO = 2,   ///< 一般信息
+    LOG_WARN = 3,   ///< 警告信息
+    LOG_ERROR = 4,  ///< 错误信息
+    LOG_FATAL = 5   ///< 致命错误信息
 };
 
 namespace Detail {
@@ -72,13 +72,20 @@ namespace Detail {
  */
 constexpr const char* to_string(LogLevel level) noexcept {
     switch (level) {
-        case LogLevel::LOG_TRACE: return "TRACE";
-        case LogLevel::LOG_DEBUG: return "DEBUG";
-        case LogLevel::LOG_INFO:  return "INFO";
-        case LogLevel::LOG_WARN:  return "WARN";
-        case LogLevel::LOG_ERROR: return "ERROR";
-        case LogLevel::LOG_FATAL: return "FATAL";
-        default: return "UNKNOWN";
+        case LogLevel::LOG_TRACE:
+            return "TRACE";
+        case LogLevel::LOG_DEBUG:
+            return "DEBUG";
+        case LogLevel::LOG_INFO:
+            return "INFO";
+        case LogLevel::LOG_WARN:
+            return "WARN";
+        case LogLevel::LOG_ERROR:
+            return "ERROR";
+        case LogLevel::LOG_FATAL:
+            return "FATAL";
+        default:
+            return "UNKNOWN";
     }
 }
 
@@ -97,7 +104,7 @@ inline std::string extract_filename(const char* path) noexcept {
     return std::string(last_slash);
 }
 
-} // namespace Detail
+}  // namespace Detail
 
 // ============================================================================
 // Logger 核心类
@@ -118,15 +125,16 @@ inline std::string extract_filename(const char* path) noexcept {
  */
 class Logger final {  // 单例类，禁止继承
     // 技巧：定义一个简单的结构体，并在构造函数中使用它
-    struct Token { explicit Token() = default; }; // 定义在私有区
-public:
+    struct Token {
+        explicit Token() = default;
+    };  // 定义在私有区
+   public:
     explicit Logger(Token /*unused*/)
-    : m_level(static_cast<int>(LogLevel::LOG_INFO)),
-      m_file_enabled(false),
-      m_writer_running(false),
-      m_buffer_size(4096),
-      m_duplicate_window_ms(DEFAULT_DUPLICATE_WINDOW_MS) {
-    }
+        : m_level(static_cast<int>(LogLevel::LOG_INFO)),
+          m_file_enabled(false),
+          m_writer_running(false),
+          m_buffer_size(4096),
+          m_duplicate_window_ms(DEFAULT_DUPLICATE_WINDOW_MS) {}
     /**
      * @brief 析构函数
      */
@@ -223,14 +231,15 @@ public:
      * @param file 源文件名
      * @param line 行号
      */
-    void log(LogLevel level, const std::string& message,
-             const char* file = __builtin_FILE(), int line = __builtin_LINE());
+    void log(LogLevel level, const std::string& message, const char* file = __builtin_FILE(),
+             int line = __builtin_LINE());
 
     /**
      * @brief 记录TRACE级别日志
      * @param msg 日志消息
      */
-    void trace(const std::string& msg, const char* file = __builtin_FILE(), int line = __builtin_LINE()) {
+    void trace(const std::string& msg, const char* file = __builtin_FILE(),
+               int line = __builtin_LINE()) {
         log(LogLevel::LOG_TRACE, msg, file, line);
     }
 
@@ -238,7 +247,8 @@ public:
      * @brief 记录DEBUG级别日志
      * @param msg 日志消息
      */
-    void debug(const std::string& msg, const char* file = __builtin_FILE(), int line = __builtin_LINE()) {
+    void debug(const std::string& msg, const char* file = __builtin_FILE(),
+               int line = __builtin_LINE()) {
         log(LogLevel::LOG_DEBUG, msg, file, line);
     }
 
@@ -246,7 +256,8 @@ public:
      * @brief 记录INFO级别日志
      * @param msg 日志消息
      */
-    void info(const std::string& msg, const char* file = __builtin_FILE(), int line = __builtin_LINE()) {
+    void info(const std::string& msg, const char* file = __builtin_FILE(),
+              int line = __builtin_LINE()) {
         log(LogLevel::LOG_INFO, msg, file, line);
     }
 
@@ -254,7 +265,8 @@ public:
      * @brief 记录WARN级别日志
      * @param msg 日志消息
      */
-    void warn(const std::string& msg, const char* file = __builtin_FILE(), int line = __builtin_LINE()) {
+    void warn(const std::string& msg, const char* file = __builtin_FILE(),
+              int line = __builtin_LINE()) {
         log(LogLevel::LOG_WARN, msg, file, line);
     }
 
@@ -262,7 +274,8 @@ public:
      * @brief 记录ERROR级别日志
      * @param msg 日志消息
      */
-    void error(const std::string& msg, const char* file = __builtin_FILE(), int line = __builtin_LINE()) {
+    void error(const std::string& msg, const char* file = __builtin_FILE(),
+               int line = __builtin_LINE()) {
         log(LogLevel::LOG_ERROR, msg, file, line);
     }
 
@@ -270,13 +283,12 @@ public:
      * @brief 记录FATAL级别日志
      * @param msg 日志消息
      */
-    void fatal(const std::string& msg, const char* file = __builtin_FILE(), int line = __builtin_LINE()) {
+    void fatal(const std::string& msg, const char* file = __builtin_FILE(),
+               int line = __builtin_LINE()) {
         log(LogLevel::LOG_FATAL, msg, file, line);
     }
 
-
-private:
-
+   private:
     // ==================== 重复日志过滤 ====================
 
     /**
@@ -298,8 +310,8 @@ private:
      * @param line 行号
      * @return 格式化后的日志消息
      */
-    std::string format_message(LogLevel level, const std::string& message,
-                               const char* file, int line) const noexcept;
+    std::string format_message(LogLevel level, const std::string& message, const char* file,
+                               int line) const noexcept;
 
     // ==================== 文件写入 ====================
 
@@ -355,7 +367,7 @@ private:
 // 便捷访问函数
 // ============================================================================
 
-} // namespace agent::log
+}  // namespace agent::log
 
 // G-3：向后兼容 alias（旧代码使用 Agent::Logger，新代码用 agent::log::Logger）
 namespace Agent = agent::log;
@@ -368,26 +380,32 @@ namespace Agent = agent::log;
 // G-4：get_instance() 返回引用，用 . 替代 ->
 #define LOG_TRACE_STR(msg) ::agent::log::Logger::get_instance().trace(msg)
 #define LOG_DEBUG_STR(msg) ::agent::log::Logger::get_instance().debug(msg)
-#define LOG_INFO_STR(msg)  ::agent::log::Logger::get_instance().info(msg)
-#define LOG_WARN_STR(msg)  ::agent::log::Logger::get_instance().warn(msg)
+#define LOG_INFO_STR(msg) ::agent::log::Logger::get_instance().info(msg)
+#define LOG_WARN_STR(msg) ::agent::log::Logger::get_instance().warn(msg)
 #define LOG_ERROR_STR(msg) ::agent::log::Logger::get_instance().error(msg)
 #define LOG_FATAL_STR(msg) ::agent::log::Logger::get_instance().fatal(msg)
 
 // 格式化日志（使用 std::format）
 // C++20 __VA_OPT__ 标准写法，兼容新预处理器
 // G-3/G-4：宏用 agent::log::Logger 全限定名 + 引用调用
-#define LOG_TRACE(fmt, ...) ::agent::log::Logger::get_instance().trace(std::format(fmt __VA_OPT__(,) __VA_ARGS__))
-#define LOG_DEBUG(fmt, ...) ::agent::log::Logger::get_instance().debug(std::format(fmt __VA_OPT__(,) __VA_ARGS__))
-#define LOG_INFO(fmt, ...)  ::agent::log::Logger::get_instance().info(std::format(fmt __VA_OPT__(,) __VA_ARGS__))
-#define LOG_WARN(fmt, ...)  ::agent::log::Logger::get_instance().warn(std::format(fmt __VA_OPT__(,) __VA_ARGS__))
-#define LOG_ERROR(fmt, ...) ::agent::log::Logger::get_instance().error(std::format(fmt __VA_OPT__(,) __VA_ARGS__))
-#define LOG_FATAL(fmt, ...) ::agent::log::Logger::get_instance().fatal(std::format(fmt __VA_OPT__(,) __VA_ARGS__))
+#define LOG_TRACE(fmt, ...) \
+    ::agent::log::Logger::get_instance().trace(std::format(fmt __VA_OPT__(, ) __VA_ARGS__))
+#define LOG_DEBUG(fmt, ...) \
+    ::agent::log::Logger::get_instance().debug(std::format(fmt __VA_OPT__(, ) __VA_ARGS__))
+#define LOG_INFO(fmt, ...) \
+    ::agent::log::Logger::get_instance().info(std::format(fmt __VA_OPT__(, ) __VA_ARGS__))
+#define LOG_WARN(fmt, ...) \
+    ::agent::log::Logger::get_instance().warn(std::format(fmt __VA_OPT__(, ) __VA_ARGS__))
+#define LOG_ERROR(fmt, ...) \
+    ::agent::log::Logger::get_instance().error(std::format(fmt __VA_OPT__(, ) __VA_ARGS__))
+#define LOG_FATAL(fmt, ...) \
+    ::agent::log::Logger::get_instance().fatal(std::format(fmt __VA_OPT__(, ) __VA_ARGS__))
 
 // 向后兼容宏
 #define DEARTS_LOGGER() ::agent::log::Logger::get_instance()
 #define DEARTS_LOG_TRACE(msg) ::agent::log::Logger::get_instance().trace(msg)
 #define DEARTS_LOG_DEBUG(msg) ::agent::log::Logger::get_instance().debug(msg)
-#define DEARTS_LOG_INFO(msg)  ::agent::log::Logger::get_instance().info(msg)
-#define DEARTS_LOG_WARN(msg)  ::agent::log::Logger::get_instance().warn(msg)
+#define DEARTS_LOG_INFO(msg) ::agent::log::Logger::get_instance().info(msg)
+#define DEARTS_LOG_WARN(msg) ::agent::log::Logger::get_instance().warn(msg)
 #define DEARTS_LOG_ERROR(msg) ::agent::log::Logger::get_instance().error(msg)
 #define DEARTS_LOG_FATAL(msg) ::agent::log::Logger::get_instance().fatal(msg)

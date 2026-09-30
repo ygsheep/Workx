@@ -24,3 +24,16 @@ BasedOnStyle: Google
 IndentWidth: 4
 ContinuationIndentWidth: 4
 ColumnLimit: 100
+
+# SortIncludes: false —— 必须关闭，否则会破坏编译。
+#
+# Google 风格默认 SortIncludes: true，会按字典序重排 include，但它不理解
+# 头文件之间的顺序依赖。本仓库踩到的实例（src/core/process/subprocess.cpp）：
+#     #include <windows.h>     ← 必须在前，定义 DECLSPEC_IMPORT / HDROP / EXTERN_C
+#     #include <shellapi.h>    ← 依赖 windows.h
+# 字典序重排后变成 shellapi.h 在前，导致 shellapi.h 内部报
+# "EXTERN_C 重定义"、"DECLSPEC_IMPORT 语法错误" 等一连串编译错误。
+#
+# 存量代码的 include 顺序是手写且已验证可编译的，保持原样最安全。
+# 关闭后 clang-format 只调整缩进/换行/对齐，不动 include 顺序。
+SortIncludes: false

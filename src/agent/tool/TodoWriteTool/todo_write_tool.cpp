@@ -26,8 +26,7 @@ const std::string& TodoWriteTool::description() const {
         "Update the todo list for the current session. To be used proactively and often "
         "to track progress and pending tasks. Make sure that at least one task is "
         "in_progress at all times. Always provide both content (imperative) and "
-        "activeForm (present continuous) for each task."
-    };
+        "activeForm (present continuous) for each task."};
     return d;
 }
 
@@ -64,8 +63,7 @@ const std::string& TodoWriteTool::prompt() const {
         "6. ONLY mark a task as completed when you have FULLY accomplished it; "
         "if blocked, keep it in_progress and create a task describing what to resolve\n\n"
         "When in doubt, use this tool. Being proactive with task management "
-        "demonstrates attentiveness and ensures you complete all requirements."
-    };
+        "demonstrates attentiveness and ensures you complete all requirements."};
     return p;
 }
 
@@ -102,24 +100,22 @@ nlohmann::json TodoWriteTool::input_schema() const {
     return nlohmann::json::parse(schema_str);
 }
 
-ResultV2<ToolResult> TodoWriteTool::call(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+ResultV2<ToolResult> TodoWriteTool::call(const nlohmann::json& input,
+                                         const ToolContext& ctx) const {
     if (input.is_null() || !input.is_object()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput, "TodoWrite: input must be an object");
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                         "TodoWrite: input must be an object");
     }
     if (!input.contains("todos") || !input["todos"].is_array()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::MissingArgument, "TodoWrite: 'todos' array is required");
+        return ResultV2<ToolResult>::err(Error::Code::MissingArgument,
+                                         "TodoWrite: 'todos' array is required");
     }
 
     std::vector<core::todo::TodoItem> parsed;
     for (const auto& j : input["todos"]) {
         if (!j.is_object()) {
-            return ResultV2<ToolResult>::err(
-                Error::Code::InvalidInput, "TodoWrite: each todo must be an object");
+            return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                             "TodoWrite: each todo must be an object");
         }
         // 先做 JSON 类型校验（LLM 可能传错类型，避免 value()/get<>() 抛 type_error）
         for (const char* key : {"content", "activeForm", "status"}) {
@@ -134,8 +130,8 @@ ResultV2<ToolResult> TodoWriteTool::call(
         item.active_form = j.value("activeForm", std::string{});
         item.status = core::todo::TodoItem::status_from(j.value("status", std::string{"pending"}));
         if (item.content.empty()) {
-            return ResultV2<ToolResult>::err(
-                Error::Code::InvalidInput, "TodoWrite: each todo must have non-empty 'content'");
+            return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                             "TodoWrite: each todo must have non-empty 'content'");
         }
         parsed.push_back(std::move(item));
     }
@@ -148,9 +144,9 @@ ResultV2<ToolResult> TodoWriteTool::call(
     for (auto& item : parsed) {
         if (item.id.empty()) {
             auto it = std::find_if(old_todos.begin(), old_todos.end(),
-                [&](const core::todo::TodoItem& o) {
-                    return o.content == item.content && !o.id.empty();
-                });
+                                   [&](const core::todo::TodoItem& o) {
+                                       return o.content == item.content && !o.id.empty();
+                                   });
             if (it != old_todos.end()) item.id = it->id;
         }
     }
@@ -164,4 +160,4 @@ ResultV2<ToolResult> TodoWriteTool::call(
     return ResultV2<ToolResult>::ok(ToolResult::ok(std::move(result)));
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

@@ -15,14 +15,10 @@
 namespace agent {
 
 SSEStreamReader::SSEStreamReader(ParseSSECallback parse_cb)
-    : m_parse_cb(std::move(parse_cb))
-    , m_sse_parser([this](const SSEEvent& event) { on_sse_event(event); })
-{
-}
+    : m_parse_cb(std::move(parse_cb)),
+      m_sse_parser([this](const SSEEvent& event) { on_sse_event(event); }) {}
 
-SSEStreamReader::~SSEStreamReader() {
-    cancel();
-}
+SSEStreamReader::~SSEStreamReader() { cancel(); }
 
 StreamState SSEStreamReader::next(std::function<bool()> should_stop, StreamChunk& out) {
     while (true) {
@@ -91,8 +87,7 @@ void SSEStreamReader::finish(const std::string& error) {
     if (error.empty()) {
         LOG_DEBUG("[sse] reader finished, tokens_received={}", m_token_count);
     } else {
-        LOG_WARN("[sse] reader finished with error: {} tokens_received={}",
-                 error, m_token_count);
+        LOG_WARN("[sse] reader finished with error: {} tokens_received={}", error, m_token_count);
     }
     m_queue_cv.notify_all();
 }
@@ -110,14 +105,14 @@ void SSEStreamReader::on_sse_event(const SSEEvent& event) {
         {
             std::lock_guard<std::mutex> lock(m_queue_mutex);
             m_chunk_queue.push(std::move(chunk));
-            LOG_INFO("[sse] chunk queued, content_len={}, reasoning_len={}, "
-                     "tool_start={}, tool_delta={}, is_final={}, queue={}",
-                     chunk.content_delta.size(), chunk.reasoning_delta.size(),
-                     chunk.is_tool_use_start, chunk.is_tool_use_delta,
-                     chunk.is_final, m_chunk_queue.size());
+            LOG_INFO(
+                "[sse] chunk queued, content_len={}, reasoning_len={}, "
+                "tool_start={}, tool_delta={}, is_final={}, queue={}",
+                chunk.content_delta.size(), chunk.reasoning_delta.size(), chunk.is_tool_use_start,
+                chunk.is_tool_use_delta, chunk.is_final, m_chunk_queue.size());
         }
         m_queue_cv.notify_one();
     }
 }
 
-} // namespace agent
+}  // namespace agent

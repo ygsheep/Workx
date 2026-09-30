@@ -45,7 +45,7 @@ CacheAwareCompactor::Config make_test_config(int32_t window = 5'000) {
     return cfg;
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 // ============================================================
 // 水位判定：None / SoftNotice
@@ -61,7 +61,8 @@ TEST_CASE("compactor: below soft ratio → None", "[compact][compactor][ds_cache
     REQUIRE(result.tokens_before == result.tokens_after);
 }
 
-TEST_CASE("compactor: soft ratio → SoftNotice (no modification)", "[compact][compactor][ds_cache]") {
+TEST_CASE("compactor: soft ratio → SoftNotice (no modification)",
+          "[compact][compactor][ds_cache]") {
     // 构造消息使其 token 数在 soft 和 snip 之间
     // window=1000, soft=0.5 → 500 tokens, snip=0.9 → 900 tokens
     // 需要消息 token 数 ∈ [500, 900) → 字符数 ∈ [2000, 3600)
@@ -83,7 +84,8 @@ TEST_CASE("compactor: soft ratio → SoftNotice (no modification)", "[compact][c
 // snip 水位：截短旧 tool_result
 // ============================================================
 
-TEST_CASE("compactor: snip ratio → Snip (truncate tool_results)", "[compact][compactor][ds_cache]") {
+TEST_CASE("compactor: snip ratio → Snip (truncate tool_results)",
+          "[compact][compactor][ds_cache]") {
     auto cfg = make_test_config(2'000);
     cfg.soft_ratio = 0.1f;
     cfg.snip_ratio = 0.2f;
@@ -96,8 +98,9 @@ TEST_CASE("compactor: snip ratio → Snip (truncate tool_results)", "[compact][c
     auto result = compactor.maybe_compact(msgs);
 
     // 应触发 snip（至少截短一条 tool_result）
-    REQUIRE((result.action == CacheAwareCompactor::Action::Snip
-             || result.action == CacheAwareCompactor::Action::Compact));  // snip 无可截短时可能 fallback
+    REQUIRE(
+        (result.action == CacheAwareCompactor::Action::Snip ||
+         result.action == CacheAwareCompactor::Action::Compact));  // snip 无可截短时可能 fallback
     REQUIRE(result.tokens_after <= result.tokens_before);
 }
 
@@ -117,13 +120,13 @@ TEST_CASE("compactor: compact ratio → Compact (fold middle)", "[compact][compa
 
     auto result = compactor.maybe_compact(msgs);
 
-    REQUIRE((result.action == CacheAwareCompactor::Action::Compact
-             || result.action == CacheAwareCompactor::Action::Force
-             || result.action == CacheAwareCompactor::Action::Snip));
+    REQUIRE((result.action == CacheAwareCompactor::Action::Compact ||
+             result.action == CacheAwareCompactor::Action::Force ||
+             result.action == CacheAwareCompactor::Action::Snip));
     REQUIRE(result.tokens_after < result.tokens_before);
     // compact 后 rewrite_version 应递增
-    if (result.action == CacheAwareCompactor::Action::Compact
-        || result.action == CacheAwareCompactor::Action::Force) {
+    if (result.action == CacheAwareCompactor::Action::Compact ||
+        result.action == CacheAwareCompactor::Action::Force) {
         REQUIRE(compactor.rewrite_version() > 0);
     }
 }
@@ -132,7 +135,8 @@ TEST_CASE("compactor: compact ratio → Compact (fold middle)", "[compact][compa
 // pinned_prefix_len：钉住前缀边界
 // ============================================================
 
-TEST_CASE("compactor: pinned prefix protects first user message", "[compact][compactor][ds_cache]") {
+TEST_CASE("compactor: pinned prefix protects first user message",
+          "[compact][compactor][ds_cache]") {
     // 首条 user 消息应被钉住，不被压缩
     auto cfg = make_test_config(1'500);
     cfg.soft_ratio = 0.1f;
@@ -147,8 +151,8 @@ TEST_CASE("compactor: pinned prefix protects first user message", "[compact][com
     // 添加大量 tool_result 触发压缩
     for (int i = 0; i < 5; ++i) {
         msgs.push_back(ChatMessage::assistant("asst " + std::to_string(i)));
-        msgs.push_back(ChatMessage::tool_result("c" + std::to_string(i), "Read",
-                                                 std::string(1'000, 'x')));
+        msgs.push_back(
+            ChatMessage::tool_result("c" + std::to_string(i), "Read", std::string(1'000, 'x')));
     }
     msgs.push_back(ChatMessage::user("final question"));
 
@@ -173,8 +177,8 @@ TEST_CASE("compactor: tail preserves recent messages", "[compact][compactor][ds_
     msgs.push_back(ChatMessage::user("first user"));
     for (int i = 0; i < 5; ++i) {
         msgs.push_back(ChatMessage::assistant("asst " + std::to_string(i)));
-        msgs.push_back(ChatMessage::tool_result("c" + std::to_string(i), "Read",
-                                                 std::string(800, 'x')));
+        msgs.push_back(
+            ChatMessage::tool_result("c" + std::to_string(i), "Read", std::string(800, 'x')));
     }
     std::string tail_content = "FINAL USER QUESTION MUST SURVIVE";
     msgs.push_back(ChatMessage::user(tail_content));
@@ -196,7 +200,8 @@ TEST_CASE("compactor: tail preserves recent messages", "[compact][compactor][ds_
 // 卡死守卫：触发与自愈
 // ============================================================
 
-TEST_CASE("compactor: stuck guard triggers after max consecutive compacts", "[compact][compactor][ds_cache]") {
+TEST_CASE("compactor: stuck guard triggers after max consecutive compacts",
+          "[compact][compactor][ds_cache]") {
     auto cfg = make_test_config(2'000);
     cfg.soft_ratio = 0.1f;
     cfg.snip_ratio = 0.15f;
@@ -213,7 +218,8 @@ TEST_CASE("compactor: stuck guard triggers after max consecutive compacts", "[co
     REQUIRE(compactor.is_stuck());
 }
 
-TEST_CASE("compactor: stuck self-heals when ratio drops below soft", "[compact][compactor][ds_cache]") {
+TEST_CASE("compactor: stuck self-heals when ratio drops below soft",
+          "[compact][compactor][ds_cache]") {
     auto cfg = make_test_config(2'000);
     cfg.soft_ratio = 0.5f;
     cfg.snip_ratio = 0.6f;
@@ -268,9 +274,8 @@ TEST_CASE("compactor: paused callback invoked on stuck", "[compact][compactor][d
     bool callback_paused = false;
 
     CacheAwareCompactor compactor(cfg);
-    compactor.set_paused_callback([&](bool paused, int /*consecutive*/,
-                                      int32_t /*tokens*/, float /*ratio*/,
-                                      const std::string& /*notice*/) {
+    compactor.set_paused_callback([&](bool paused, int /*consecutive*/, int32_t /*tokens*/,
+                                      float /*ratio*/, const std::string& /*notice*/) {
         callback_called = true;
         callback_paused = paused;
     });
@@ -291,8 +296,7 @@ TEST_CASE("compactor: paused callback invoked on self-heal", "[compact][compacto
 
     int heal_call_count = 0;
     CacheAwareCompactor compactor(cfg);
-    compactor.set_paused_callback([&](bool paused, int, int32_t, float,
-                                      const std::string&) {
+    compactor.set_paused_callback([&](bool paused, int, int32_t, float, const std::string&) {
         if (!paused) ++heal_call_count;
     });
 
@@ -340,7 +344,8 @@ TEST_CASE("compactor: empty messages → None", "[compact][compactor][ds_cache]"
 // M-1：归档 — compact 折叠前归档原中段消息
 // ============================================================
 
-TEST_CASE("compactor: archive middle messages on compact", "[compact][compactor][ds_cache][archive]") {
+TEST_CASE("compactor: archive middle messages on compact",
+          "[compact][compactor][ds_cache][archive]") {
     namespace fs = std::filesystem;
     // 使用临时目录作为归档目录
     auto archive_dir = fs::temp_directory_path() / "workx_test_archive";
@@ -358,9 +363,9 @@ TEST_CASE("compactor: archive middle messages on compact", "[compact][compactor]
     auto result = compactor.maybe_compact(msgs);
 
     // 应触发 compact（或 force/stuck）
-    REQUIRE((result.action == CacheAwareCompactor::Action::Compact
-             || result.action == CacheAwareCompactor::Action::Force
-             || result.action == CacheAwareCompactor::Action::Stuck));
+    REQUIRE((result.action == CacheAwareCompactor::Action::Compact ||
+             result.action == CacheAwareCompactor::Action::Force ||
+             result.action == CacheAwareCompactor::Action::Stuck));
 
     // 归档目录应至少有一个 .jsonl 文件
     int jsonl_count = 0;
@@ -387,7 +392,8 @@ TEST_CASE("compactor: archive middle messages on compact", "[compact][compactor]
     fs::remove_all(archive_dir);
 }
 
-TEST_CASE("compactor: no archive when archive_dir empty", "[compact][compactor][ds_cache][archive]") {
+TEST_CASE("compactor: no archive when archive_dir empty",
+          "[compact][compactor][ds_cache][archive]") {
     auto cfg = make_test_config(2'000);
     cfg.soft_ratio = 0.1f;
     cfg.snip_ratio = 0.15f;
@@ -429,7 +435,8 @@ TEST_CASE("compactor: set_context_window updates threshold", "[compact][compacto
 // M-4：LLM 摘要回调注入
 // ============================================================
 
-TEST_CASE("compactor: summarize_fn invoked on compact", "[compact][compactor][ds_cache][summarize]") {
+TEST_CASE("compactor: summarize_fn invoked on compact",
+          "[compact][compactor][ds_cache][summarize]") {
     auto cfg = make_test_config(2'000);
     cfg.soft_ratio = 0.1f;
     cfg.snip_ratio = 0.15f;
@@ -443,17 +450,17 @@ TEST_CASE("compactor: summarize_fn invoked on compact", "[compact][compactor][ds
     compactor.set_summarize_fn([&](const std::vector<ChatMessage>& middle) {
         summarize_called = true;
         captured_middle = middle;
-        return "<compaction-summary>\nLLM summary for " + std::to_string(middle.size())
-               + " messages\n</compaction-summary>";
+        return "<compaction-summary>\nLLM summary for " + std::to_string(middle.size()) +
+               " messages\n</compaction-summary>";
     });
 
     auto msgs = make_messages_with_tool_results(5, 1'500);
     auto result = compactor.maybe_compact(msgs);
 
     // 应触发 compact，且 summarize_fn 被调用
-    REQUIRE((result.action == CacheAwareCompactor::Action::Compact
-             || result.action == CacheAwareCompactor::Action::Force
-             || result.action == CacheAwareCompactor::Action::Stuck));
+    REQUIRE((result.action == CacheAwareCompactor::Action::Compact ||
+             result.action == CacheAwareCompactor::Action::Force ||
+             result.action == CacheAwareCompactor::Action::Stuck));
     REQUIRE(summarize_called);
     REQUIRE_FALSE(captured_middle.empty());
 
@@ -468,7 +475,8 @@ TEST_CASE("compactor: summarize_fn invoked on compact", "[compact][compactor][ds
     REQUIRE(found_llm_summary);
 }
 
-TEST_CASE("compactor: summarize_fn throws → fallback to mechanical", "[compact][compactor][ds_cache][summarize]") {
+TEST_CASE("compactor: summarize_fn throws → fallback to mechanical",
+          "[compact][compactor][ds_cache][summarize]") {
     auto cfg = make_test_config(2'000);
     cfg.soft_ratio = 0.1f;
     cfg.snip_ratio = 0.15f;
@@ -484,15 +492,15 @@ TEST_CASE("compactor: summarize_fn throws → fallback to mechanical", "[compact
     auto result = compactor.maybe_compact(msgs);
 
     // 异常被捕获，fallback 到机械折叠，compact 仍成功
-    REQUIRE((result.action == CacheAwareCompactor::Action::Compact
-             || result.action == CacheAwareCompactor::Action::Force
-             || result.action == CacheAwareCompactor::Action::Stuck));
+    REQUIRE((result.action == CacheAwareCompactor::Action::Compact ||
+             result.action == CacheAwareCompactor::Action::Force ||
+             result.action == CacheAwareCompactor::Action::Stuck));
 
     // 摘要消息应包含机械折叠的标记（"机械版" 或 "compaction-summary"）
     bool found_mechanical = false;
     for (const auto& m : msgs) {
-        if (m.content.find("机械版") != std::string::npos
-            || m.content.find("compaction-summary") != std::string::npos) {
+        if (m.content.find("机械版") != std::string::npos ||
+            m.content.find("compaction-summary") != std::string::npos) {
             found_mechanical = true;
             break;
         }
@@ -500,7 +508,8 @@ TEST_CASE("compactor: summarize_fn throws → fallback to mechanical", "[compact
     REQUIRE(found_mechanical);
 }
 
-TEST_CASE("compactor: no summarize_fn → mechanical fold (default)", "[compact][compactor][ds_cache][summarize]") {
+TEST_CASE("compactor: no summarize_fn → mechanical fold (default)",
+          "[compact][compactor][ds_cache][summarize]") {
     auto cfg = make_test_config(2'000);
     cfg.soft_ratio = 0.1f;
     cfg.snip_ratio = 0.15f;
@@ -512,9 +521,9 @@ TEST_CASE("compactor: no summarize_fn → mechanical fold (default)", "[compact]
     auto msgs = make_messages_with_tool_results(5, 1'500);
     auto result = compactor.maybe_compact(msgs);
 
-    REQUIRE((result.action == CacheAwareCompactor::Action::Compact
-             || result.action == CacheAwareCompactor::Action::Force
-             || result.action == CacheAwareCompactor::Action::Stuck));
+    REQUIRE((result.action == CacheAwareCompactor::Action::Compact ||
+             result.action == CacheAwareCompactor::Action::Force ||
+             result.action == CacheAwareCompactor::Action::Stuck));
 
     // 摘要消息应包含机械折叠标记
     bool found_mechanical = false;

@@ -26,9 +26,9 @@ namespace agent::tool {
 
 /// @brief 行尾风格枚举
 enum class LineEnding {
-    LF,     ///< Unix / macOS (\\n)
-    CRLF,   ///< Windows (\\r\\n)
-    CR,     ///< 旧 Mac (\\r)
+    LF,    ///< Unix / macOS (\\n)
+    CRLF,  ///< Windows (\\r\\n)
+    CR,    ///< 旧 Mac (\\r)
 };
 
 /// @brief 检测原始字节流的主性行尾风格
@@ -61,4 +61,4 @@ std::string normalize_to_lf(std::string_view raw);
 /// @return "LF" / "CRLF" / "CR"
 const char* line_ending_name(LineEnding ending);
 
-} // namespace agent::tool
+}  // namespace agent::tool

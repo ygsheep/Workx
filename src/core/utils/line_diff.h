@@ -32,7 +32,6 @@ struct DiffLine {
 /// @param new_lines 新内容按行
 /// @param new_start 新文件起始行号（1-based，默认 1）
 std::vector<DiffLine> line_diff(const std::vector<std::string>& old_lines,
-                                const std::vector<std::string>& new_lines,
-                                int new_start = 1);
+                                const std::vector<std::string>& new_lines, int new_start = 1);
 
 }  // namespace agent

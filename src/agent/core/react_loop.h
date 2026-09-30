@@ -34,10 +34,18 @@ class IReActObserver;
 class IConfigManager;  // D-5：前向声明，避免头文件强依赖
 class ITaskManager;    // BashTool 后台任务 DI（agent 命名空间下）
 class IEventBus;       // AskUserTool 事件发布 DI
-namespace skill { class TouchCollector; }  // conditional skills touch 收集器
-namespace hook { class HookManager; }      // Issue #50：通用 Hook 事件系统
-namespace command { class CommandRegistry; }   // #56 方案 C：技能/命令注册表
-namespace mcp { class McpClientManager; }      // #56 方案 D：MCP 连接管理器
+namespace skill {
+class TouchCollector;
+}  // namespace skill
+namespace hook {
+class HookManager;
+}  // namespace hook
+namespace command {
+class CommandRegistry;
+}  // namespace command
+namespace mcp {
+class McpClientManager;
+}  // namespace mcp
 
 // ============================================================
 // ReAct 步骤类型
@@ -45,10 +53,10 @@ namespace mcp { class McpClientManager; }      // #56 方案 D：MCP 连接管�
 
 /// @brief ReAct 步骤类型
 enum class ReActStepType {
-    Thought,        ///< LLM 推理（流式输出文本 + 工具调用决策）
-    Action,         ///< 工具调用执行
-    Observation,    ///< 工具结果回传
-    FinalAnswer     ///< 最终回复（终止循环）
+    Thought,      ///< LLM 推理（流式输出文本 + 工具调用决策）
+    Action,       ///< 工具调用执行
+    Observation,  ///< 工具结果回传
+    FinalAnswer   ///< 最终回复（终止循环）
 };
 
 // ============================================================
@@ -64,21 +72,21 @@ struct ReActStep {
     int step_number = 0;                          ///< 全局步骤序号（从 1 开始）
 
     // --- Thought 阶段字段 ---
-    std::string thought_text;                     ///< LLM 文本输出
-    std::string reasoning;                        ///< LLM 推理内容（thinking）
-    std::vector<ToolUse> tool_uses;               ///< LLM 决定调用的工具列表
+    std::string thought_text;        ///< LLM 文本输出
+    std::string reasoning;           ///< LLM 推理内容（thinking）
+    std::vector<ToolUse> tool_uses;  ///< LLM 决定调用的工具列表
 
     // --- Action 阶段字段 ---
-    std::string tool_name;                        ///< 当前执行的工具名
-    std::string tool_use_id;                      ///< 工具调用唯一 ID（与 tool_uses[].id 对应）
-    nlohmann::json tool_input;                    ///< 工具输入参数
+    std::string tool_name;      ///< 当前执行的工具名
+    std::string tool_use_id;    ///< 工具调用唯一 ID（与 tool_uses[].id 对应）
+    nlohmann::json tool_input;  ///< 工具输入参数
 
     // --- Observation 阶段字段 ---
-    std::string observation;                      ///< 工具结果文本
-    bool is_error = false;                        ///< 工具执行是否出错
+    std::string observation;  ///< 工具结果文本
+    bool is_error = false;    ///< 工具执行是否出错
 
     // --- 元信息 ---
-    double duration_ms = 0.0;                     ///< 本步骤耗时（毫秒）
+    double duration_ms = 0.0;  ///< 本步骤耗时（毫秒）
 };
 
 // ============================================================
@@ -91,16 +99,16 @@ struct ReActStep {
 /// ChatSession 根据结果状态决定是否重试、发布完成事件等。
 struct ReActResult {
     // --- 步骤历史 ---
-    std::vector<ReActStep> steps;                 ///< 所有步骤记录
+    std::vector<ReActStep> steps;  ///< 所有步骤记录
 
     // --- 最终输出 ---
-    std::string final_answer;                     ///< LLM 最终回复文本
-    std::string final_reasoning;                  ///< LLM 最终回复的推理内容
+    std::string final_answer;     ///< LLM 最终回复文本
+    std::string final_reasoning;  ///< LLM 最终回复的推理内容
 
     // --- 统计信息 ---
-    int total_iterations = 0;                     ///< 总迭代轮数（每轮含 Thought+Action+Observation）
-    int total_tool_calls = 0;                     ///< 总工具调用次数
-    double total_duration_ms = 0.0;               ///< 总耗时（毫秒）
+    int total_iterations = 0;        ///< 总迭代轮数（每轮含 Thought+Action+Observation）
+    int total_tool_calls = 0;        ///< 总工具调用次数
+    double total_duration_ms = 0.0;  ///< 总耗时（毫秒）
 
     // --- token 统计（最后一次 LLM 响应）---
     int32_t prompt_tokens = 0;
@@ -120,16 +128,16 @@ struct ReActResult {
     double reasoning_ms = 0.0;  ///< 思考阶段实际耗时（本 turn 所有 Thought 阶段之和，毫秒）
 
     // --- 状态 ---
-    bool was_interrupted = false;                 ///< 用户中断
-    bool was_error = false;                       ///< 发生错误（流式错误/提交失败/超迭代数）
-    std::string error_message;                    ///< 错误信息（was_error=true 时有效）
+    bool was_interrupted = false;  ///< 用户中断
+    bool was_error = false;        ///< 发生错误（流式错误/提交失败/超迭代数）
+    std::string error_message;     ///< 错误信息（was_error=true 时有效）
 
     // --- 0.6.x：#31 目标验证状态（普通对话恒为 Unknown）---
     GoalStatus goal_status = GoalStatus::Unknown;
 
     // --- 部分输出（中断/错误时可能有部分内容）---
-    std::string partial_content;                  ///< 中断时的部分文本
-    std::string partial_reasoning;                ///< 中断时的部分推理
+    std::string partial_content;    ///< 中断时的部分文本
+    std::string partial_reasoning;  ///< 中断时的部分推理
 };
 
 // ============================================================
@@ -169,7 +177,7 @@ struct ReActResult {
 /// - ReActLoop：负责循环逻辑、工具执行、步骤记录
 /// - ChatSession：负责会话管理、重试、持久化、状态标志
 class WORKX_API ReActLoop {
-public:
+   public:
     // ============================================================
     // 配置与回调类型
     // ============================================================
@@ -186,14 +194,14 @@ public:
         /// 评审"继续"时追加的额外迭代预算（块大小）
         int review_extra_budget = 8;
         /// @brief 达上限评审的"继续"允许次数上限（硬性总预算 = max_iterations + extra*grants）
-    int review_max_grants = 2;
-    CacheAwareCompactor::Config compactor_cfg; ///< DS_CACHE: 缓存感知压缩配置
+        int review_max_grants = 2;
+        CacheAwareCompactor::Config compactor_cfg;  ///< DS_CACHE: 缓存感知压缩配置
 
-    /// @brief Issue #50：通用 Hook 事件系统（可空；空则全部跳过，零开销）
-    /// @details ReActLoop 在 PreToolUse / PostToolUse / Stop 三处调用，
-    ///          blockingError/preventContinuation 语义作用于当前 turn。
-    std::shared_ptr<hook::HookManager> hooks;
-};
+        /// @brief Issue #50：通用 Hook 事件系统（可空；空则全部跳过，零开销）
+        /// @details ReActLoop 在 PreToolUse / PostToolUse / Stop 三处调用，
+        ///          blockingError/preventContinuation 语义作用于当前 turn。
+        std::shared_ptr<hook::HookManager> hooks;
+    };
 
     /// @brief 步骤回调（每完成一个步骤时调用）
     ///
@@ -205,8 +213,8 @@ public:
     ///
     /// 用于发布 StreamTokenEvent。仅在 LLM 流式输出 content/reasoning delta 时触发。
     /// 工具调用/结果反馈通过 StepCallback（Action/Observation 步骤）发布。
-    using TokenCallback = std::function<void(const std::string& content_delta,
-                                             const std::string& reasoning_delta)>;
+    using TokenCallback =
+        std::function<void(const std::string& content_delta, const std::string& reasoning_delta)>;
 
     // ============================================================
     // 构造与析构
@@ -227,17 +235,11 @@ public:
     ///                                无宿主时为 nullptr）
     /// @param queue_inject_cb 消息队列冲刷回调（可选，模型忙碌时前端入队的用户消息，
     ///                        在工具轮边界合并为单条 user 消息注入 messages；空 = 无队列）
-    ReActLoop(ICompletionProvider* provider,
-              std::shared_ptr<tool::ToolRegistry> registry,
-              Config config,
-              IConfigManager* config_manager,
-              ITaskManager* task_manager = nullptr,
-              std::string cwd = "",
-              CacheAwareCompactor* external_compactor = nullptr,
-              IEventBus* event_bus = nullptr,
-              skill::TouchCollector* touch_collector = nullptr,
-              std::function<void()> file_index_invalidator = nullptr,
-              std::string session_id = "",
+    ReActLoop(ICompletionProvider* provider, std::shared_ptr<tool::ToolRegistry> registry,
+              Config config, IConfigManager* config_manager, ITaskManager* task_manager = nullptr,
+              std::string cwd = "", CacheAwareCompactor* external_compactor = nullptr,
+              IEventBus* event_bus = nullptr, skill::TouchCollector* touch_collector = nullptr,
+              std::function<void()> file_index_invalidator = nullptr, std::string session_id = "",
               std::function<void(std::vector<ChatMessage>&)> queue_inject_cb = {});
 
     /// @brief 构造（使用默认配置）
@@ -246,14 +248,11 @@ public:
     /// @param event_bus 事件总线（可选，用于 AskUserTool 等需要发布事件的工具）
     /// @param session_id 会话 ID（#30：注入到 ToolContext.session_id，供审计日志关联，
     ///                    空则使用默认值 "default"）
-    ReActLoop(ICompletionProvider* provider,
-              std::shared_ptr<tool::ToolRegistry> registry,
-              IConfigManager* config_manager,
-              ITaskManager* task_manager = nullptr,
-              std::string cwd = "",
-              IEventBus* event_bus = nullptr,
-              std::string session_id = "")
-        : ReActLoop(provider, std::move(registry), Config{}, config_manager, task_manager, std::move(cwd), nullptr, event_bus, nullptr, nullptr, std::move(session_id)) {}
+    ReActLoop(ICompletionProvider* provider, std::shared_ptr<tool::ToolRegistry> registry,
+              IConfigManager* config_manager, ITaskManager* task_manager = nullptr,
+              std::string cwd = "", IEventBus* event_bus = nullptr, std::string session_id = "")
+        : ReActLoop(provider, std::move(registry), Config{}, config_manager, task_manager,
+                    std::move(cwd), nullptr, event_bus, nullptr, nullptr, std::move(session_id)) {}
 
     ~ReActLoop() = default;
 
@@ -276,14 +275,9 @@ public:
     /// @param on_step 步骤回调（可选，默认 nullptr）
     /// @param on_token 流式 token 回调（可选，默认 nullptr）
     /// @return 循环执行结果
-    ReActResult run(
-        std::vector<ChatMessage>& messages,
-        const std::string& system_prompt,
-        const nlohmann::json& tools_schema,
-        const std::atomic<bool>& should_cancel,
-        StepCallback on_step = nullptr,
-        TokenCallback on_token = nullptr
-    );
+    ReActResult run(std::vector<ChatMessage>& messages, const std::string& system_prompt,
+                    const nlohmann::json& tools_schema, const std::atomic<bool>& should_cancel,
+                    StepCallback on_step = nullptr, TokenCallback on_token = nullptr);
 
     /// @brief 执行 ReAct 循环（观察者版本，3.2）
     ///
@@ -291,13 +285,9 @@ public:
     ///          替代 StepCallback + TokenCallback 两个 std::function。
     ///          新代码应优先使用此版本；旧版本保留向后兼容。
     /// @param observer 观察者指针（nullptr 表示无观察者）
-    ReActResult run(
-        std::vector<ChatMessage>& messages,
-        const std::string& system_prompt,
-        const nlohmann::json& tools_schema,
-        const std::atomic<bool>& should_cancel,
-        IReActObserver* observer
-    );
+    ReActResult run(std::vector<ChatMessage>& messages, const std::string& system_prompt,
+                    const nlohmann::json& tools_schema, const std::atomic<bool>& should_cancel,
+                    IReActObserver* observer);
 
     /// @brief DS_CACHE H-3：注入压缩器暂停回调（卡死守卫触发/恢复时通知 ChatSession）
     /// @details ChatSession 据此发布 CompactionPausedEvent 到 EventBus
@@ -325,8 +315,7 @@ public:
     /// @param mode 当前权限模式（Default/Plan/BypassPermissions）
     /// @param before_plan 进入 Plan 前的原模式（Plan 退出恢复用）
     /// @param in_plan 是否处于 Plan 模式（mode==Plan 时恒为 true）
-    void apply_permission_state(tool::PermissionMode mode,
-                                tool::PermissionMode before_plan,
+    void apply_permission_state(tool::PermissionMode mode, tool::PermissionMode before_plan,
                                 bool in_plan) {
         m_permission_mode = mode;
         m_permission_mode_before_plan = before_plan;
@@ -360,23 +349,21 @@ public:
     /// @param before_plan 进入 Plan 前的原模式（Plan 退出恢复用）
     /// @param in_plan 是否处于 Plan 模式
     using PermissionStateChangedCallback = std::function<void(
-        tool::PermissionMode mode,
-        tool::PermissionMode before_plan,
-        bool in_plan)>;
+        tool::PermissionMode mode, tool::PermissionMode before_plan, bool in_plan)>;
     void set_permission_state_changed_callback(PermissionStateChangedCallback cb) {
         m_perm_state_changed_cb = std::move(cb);
     }
 
-private:
+   private:
     // ============================================================
     // 内部类型
     // ============================================================
 
     /// @brief Thought 阶段执行结果
     struct ThoughtResult {
-        std::string content;                      ///< LLM 文本输出
-        std::string reasoning;                    ///< LLM 推理内容
-        std::vector<ToolUse> tool_uses;           ///< LLM 决定调用的工具
+        std::string content;             ///< LLM 文本输出
+        std::string reasoning;           ///< LLM 推理内容
+        std::vector<ToolUse> tool_uses;  ///< LLM 决定调用的工具
         int32_t prompt_tokens = 0;
         int32_t generated_tokens = 0;
         int32_t cache_creation_input_tokens = 0;  ///< Anthropic cache_creation_input_tokens
@@ -388,9 +375,9 @@ private:
 
         /// @brief Thought 状态
         enum Status {
-            Completed,                            ///< 流式正常完成
-            Error,                                ///< 流式错误
-            Cancelled                             ///< 用户取消
+            Completed,  ///< 流式正常完成
+            Error,      ///< 流式错误
+            Cancelled   ///< 用户取消
         } status = Completed;
     };
 
@@ -398,9 +385,9 @@ private:
     /// @details 只喂关键信息（目标、工具序列、最近 observation、预算），
     ///          返回 continue（注入纠偏指令、追加预算）或 wrap_up（优雅收尾）。
     struct ReviewerDecision {
-        bool continue_loop = false;   ///< true=注入纠偏继续; false=收尾
-        std::string correction;       ///< continue 时注入到 messages 的纠偏指令
-        std::string wrap_summary;     ///< wrap_up 时的收尾摘要（为空回退部分进展）
+        bool continue_loop = false;  ///< true=注入纠偏继续; false=收尾
+        std::string correction;      ///< continue 时注入到 messages 的纠偏指令
+        std::string wrap_summary;    ///< wrap_up 时的收尾摘要（为空回退部分进展）
     };
 
     /// @brief 工具调用签名（停滞检测窗口元素）
@@ -417,11 +404,9 @@ private:
     // ============================================================
 
     /// @brief 构建 CompletionRequest
-    CompletionRequest build_request(
-        const std::vector<ChatMessage>& messages,
-        const std::string& system_prompt,
-        const nlohmann::json& tools_schema
-    ) const;
+    CompletionRequest build_request(const std::vector<ChatMessage>& messages,
+                                    const std::string& system_prompt,
+                                    const nlohmann::json& tools_schema) const;
 
     /// @brief 执行 Thought 阶段（流式读取 LLM 响应）
     ///
@@ -432,11 +417,8 @@ private:
     /// @param should_cancel 取消信号
     /// @param on_token token 回调
     /// @return Thought 结果
-    ThoughtResult execute_thought(
-        const CompletionRequest& request,
-        const std::atomic<bool>& should_cancel,
-        TokenCallback on_token
-    );
+    ThoughtResult execute_thought(const CompletionRequest& request,
+                                  const std::atomic<bool>& should_cancel, TokenCallback on_token);
 
     /// @brief Fallback：从 content 文本中扫描内嵌的 JSON 工具调用
     /// @details 当本地推理后端未走标准 delta.tool_calls 协议时，模型可能在
@@ -462,9 +444,8 @@ private:
     /// @param remaining_budget 剩余基础预算（<=0 表示已耗尽/超限）
     /// @param at_limit 是否为达上限评审（true 时追加预算逻辑由调用方处理）
     ReviewerDecision run_reviewer(const std::string& user_request,
-                                  const std::vector<std::string>& tool_history,
-                                  int iteration, int remaining_budget,
-                                  bool at_limit) const;
+                                  const std::vector<std::string>& tool_history, int iteration,
+                                  int remaining_budget, bool at_limit) const;
 
     /// @brief H-1（PR #46 评审）：权限状态变更通知宿主（ChatSession 回写持久状态）
     /// @details 工具路径回调（on_permission_mode_changed / on_enter_plan_mode /
@@ -472,8 +453,7 @@ private:
     ///          此处不持锁调用，避免与宿主持锁上下文嵌套死锁。
     void notify_permission_state() const {
         if (m_perm_state_changed_cb) {
-            m_perm_state_changed_cb(m_permission_mode,
-                                    m_permission_mode_before_plan,
+            m_perm_state_changed_cb(m_permission_mode, m_permission_mode_before_plan,
                                     m_in_plan_mode);
         }
     }
@@ -493,23 +473,29 @@ private:
     // 成员
     // ============================================================
 
-    ICompletionProvider* m_provider = nullptr;    ///< 推理提供者（非拥有，外部对象须长于 ReActLoop）
-    std::shared_ptr<tool::ToolRegistry> m_registry; ///< 工具注册表
-    std::unique_ptr<tool::ToolExecutor> m_executor; ///< 工具执行器
-    Config m_config;                              ///< 循环配置
-    std::unique_ptr<CacheAwareCompactor> m_owned_compactor;  ///< 内部拥有的压缩器（未注入外部时创建）
-    CacheAwareCompactor& m_compactor;             ///< DS_CACHE: 压缩器引用（外部注入 or 内部拥有）
-    IConfigManager* m_config_manager = nullptr;   ///< H-5：配置管理器（非拥有，注入到 ToolContext，必须非空）
-    ITaskManager* m_task_manager = nullptr;       ///< BashTool 后台任务 DI（可选，注入到 ToolContext）
-    IEventBus* m_event_bus = nullptr;             ///< AskUserTool 事件发布 DI（可选，注入到 ToolContext）
-    std::string m_cwd;                            ///< 工作目录（会话启动时捕获，注入到 ToolContext.cwd）
-    std::string m_session_id;                     ///< #30：会话 ID（注入到 ToolContext.session_id，审计日志关联）
-    skill::TouchCollector* m_touch_collector = nullptr;  ///< conditional skills touch 收集器（可选）
-    std::function<void()> m_file_index_invalidator;     ///< 宿主文件索引失效回调（可选，注入到 ToolContext）
+    ICompletionProvider* m_provider = nullptr;  ///< 推理提供者（非拥有，外部对象须长于 ReActLoop）
+    std::shared_ptr<tool::ToolRegistry> m_registry;  ///< 工具注册表
+    std::unique_ptr<tool::ToolExecutor> m_executor;  ///< 工具执行器
+    Config m_config;                                 ///< 循环配置
+    std::unique_ptr<CacheAwareCompactor>
+        m_owned_compactor;             ///< 内部拥有的压缩器（未注入外部时创建）
+    CacheAwareCompactor& m_compactor;  ///< DS_CACHE: 压缩器引用（外部注入 or 内部拥有）
+    IConfigManager* m_config_manager =
+        nullptr;  ///< H-5：配置管理器（非拥有，注入到 ToolContext，必须非空）
+    ITaskManager* m_task_manager = nullptr;  ///< BashTool 后台任务 DI（可选，注入到 ToolContext）
+    IEventBus* m_event_bus = nullptr;  ///< AskUserTool 事件发布 DI（可选，注入到 ToolContext）
+    std::string m_cwd;  ///< 工作目录（会话启动时捕获，注入到 ToolContext.cwd）
+    std::string m_session_id;  ///< #30：会话 ID（注入到 ToolContext.session_id，审计日志关联）
+    skill::TouchCollector* m_touch_collector =
+        nullptr;  ///< conditional skills touch 收集器（可选）
+    std::function<void()>
+        m_file_index_invalidator;  ///< 宿主文件索引失效回调（可选，注入到 ToolContext）
     tool::PermissionMode m_permission_mode{tool::PermissionMode::Default};  ///< #28：会话级权限模式
-    tool::PermissionMode m_permission_mode_before_plan{tool::PermissionMode::Default};  ///< #28 评审 #1：进入计划模式前保存的原模式，退出时恢复
+    tool::PermissionMode m_permission_mode_before_plan{
+        tool::PermissionMode::Default};  ///< #28 评审 #1：进入计划模式前保存的原模式，退出时恢复
     bool m_in_plan_mode{false};  ///< #28 评审 #1/#3：是否处于计划模式（幂等进入判定）
-    tool::SessionMode m_session_mode{tool::SessionMode::Standard};  ///< 会话工作模式（标准/计划/极简）
+    tool::SessionMode m_session_mode{
+        tool::SessionMode::Standard};  ///< 会话工作模式（标准/计划/极简）
     /// @brief H-1（PR #46 评审）：权限状态变更通知回调（宿主 ChatSession 注入，回写持久状态）
     PermissionStateChangedCallback m_perm_state_changed_cb;
     /// @brief 消息队列冲刷回调（可选；工具轮边界把排队用户消息注入 messages）
@@ -521,4 +507,4 @@ private:
     std::shared_ptr<agent::mcp::McpClientManager> m_mcp_manager;
 };
 
-} // namespace agent
+}  // namespace agent

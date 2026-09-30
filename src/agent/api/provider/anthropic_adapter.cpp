@@ -29,7 +29,6 @@ std::string AnthropicAdapter::build_url(const std::string& base_url) const {
 
 std::vector<std::pair<std::string, std::string>> AnthropicAdapter::build_headers(
     const std::string& api_key) const {
-
     std::vector<std::pair<std::string, std::string>> headers;
     headers.emplace_back("Content-Type", "application/json");
     if (!api_key.empty()) {
@@ -42,7 +41,7 @@ std::vector<std::pair<std::string, std::string>> AnthropicAdapter::build_headers
 }
 
 std::string AnthropicAdapter::build_request_body(const CompletionRequest& request,
-                                                  const std::string& model_name) const {
+                                                 const std::string& model_name) const {
     nlohmann::json j;
     j["model"] = model_name;
     j["stream"] = request.stream;
@@ -79,11 +78,9 @@ std::string AnthropicAdapter::build_request_body(const CompletionRequest& reques
 
         // Tool：累积到 pending_tool_results，遇到非 Tool 消息时再 flush
         if (msg.role == ChatMessage::Role::Tool) {
-            nlohmann::json tr = {
-                {"type", "tool_result"},
-                {"tool_use_id", msg.tool_call_id},
-                {"content", msg.content}
-            };
+            nlohmann::json tr = {{"type", "tool_result"},
+                                 {"tool_use_id", msg.tool_call_id},
+                                 {"content", msg.content}};
             // 工具执行失败时显式标记 is_error（对齐 Anthropic API 语义，
             // 让模型明确感知错误以便决策重试 / 换工具 / 终止）
             if (msg.is_error) {
@@ -113,10 +110,8 @@ std::string AnthropicAdapter::build_request_body(const CompletionRequest& reques
 
             // thinking block（若有 reasoning_content，依赖 anthropic-version 2025-01-01+）
             if (!msg.reasoning_content.empty()) {
-                content_blocks.push_back({
-                    {"type", "thinking"},
-                    {"thinking", msg.reasoning_content}
-                });
+                content_blocks.push_back(
+                    {{"type", "thinking"}, {"thinking", msg.reasoning_content}});
             }
 
             // text block
@@ -126,12 +121,11 @@ std::string AnthropicAdapter::build_request_body(const CompletionRequest& reques
 
             // tool_use blocks
             for (const auto& tu : msg.tool_uses) {
-                content_blocks.push_back({
-                    {"type", "tool_use"},
-                    {"id", tu.id},
-                    {"name", tu.name},
-                    {"input", tu.input.is_null() ? nlohmann::json::object() : tu.input}
-                });
+                content_blocks.push_back(
+                    {{"type", "tool_use"},
+                     {"id", tu.id},
+                     {"name", tu.name},
+                     {"input", tu.input.is_null() ? nlohmann::json::object() : tu.input}});
             }
 
             m["content"] = std::move(content_blocks);
@@ -168,9 +162,8 @@ std::string AnthropicAdapter::build_request_body(const CompletionRequest& reques
     return j.dump();
 }
 
-bool AnthropicAdapter::parse_sse_event(const std::string& event_type,
-                                        const std::string& data,
-                                        StreamChunk& out) const {
+bool AnthropicAdapter::parse_sse_event(const std::string& event_type, const std::string& data,
+                                       StreamChunk& out) const {
     try {
         auto json_obj = nlohmann::json::parse(data);
 
@@ -206,7 +199,8 @@ bool AnthropicAdapter::parse_sse_event(const std::string& event_type,
                 return !out.content_delta.empty();
             }
         } else if (event_type == "message_start") {
-            // message_start：携带 input_tokens 初始值（Anthropic 用 input_tokens 而非 prompt_tokens）
+            // message_start：携带 input_tokens 初始值（Anthropic 用 input_tokens 而非
+            // prompt_tokens）
             if (json_obj.contains("message") && !json_obj["message"].is_null()) {
                 const auto& message = json_obj.value("message", nlohmann::json::object());
                 // 记录 response_id（用于并行 tool_use 拆分识别）
@@ -237,9 +231,10 @@ bool AnthropicAdapter::parse_sse_event(const std::string& event_type,
                         // 新增：input_tokens（Anthropic 用 input_tokens 而非 prompt_tokens）
                         out.prompt_tokens = usage.value("input_tokens", 0);
                         // 上下文管理：message_delta 的 usage 可能携带最终 cache 字段
-                        //（Anthropic 在 message_delta 中重新发布完整 usage）
+                        // （Anthropic 在 message_delta 中重新发布完整 usage）
                         if (usage.contains("cache_creation_input_tokens")) {
-                            out.cache_creation_input_tokens = usage.value("cache_creation_input_tokens", 0);
+                            out.cache_creation_input_tokens =
+                                usage.value("cache_creation_input_tokens", 0);
                         }
                         if (usage.contains("cache_read_input_tokens")) {
                             out.cache_read_input_tokens = usage.value("cache_read_input_tokens", 0);
@@ -273,22 +268,34 @@ std::vector<ModelInfo> AnthropicAdapter::get_builtin_models(const std::string& b
     // DeepSeek Anthropic 兼容端点
     if (base_url.find("deepseek.com") != std::string::npos) {
         return {
-            {.name = "deepseek-v4-pro",  .description = "DeepSeek V4 Pro (Anthropic 兼容端点)",  .context_length = 128000},
-            {.name = "deepseek-v4-flash", .description = "DeepSeek V4 Flash (Anthropic 兼容端点)", .context_length = 128000},
+            {.name = "deepseek-v4-pro",
+             .description = "DeepSeek V4 Pro (Anthropic 兼容端点)",
+             .context_length = 128000},
+            {.name = "deepseek-v4-flash",
+             .description = "DeepSeek V4 Flash (Anthropic 兼容端点)",
+             .context_length = 128000},
         };
     }
 
     // 原生 Anthropic Claude 模型列表
     return {
         // 2025-11 旗舰编码模型
-        {.name = "claude-opus-4-5-20251101",   .description = "Anthropic Claude Opus 4.5 (旗舰编码/Agent)",   .context_length = 200000},
+        {.name = "claude-opus-4-5-20251101",
+         .description = "Anthropic Claude Opus 4.5 (旗舰编码/Agent)",
+         .context_length = 200000},
         // 2025-09 Sonnet 4.5（1M 上下文需 beta 头申请）
-        {.name = "claude-sonnet-4-5-20250929", .description = "Anthropic Claude Sonnet 4.5 (1M beta)",         .context_length = 200000},
+        {.name = "claude-sonnet-4-5-20250929",
+         .description = "Anthropic Claude Sonnet 4.5 (1M beta)",
+         .context_length = 200000},
         // 2025-10 Haiku 4.5 轻量快速
-        {.name = "claude-haiku-4-5-20251001",  .description = "Anthropic Claude Haiku 4.5 (轻量快速)",         .context_length = 200000},
+        {.name = "claude-haiku-4-5-20251001",
+         .description = "Anthropic Claude Haiku 4.5 (轻量快速)",
+         .context_length = 200000},
         // 2025-08 Opus 4.1 上一代旗舰
-        {.name = "claude-opus-4-1-20250805",   .description = "Anthropic Claude Opus 4.1 (上一代旗舰)",         .context_length = 200000},
+        {.name = "claude-opus-4-1-20250805",
+         .description = "Anthropic Claude Opus 4.1 (上一代旗舰)",
+         .context_length = 200000},
     };
 }
 
-} // namespace agent
+}  // namespace agent

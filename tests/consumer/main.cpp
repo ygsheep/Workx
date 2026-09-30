@@ -28,9 +28,8 @@ namespace {
 
 /// @brief 最小 fake 流读取器：返回一段固定正文后 Complete
 class FakeStreamReader final : public agent::IStreamReader {
-public:
-    agent::StreamState next(std::function<bool()> should_stop,
-                            agent::StreamChunk& out) override {
+   public:
+    agent::StreamState next(std::function<bool()> should_stop, agent::StreamChunk& out) override {
         if (should_stop && should_stop()) return agent::StreamState::Cancelled;
         if (consumed_) {
             out = agent::StreamChunk{};
@@ -45,13 +44,14 @@ public:
         return agent::StreamState::HasData;
     }
     void cancel() override {}
-private:
+
+   private:
     bool consumed_ = false;
 };
 
 /// @brief 最小 fake provider：每次提交返回一段固定回复
 class FakeProvider final : public agent::ICompletionProvider {
-public:
+   public:
     std::shared_ptr<agent::IStreamReader> submit_completion(
         const agent::CompletionRequest& /*request*/) override {
         return std::make_shared<FakeStreamReader>();
@@ -60,7 +60,7 @@ public:
     bool is_generating() const override { return false; }
 };
 
-} // namespace
+}  // namespace
 
 int main() {
     using namespace agent;
@@ -70,10 +70,8 @@ int main() {
     TaskManager& task_manager = TaskManager::instance();
     ConfigManager& config_manager = ConfigManager::instance();
 
-    auto session = std::make_unique<ChatSession>(
-        std::make_unique<FakeProvider>(),
-        task_manager, event_bus, config_manager,
-        1000, "consumer-smoke");
+    auto session = std::make_unique<ChatSession>(std::make_unique<FakeProvider>(), task_manager,
+                                                 event_bus, config_manager, 1000, "consumer-smoke");
 
     // ---- 2. 订阅流完成事件，驱动主循环 drain ----
     std::atomic<bool> done{false};

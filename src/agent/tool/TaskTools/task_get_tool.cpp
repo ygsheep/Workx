@@ -21,8 +21,7 @@ const std::string& TaskGetTool::name() const {
 
 const std::string& TaskGetTool::description() const {
     static const std::string d{
-        "Gets a single task by id from the session task list. Returns null if not found."
-    };
+        "Gets a single task by id from the session task list. Returns null if not found."};
     return d;
 }
 
@@ -30,8 +29,7 @@ const std::string& TaskGetTool::prompt() const {
     static const std::string p{
         "Gets a single task by its id from the current session's task list. "
         "Returns the task object (id, subject, description, status, owner, blockedBy, "
-        "blocks) or null if the task does not exist."
-    };
+        "blocks) or null if the task does not exist."};
     return p;
 }
 
@@ -49,18 +47,15 @@ nlohmann::json TaskGetTool::input_schema() const {
     return nlohmann::json::parse(schema_str);
 }
 
-ResultV2<ToolResult> TaskGetTool::call(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+ResultV2<ToolResult> TaskGetTool::call(const nlohmann::json& input, const ToolContext& ctx) const {
     if (input.is_null() || !input.is_object()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput, "TaskGet: input must be an object");
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                         "TaskGet: input must be an object");
     }
     const std::string task_id = input.value("taskId", std::string{});
     if (task_id.empty()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::MissingArgument, "TaskGet: 'taskId' is required");
+        return ResultV2<ToolResult>::err(Error::Code::MissingArgument,
+                                         "TaskGet: 'taskId' is required");
     }
 
     auto item = TodoStore::instance().get_todo(ctx.session_id, task_id);
@@ -77,4 +72,4 @@ ResultV2<ToolResult> TaskGetTool::call(
     return ResultV2<ToolResult>::ok(ToolResult::ok(std::move(result)));
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

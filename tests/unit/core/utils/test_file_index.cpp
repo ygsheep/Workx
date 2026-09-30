@@ -20,17 +20,15 @@ namespace {
 /// 创建唯一临时目录（测试结束前由调用方清理）
 std::filesystem::path make_temp_dir() {
     auto base = std::filesystem::temp_directory_path();
-    auto dir = base / ("workx_file_index_" + std::to_string(
-        std::chrono::steady_clock::now().time_since_epoch().count()));
+    auto dir = base / ("workx_file_index_" +
+                       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(dir);
     return dir;
 }
 
-void touch(const std::filesystem::path& p) {
-    std::ofstream(p).close();
-}
+void touch(const std::filesystem::path& p) { std::ofstream(p).close(); }
 
-} // namespace
+}  // namespace
 
 TEST_CASE("FileIndex sync build indexes files and skips dirs", "[core][file_index]") {
     auto root = make_temp_dir();

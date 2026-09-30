@@ -22,8 +22,8 @@ namespace {
 
 /// @brief 把 Element 渲染到固定尺寸 Screen，返回逐行拼接的文本
 std::string render_text(const ftxui::Element& e, int cols = 240, int rows = 80) {
-    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(cols),
-                                        ftxui::Dimension::Fixed(rows));
+    auto screen =
+        ftxui::Screen::Create(ftxui::Dimension::Fixed(cols), ftxui::Dimension::Fixed(rows));
     ftxui::Render(screen, e);
     std::string out;
     for (int y = 0; y < rows; ++y) {
@@ -99,8 +99,8 @@ namespace {
 
 /// @brief 渲染 Element 并统计非默认前景色的像素数（>0 表示有真实着色）
 int count_colored_pixels(const ftxui::Element& e, int cols = 240, int rows = 80) {
-    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(cols),
-                                        ftxui::Dimension::Fixed(rows));
+    auto screen =
+        ftxui::Screen::Create(ftxui::Dimension::Fixed(cols), ftxui::Dimension::Fixed(rows));
     ftxui::Render(screen, e);
     int n = 0;
     for (int y = 0; y < rows; ++y)

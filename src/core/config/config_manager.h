@@ -8,8 +8,8 @@
 
 #pragma once
 
-#include "core/utils/result.h"          // 旧 Result（过渡期保留，V2-8 标记 deprecated）
-#include "core/utils/result_v2.h"       // V2-1：新 ResultV2
+#include "core/utils/result.h"     // 旧 Result（过渡期保留，V2-8 标记 deprecated）
+#include "core/utils/result_v2.h"  // V2-1：新 ResultV2
 #include "core/config/i_config_manager.h"
 #include "core/export.h"
 #include <cstdint>
@@ -44,18 +44,18 @@ struct ConfigMeta {
 /// @note 所有字段均提供默认成员初始化器，聚合初始化时省略字段不会触发
 ///       GCC `-Wmissing-field-initializers` 警告。
 struct ConfigSchema {
-    std::string key;                   ///< 配置键
-    std::string description;           ///< 人类可读描述
-    ConfigValue default_value;         ///< 默认值
-    bool is_required = false;          ///< 是否必填
+    std::string key;            ///< 配置键
+    std::string description;    ///< 人类可读描述
+    ConfigValue default_value;  ///< 默认值
+    bool is_required = false;   ///< 是否必填
 
     /// @brief 类型约束
     enum class Type : int {
-        Bool,   ///< 布尔
-        Int,    ///< 整数
-        Double, ///< 浮点
-        String, ///< 字符串
-        Enum    ///< 枚举（enum_values 限定）
+        Bool,    ///< 布尔
+        Int,     ///< 整数
+        Double,  ///< 浮点
+        String,  ///< 字符串
+        Enum     ///< 枚举（enum_values 限定）
     } type = Type::String;
 
     /// @brief 整数范围约束（仅 type=Int 时生效）
@@ -77,7 +77,7 @@ struct ConfigSchema {
 };
 
 class WORKX_API ConfigManager final : public IConfigManager {
-public:
+   public:
     static ConfigManager& instance() noexcept {
         static ConfigManager inst;
         return inst;
@@ -92,16 +92,12 @@ public:
 
     [[nodiscard]] bool has(const std::string& key) const override;
 
-    [[nodiscard]] ResultV2<ConfigValue> get_value(
-        const std::string& key) const override;
+    [[nodiscard]] ResultV2<ConfigValue> get_value(const std::string& key) const override;
 
-    ResultV2<void> set_value(
-        const std::string& key, ConfigValue value) override;
+    ResultV2<void> set_value(const std::string& key, ConfigValue value) override;
 
-    ResultV2<void> load_from_file(
-        const std::filesystem::path& path) override;
-    ResultV2<void> save_to_file(
-        const std::filesystem::path& path) override;
+    ResultV2<void> load_from_file(const std::filesystem::path& path) override;
+    ResultV2<void> save_to_file(const std::filesystem::path& path) override;
 
     [[nodiscard]] std::vector<std::string> get_all_keys() const override;
 
@@ -134,12 +130,11 @@ public:
     void load_from_env();
 
     void add_change_callback(
-        std::function<void(const std::string&, const ConfigValue&, const ConfigValue&)> callback
-    );
+        std::function<void(const std::string&, const ConfigValue&, const ConfigValue&)> callback);
     void clear_change_callbacks();
     void clear();
 
-private:
+   private:
     ConfigManager() = default;
     ~ConfigManager() override = default;
 
@@ -152,7 +147,7 @@ private:
 };
 
 class ConfigScope {
-public:
+   public:
     /// @brief 构造 ConfigScope
     /// @param prefix 键前缀（如 "backend."）
     /// @param reader 只读配置访问接口（M-4 ISP：ConfigScope 仅需读能力）
@@ -160,9 +155,7 @@ public:
     /// @note H-A：原签名接收 IConfigManager&（胖接口），现拆为 IConfigReader& + IConfigWriter&，
     ///       明确 ConfigScope 不依赖 IConfigPersistence（无法 save_to_file / load_from_file）。
     ///       ConfigManager 同时实现三者，调用方仍可传同一对象。
-    explicit ConfigScope(const std::string& prefix,
-                         IConfigReader& reader,
-                         IConfigWriter& writer);
+    explicit ConfigScope(const std::string& prefix, IConfigReader& reader, IConfigWriter& writer);
     ~ConfigScope();
 
     ConfigScope(const ConfigScope&) = delete;
@@ -175,25 +168,25 @@ public:
     /// @brief 获取底层配置写入器引用（M-4：暴露窄接口，供需要内存写的场景使用）
     [[nodiscard]] IConfigWriter& config_writer() const { return m_writer.get(); }
 
-    template<typename T>
+    template <typename T>
     ResultV2<void> set(const std::string& key, T value) {
         return m_writer.get().set(make_key(key), std::move(value));
     }
 
-    template<typename T>
+    template <typename T>
     [[nodiscard]] ResultV2<T> get(const std::string& key) const {
         return m_reader.get().get<T>(make_key(key));
     }
 
-    template<typename T>
+    template <typename T>
     [[nodiscard]] T get_or(const std::string& key, T default_value) const {
         return m_reader.get().get_or(make_key(key), default_value);
     }
 
-private:
+   private:
     std::string m_prefix;
-    std::reference_wrapper<IConfigReader> m_reader;   // M-4 ISP：只读访问
-    std::reference_wrapper<IConfigWriter> m_writer;   // M-4 ISP：内存写访问
+    std::reference_wrapper<IConfigReader> m_reader;  // M-4 ISP：只读访问
+    std::reference_wrapper<IConfigWriter> m_writer;  // M-4 ISP：内存写访问
 };
 
-} // namespace agent
+}  // namespace agent

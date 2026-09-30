@@ -100,4 +100,4 @@ inline std::string format_result(const process::ExecOutput& out) {
     return ss.str();
 }
 
-} // namespace agent::tool::shell_common
+}  // namespace agent::tool::shell_common

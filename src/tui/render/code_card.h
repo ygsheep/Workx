@@ -47,13 +47,12 @@ bool looks_like_diff(const std::vector<std::string>& lines);
 /// @brief 单行渲染：行号前缀 + 语法高亮内容（供虚拟化滚动逐行切片）
 /// @param disp_no 显示行号（≤0 时不显示行号前缀）
 /// @param bg 内容背景色（Color::Black = 无背景）
-ftxui::Element code_row(int disp_no, int num_width, std::string_view content,
-                        std::string_view lang, ftxui::Color bg = ftxui::Color::Black);
+ftxui::Element code_row(int disp_no, int num_width, std::string_view content, std::string_view lang,
+                        ftxui::Color bg = ftxui::Color::Black);
 
 /// @brief 代码卡片整块：行号 + 语法高亮 + Panel 背景（→ 直接整块放入布局）
 /// @param line_nums 每行显示行号（与 code_lines 等长；0=无行号）
-ftxui::Element build_code_card(const std::vector<std::string>& code_lines,
-                               std::string_view lang,
+ftxui::Element build_code_card(const std::vector<std::string>& code_lines, std::string_view lang,
                                const std::vector<int>& line_nums);
 
 /// @brief diff 卡片整块：真实行号 + 前景高亮 + Add/Del 背景色 + Panel 背景

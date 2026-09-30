@@ -36,8 +36,7 @@ bool is_yes(const std::string& value) {
 bool is_disk_format_command(const std::string& s) noexcept {
     size_t pos = 0;
     while ((pos = s.find("format", pos)) != std::string::npos) {
-        const bool left_ok = (pos == 0) ||
-                             !std::isalnum(static_cast<unsigned char>(s[pos - 1]));
+        const bool left_ok = (pos == 0) || !std::isalnum(static_cast<unsigned char>(s[pos - 1]));
         const size_t after = pos + 6;
         if (left_ok && after < s.size() && (s[after] == ' ' || s[after] == '\t')) {
             const size_t p = s.find_first_not_of(" \t", after);
@@ -54,13 +53,9 @@ bool is_disk_format_command(const std::string& s) noexcept {
     return false;
 }
 
-} // namespace
+}  // namespace
 
-bool ask_user_confirm(
-    const ToolContext& ctx,
-    const std::string& question,
-    int timeout_ms
-) {
+bool ask_user_confirm(const ToolContext& ctx, const std::string& question, int timeout_ms) {
     if (!ctx.event_bus_ptr) return false;  // fail-closed：无确认通道即拒绝
 
     auto request = std::make_shared<AskUserRequestEvent>();
@@ -72,19 +67,16 @@ bool ask_user_confirm(
     // 与 AskUserTool 契约一致：questions 字段为 {questions:[...]} 对象，
     // options 为 {label, description} 对象数组（ftxtui handle_ask_user 只解析
     // 对象选项；若发字符串数组会被当作无选项而静默取消，权限确认永不弹出）。
-    request->questions = nlohmann::json::object({
-        {"questions", nlohmann::json::array({
-            {
-                {"question", question},
-                {"header", "Permission Required"},
-                {"allow_custom_input", false},
-                {"options", nlohmann::json::array({
-                    {{"label", "Yes"}, {"description", "允许"}},
-                    {{"label", "No"}, {"description", "拒绝"}},
-                })},
-            }
-        })}
-    });
+    request->questions = nlohmann::json::object(
+        {{"questions", nlohmann::json::array({{
+                           {"question", question},
+                           {"header", "Permission Required"},
+                           {"allow_custom_input", false},
+                           {"options", nlohmann::json::array({
+                                           {{"label", "Yes"}, {"description", "允许"}},
+                                           {{"label", "No"}, {"description", "拒绝"}},
+                                       })},
+                       }})}});
 
     // 发布到总线；宿主（TUI）订阅 AskUserRequestEvent 后弹出确认面板
     // 注意：publish_async 模板以 T=AskUserRequestEvent 推导（typeid 匹配订阅），
@@ -92,8 +84,7 @@ bool ask_user_confirm(
     ctx.event_bus_ptr->publish_async(*request);
 
     auto future = wait_promise->get_future();
-    if (future.wait_for(std::chrono::milliseconds(timeout_ms)) !=
-        std::future_status::ready) {
+    if (future.wait_for(std::chrono::milliseconds(timeout_ms)) != std::future_status::ready) {
         return false;  // 超时/宿主未响应：拒绝
     }
     const AskUserResult result = future.get();
@@ -105,33 +96,43 @@ bool ask_user_confirm(
     return false;
 }
 
-bool is_plan_mode(PermissionMode mode) noexcept {
-    return mode == PermissionMode::Plan;
-}
+bool is_plan_mode(PermissionMode mode) noexcept { return mode == PermissionMode::Plan; }
 
 bool is_bypass_mode(PermissionMode mode) noexcept {
     return mode == PermissionMode::BypassPermissions;
 }
 
-bool deny_write_by_mode(PermissionMode mode) noexcept {
-    return is_plan_mode(mode);
-}
+bool deny_write_by_mode(PermissionMode mode) noexcept { return is_plan_mode(mode); }
 
-bool deny_execute_by_mode(PermissionMode mode) noexcept {
-    return is_plan_mode(mode);
-}
+bool deny_execute_by_mode(PermissionMode mode) noexcept { return is_plan_mode(mode); }
 
 bool is_dangerous_command(const std::string& command) noexcept {
     static const std::vector<std::string> kPatterns = {
         // 破坏性文件操作
-        "rm -rf", "rm -fr", "rm -r /", "rm -f /",
-        "rmdir /s", "del /s", "del /f", "rd /s",
-        "chmod 777", "chmod -r 777", "chown -r",
+        "rm -rf",
+        "rm -fr",
+        "rm -r /",
+        "rm -f /",
+        "rmdir /s",
+        "del /s",
+        "del /f",
+        "rd /s",
+        "chmod 777",
+        "chmod -r 777",
+        "chown -r",
         // 磁盘/系统级
-        "mkfs", "fdisk", "dd if=",
-        "shutdown", "reboot", "halt", "poweroff",
+        "mkfs",
+        "fdisk",
+        "dd if=",
+        "shutdown",
+        "reboot",
+        "halt",
+        "poweroff",
         // 管道到 shell（远程执行模式）
-        "| bash", "| sh ", "| zsh", "| powershell",
+        "| bash",
+        "| sh ",
+        "| zsh",
+        "| powershell",
     };
     std::string lower = command;
     std::transform(lower.begin(), lower.end(), lower.begin(),
@@ -143,4 +144,4 @@ bool is_dangerous_command(const std::string& command) noexcept {
     return false;
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

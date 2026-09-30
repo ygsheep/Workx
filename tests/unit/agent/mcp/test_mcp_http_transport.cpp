@@ -24,8 +24,8 @@ using namespace Catch::Matchers;
 namespace {
 
 std::string fake_http_server_path() {
-    return (std::filesystem::path(SOURCE_DIR) /
-            "tests" / "unit" / "agent" / "mcp" / "fake_http_mcp_server.py")
+    return (std::filesystem::path(SOURCE_DIR) / "tests" / "unit" / "agent" / "mcp" /
+            "fake_http_mcp_server.py")
         .string();
 }
 
@@ -35,8 +35,7 @@ std::string start_fake_http_server(const std::string& mode,
                                    std::shared_ptr<McpStdioProcess>& proc_out) {
     auto proc = std::make_shared<McpStdioProcess>();
     auto start = proc->start("python", {fake_http_server_path()},
-                             {{"FAKE_MCP_HTTP_MODE", mode},
-                              {"PYTHONHASHSEED", "0"}});
+                             {{"FAKE_MCP_HTTP_MODE", mode}, {"PYTHONHASHSEED", "0"}});
     REQUIRE(start.is_ok());
 
     auto line = proc->read_line(10000);
@@ -57,7 +56,7 @@ McpServerConfig make_http_cfg(const std::string& name, const std::string& url) {
     return cfg;
 }
 
-} // namespace
+}  // namespace
 
 // ============================================================================
 // create_transport 路由
@@ -178,8 +177,7 @@ TEST_CASE("HttpMcpTransport 资源模板与提示词", "[mcp_http][m4]") {
 
     auto messages = client.get_prompt("summarize", {{"topic", "http"}});
     REQUIRE(messages.is_ok());
-    REQUIRE_THAT(messages.value()[0].content.value("text", ""),
-                 ContainsSubstring("http"));
+    REQUIRE_THAT(messages.value()[0].content.value("text", ""), ContainsSubstring("http"));
 
     client.disconnect();
 }
@@ -250,9 +248,11 @@ TEST_CASE("TEMP debug direct transport call", "[mcp_http][temp]") {
     auto start = transport.start();
     REQUIRE(start.is_ok());
 
-    auto resp = transport.send_request(
-        nlohmann::json{{"jsonrpc", "2.0"}, {"id", 1}, {"method", "server/discover"},
-                       {"params", nlohmann::json::object()}}, 15000);
+    auto resp = transport.send_request(nlohmann::json{{"jsonrpc", "2.0"},
+                                                      {"id", 1},
+                                                      {"method", "server/discover"},
+                                                      {"params", nlohmann::json::object()}},
+                                       15000);
     REQUIRE(resp.is_ok());
     REQUIRE(resp.value().contains("result"));
 }

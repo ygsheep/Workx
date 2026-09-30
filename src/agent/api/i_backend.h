@@ -12,8 +12,8 @@
 
 #include <string>
 #include <memory>
-#include "core/utils/result.h"          // 旧 Result（过渡期保留）
-#include "core/utils/result_v2.h"       // V2-3：新 ResultV2
+#include "core/utils/result.h"     // 旧 Result（过渡期保留）
+#include "core/utils/result_v2.h"  // V2-3：新 ResultV2
 #include "agent/api/backend_types.h"
 #include "agent/api/i_stream_reader.h"
 #include "agent/api/i_completion_provider.h"
@@ -26,7 +26,7 @@ namespace agent {
 ///          供 ChatSession 直接使用（通过 ICompletionProvider 面），
 ///          供 UI/Client 调用管理接口（通过 IBackendAdmin 面）。
 class IBackend : public ICompletionProvider, public IBackendAdmin {
-public:
+   public:
     /// @brief 初始化后端
     /// @param config 后端配置
     /// @return 成功返回 void；失败返回 Error
@@ -41,4 +41,4 @@ public:
     virtual bool is_ready() const = 0;
 };
 
-} // namespace agent
+}  // namespace agent

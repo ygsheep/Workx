@@ -11,14 +11,10 @@
 
 namespace island {
 
-std::string serialize_event(const std::string& type, const nlohmann::json& data,
-                            int64_t seq, double ts) {
+std::string serialize_event(const std::string& type, const nlohmann::json& data, int64_t seq,
+                            double ts) {
     nlohmann::json j{
-        {"kind", "event"},
-        {"type", type},
-        {"seq", seq},
-        {"ts", ts},
-        {"data", data},
+        {"kind", "event"}, {"type", type}, {"seq", seq}, {"ts", ts}, {"data", data},
     };
     return j.dump() + "\n";
 }
@@ -34,8 +30,7 @@ std::string serialize_request(const std::string& type, const nlohmann::json& dat
     return j.dump() + "\n";
 }
 
-std::string serialize_response(const std::string& id, bool ok,
-                               const nlohmann::json& data) {
+std::string serialize_response(const std::string& id, bool ok, const nlohmann::json& data) {
     nlohmann::json j{
         {"kind", "response"},
         {"id", id},
@@ -84,4 +79,4 @@ double now_ts() {
     return static_cast<double>(static_cast<int64_t>(sec * 1000.0)) / 1000.0;
 }
 
-} // namespace island
+}  // namespace island

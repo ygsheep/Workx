@@ -13,8 +13,8 @@
 #include <string>
 #include <vector>
 
-#include "core/utils/result.h"          // 旧 Result（过渡期保留）
-#include "core/utils/result_v2.h"       // V2-3：新 ResultV2
+#include "core/utils/result.h"     // 旧 Result（过渡期保留）
+#include "core/utils/result_v2.h"  // V2-3：新 ResultV2
 #include "agent/api/backend_types.h"
 
 namespace agent {
@@ -22,7 +22,7 @@ namespace agent {
 /// @brief 后端管理能力接口
 /// @details 与 ICompletionProvider（推理能力）正交。IBackend 组合两者。
 class IBackendAdmin {
-public:
+   public:
     virtual ~IBackendAdmin() = default;
 
     /// @brief 后端名称
@@ -42,4 +42,4 @@ public:
     virtual ModelInfo get_model_info() const = 0;
 };
 
-} // namespace agent
+}  // namespace agent

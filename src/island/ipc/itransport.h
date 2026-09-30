@@ -29,7 +29,7 @@ namespace island::ipc {
 /// @note 同一实例服务端/客户端角色互斥：listen 后走 accept 路径，
 ///       connect 后走读写路径。
 class ITransport {
-public:
+   public:
     virtual ~ITransport() = default;
 
     /// @brief 服务端：创建监听端点（同一实例可重复调用以支持重连）
@@ -65,4 +65,4 @@ std::unique_ptr<ITransport> create_listener();
 /// @brief 创建客户端连接实例（平台分支工厂）
 std::unique_ptr<ITransport> create_connector();
 
-} // namespace island::ipc
+}  // namespace island::ipc

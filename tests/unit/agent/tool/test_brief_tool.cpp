@@ -33,22 +33,19 @@ void fill_ctx(agent::test::MockEventBus& bus, ToolContext& ctx) {
 }
 
 /// 宿主侧响应：以指定 answers / submitted 回填 promise
-void respond(agent::test::MockEventBus& bus,
-             bool submitted,
-             std::string answer,
+void respond(agent::test::MockEventBus& bus, bool submitted, std::string answer,
              const std::string& q = "去执行看看?") {
     bus.set_dispatch_enabled(true);
     bus.set_async_auto_flush(true);
-    bus.subscribe<agent::AskUserRequestEvent>(
-        [=](const agent::AskUserRequestEvent& e) {
-            agent::AskUserResult r;
-            r.submitted = submitted;
-            r.answers.emplace_back(q, std::move(answer));
-            e.result_promise->set_value(std::move(r));
-        });
+    bus.subscribe<agent::AskUserRequestEvent>([=](const agent::AskUserRequestEvent& e) {
+        agent::AskUserResult r;
+        r.submitted = submitted;
+        r.answers.emplace_back(q, std::move(answer));
+        e.result_promise->set_value(std::move(r));
+    });
 }
 
-} // namespace
+}  // namespace
 
 // ============================================================
 // 输入校验
@@ -179,15 +176,14 @@ TEST_CASE("BriefTool publishes object-format questions contract", "[tool][brief]
     bool got = false;
     bus.set_dispatch_enabled(true);
     bus.set_async_auto_flush(true);
-    bus.subscribe<agent::AskUserRequestEvent>(
-        [&](const agent::AskUserRequestEvent& e) {
-            captured = e.questions;
-            got = true;
-            agent::AskUserResult r;
-            r.submitted = true;
-            r.answers.emplace_back("去执行看看?", "确认");
-            e.result_promise->set_value(std::move(r));
-        });
+    bus.subscribe<agent::AskUserRequestEvent>([&](const agent::AskUserRequestEvent& e) {
+        captured = e.questions;
+        got = true;
+        agent::AskUserResult r;
+        r.submitted = true;
+        r.answers.emplace_back("去执行看看?", "确认");
+        e.result_promise->set_value(std::move(r));
+    });
 
     ToolContext ctx;
     fill_ctx(bus, ctx);

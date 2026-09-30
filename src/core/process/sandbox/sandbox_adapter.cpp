@@ -71,9 +71,14 @@ std::string escape_sbpl_string(const std::string& s) {
     out += '"';
     for (char c : s) {
         switch (c) {
-            case '"':  out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            default:   out += c;
+            case '"':
+                out += "\\\"";
+                break;
+            case '\\':
+                out += "\\\\";
+                break;
+            default:
+                out += c;
         }
     }
     out += '"';
@@ -100,10 +105,8 @@ std::string generate_seatbelt_profile(const SandboxConfig& config) {
 
     // 系统目录读权限
     if (config.allow_system_read) {
-        const char* sys_paths[] = {
-            "/usr", "/lib", "/lib64", "/etc",
-            "/bin", "/sbin", "/System", "/Library"
-        };
+        const char* sys_paths[] = {"/usr", "/lib",  "/lib64",  "/etc",
+                                   "/bin", "/sbin", "/System", "/Library"};
         for (const char* p : sys_paths) {
             ss << "(allow file-read* (subpath " << escape_sbpl_string(p) << "))\n";
         }
@@ -172,7 +175,7 @@ std::string generate_seatbelt_profile(const SandboxConfig& config) {
     return ss.str();
 }
 
-#endif // __APPLE__
+#endif  // __APPLE__
 
 // ============================================================
 // Linux Bubblewrap 参数生成
@@ -238,7 +241,10 @@ std::vector<std::string> generate_bwrap_args(const SandboxConfig& config) {
         // 避免与 deny_write 重复挂载
         bool already_denied = false;
         for (const auto& dw : config.deny_write) {
-            if (normalize_path(dw) == np) { already_denied = true; break; }
+            if (normalize_path(dw) == np) {
+                already_denied = true;
+                break;
+            }
         }
         if (!already_denied) {
             args.push_back("--tmpfs");
@@ -249,9 +255,9 @@ std::vector<std::string> generate_bwrap_args(const SandboxConfig& config) {
     return args;
 }
 
-#endif // __linux__
+#endif  // __linux__
 
-} // namespace
+}  // namespace
 
 // ============================================================
 // SandboxConfig 工厂方法实现
@@ -280,22 +286,17 @@ SandboxConfig SandboxConfig::permissive() {
 bool SandboxConfig::is_permissive() const noexcept {
     // network_isolated=false 且无任何 deny 规则且无 allow 限制
     // （allow 为空 + network_isolated=false 意味着无任何限制）
-    return !network_isolated
-        && deny_write.empty() && deny_read.empty()
-        && deny_domains.empty()
-        && allow_write.empty() && allow_read.empty()
-        && allow_domains.empty();
+    return !network_isolated && deny_write.empty() && deny_read.empty() && deny_domains.empty() &&
+           allow_write.empty() && allow_read.empty() && allow_domains.empty();
 }
 
 // ============================================================
 // SandboxAdapter 实现
 // ============================================================
 
-WrappedCommand SandboxAdapter::wrap_command(
-    const std::string& cmd,
-    const std::vector<std::string>& args,
-    const SandboxConfig& config
-) {
+WrappedCommand SandboxAdapter::wrap_command(const std::string& cmd,
+                                            const std::vector<std::string>& args,
+                                            const SandboxConfig& config) {
     // 宽松配置：直接返回原命令
     if (config.is_permissive()) {
         return make_passthrough(cmd, args);
@@ -332,12 +333,10 @@ bool SandboxAdapter::is_enabled() {
 #endif
 }
 
-WrappedCommand SandboxAdapter::wrap_with_seatbelt(
-    const std::string& sandbox_exec_path,
-    const std::string& cmd,
-    const std::vector<std::string>& args,
-    const SandboxConfig& config
-) {
+WrappedCommand SandboxAdapter::wrap_with_seatbelt(const std::string& sandbox_exec_path,
+                                                  const std::string& cmd,
+                                                  const std::vector<std::string>& args,
+                                                  const SandboxConfig& config) {
 #if defined(__APPLE__)
     WrappedCommand result;
     result.cmd = sandbox_exec_path;
@@ -362,12 +361,10 @@ WrappedCommand SandboxAdapter::wrap_with_seatbelt(
 #endif
 }
 
-WrappedCommand SandboxAdapter::wrap_with_bubblewrap(
-    const std::string& bwrap_path,
-    const std::string& cmd,
-    const std::vector<std::string>& args,
-    const SandboxConfig& config
-) {
+WrappedCommand SandboxAdapter::wrap_with_bubblewrap(const std::string& bwrap_path,
+                                                    const std::string& cmd,
+                                                    const std::vector<std::string>& args,
+                                                    const SandboxConfig& config) {
 #if defined(__linux__)
     WrappedCommand result;
     result.cmd = bwrap_path;
@@ -392,11 +389,9 @@ WrappedCommand SandboxAdapter::wrap_with_bubblewrap(
 #endif
 }
 
-WrappedCommand SandboxAdapter::make_degraded(
-    const std::string& cmd,
-    const std::vector<std::string>& args,
-    const std::string& backend_name
-) {
+WrappedCommand SandboxAdapter::make_degraded(const std::string& cmd,
+                                             const std::vector<std::string>& args,
+                                             const std::string& backend_name) {
     WrappedCommand result;
     result.cmd = cmd;
     result.args = args;
@@ -406,10 +401,8 @@ WrappedCommand SandboxAdapter::make_degraded(
     return result;
 }
 
-WrappedCommand SandboxAdapter::make_passthrough(
-    const std::string& cmd,
-    const std::vector<std::string>& args
-) {
+WrappedCommand SandboxAdapter::make_passthrough(const std::string& cmd,
+                                                const std::vector<std::string>& args) {
     WrappedCommand result;
     result.cmd = cmd;
     result.args = args;
@@ -419,4 +412,4 @@ WrappedCommand SandboxAdapter::make_passthrough(
     return result;
 }
 
-} // namespace agent::process::sandbox
+}  // namespace agent::process::sandbox

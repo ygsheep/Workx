@@ -35,7 +35,7 @@ namespace agent::test {
 /// @brief 自动启停 Python 测试服务器
 /// @details X-2 修复：替代手动启动 LM Studio 的流程，让集成测试可独立运行
 class AutoTestServer {
-public:
+   public:
     AutoTestServer() {
         // 优先使用 LM Studio（若用户已显式设置环境变量）
         const char* env_url = std::getenv("LM_STUDIO_BASE_URL");
@@ -50,9 +50,7 @@ public:
         start_python_server();
     }
 
-    ~AutoTestServer() {
-        stop_python_server();
-    }
+    ~AutoTestServer() { stop_python_server(); }
 
     AutoTestServer(const AutoTestServer&) = delete;
     AutoTestServer& operator=(const AutoTestServer&) = delete;
@@ -66,7 +64,7 @@ public:
     /// @brief 服务器是否就绪
     bool is_ready() const { return !m_base_url.empty(); }
 
-private:
+   private:
     void start_python_server();
     void stop_python_server();
 
@@ -116,7 +114,7 @@ inline void AutoTestServer::stop_python_server() {
 
 #ifdef _WIN32
 inline void AutoTestServer::start_python_server_win32() {
-    SECURITY_ATTRIBUTES sa{ sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE };
+    SECURITY_ATTRIBUTES sa{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
     HANDLE pipe_read = nullptr, pipe_write = nullptr;
     if (!CreatePipe(&pipe_read, &pipe_write, &sa, 0)) return;
     SetHandleInformation(pipe_read, HANDLE_FLAG_INHERIT, 0);
@@ -131,14 +129,8 @@ inline void AutoTestServer::start_python_server_win32() {
     si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
 
     PROCESS_INFORMATION pi{};
-    if (!CreateProcessA(
-            nullptr,
-            const_cast<LPSTR>(cmd.c_str()),
-            nullptr, nullptr,
-            TRUE,
-            CREATE_NO_WINDOW,
-            nullptr, nullptr,
-            &si, &pi)) {
+    if (!CreateProcessA(nullptr, const_cast<LPSTR>(cmd.c_str()), nullptr, nullptr, TRUE,
+                        CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
         CloseHandle(pipe_read);
         CloseHandle(pipe_write);
         return;
@@ -153,7 +145,8 @@ inline void AutoTestServer::start_python_server_win32() {
     std::string accumulated;
     DWORD bytes_read = 0;
     for (int i = 0; i < 50; ++i) {
-        while (PeekNamedPipe(pipe_read, nullptr, 0, nullptr, &bytes_read, nullptr) && bytes_read > 0) {
+        while (PeekNamedPipe(pipe_read, nullptr, 0, nullptr, &bytes_read, nullptr) &&
+               bytes_read > 0) {
             DWORD got = 0;
             if (!ReadFile(pipe_read, buf, sizeof(buf) - 1, &got, nullptr) || got == 0) break;
             buf[got] = '\0';
@@ -238,4 +231,4 @@ inline void AutoTestServer::stop_python_server_posix() {
 }
 #endif
 
-} // namespace agent::test
+}  // namespace agent::test

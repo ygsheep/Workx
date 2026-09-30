@@ -87,30 +87,30 @@ TEST_CASE("ResultV2<T> value_or", "[result_v2]") {
 
 TEST_CASE("ResultV2<T> map", "[result_v2]") {
     SECTION("ok maps value") {
-        auto r = ResultV2<int>::ok(5)
-                     .map([](int x) { return x * 2; });
+        auto r = ResultV2<int>::ok(5).map([](int x) { return x * 2; });
         REQUIRE(r.is_ok());
         REQUIRE(r.value() == 10);
     }
 
     SECTION("err propagates") {
-        auto r = ResultV2<int>::err(Error::Code::NetworkTimeout, "timeout")
-                     .map([](int x) { return x * 2; });
+        auto r = ResultV2<int>::err(Error::Code::NetworkTimeout, "timeout").map([](int x) {
+            return x * 2;
+        });
         REQUIRE(r.is_err());
         REQUIRE(r.error().code == Error::Code::NetworkTimeout);
     }
 
     SECTION("type transformation") {
-        auto r = ResultV2<int>::ok(42)
-                     .map([](int x) { return std::to_string(x); });
+        auto r = ResultV2<int>::ok(42).map([](int x) { return std::to_string(x); });
         static_assert(std::is_same_v<decltype(r), ResultV2<std::string>>);
         REQUIRE(r.is_ok());
         REQUIRE(r.value() == "42");
     }
 
     SECTION("map on move") {
-        auto r = ResultV2<std::string>::ok(std::string("hello"))
-                     .map([](std::string&& s) { return s + " world"; });
+        auto r = ResultV2<std::string>::ok(std::string("hello")).map([](std::string&& s) {
+            return s + " world";
+        });
         REQUIRE(r.is_ok());
         REQUIRE(r.value() == "hello world");
     }
@@ -118,29 +118,24 @@ TEST_CASE("ResultV2<T> map", "[result_v2]") {
 
 TEST_CASE("ResultV2<T> and_then", "[result_v2]") {
     SECTION("ok chains") {
-        auto r = ResultV2<int>::ok(5)
-                     .and_then([](int x) {
-                         return ResultV2<std::string>::ok(std::to_string(x));
-                     });
+        auto r = ResultV2<int>::ok(5).and_then(
+            [](int x) { return ResultV2<std::string>::ok(std::to_string(x)); });
         REQUIRE(r.is_ok());
         REQUIRE(r.value() == "5");
     }
 
     SECTION("err propagates") {
-        auto r = ResultV2<int>::err(Error::Code::Unknown, "err")
-                     .and_then([](int x) {
-                         return ResultV2<std::string>::ok(std::to_string(x));
-                     });
+        auto r = ResultV2<int>::err(Error::Code::Unknown, "err").and_then([](int x) {
+            return ResultV2<std::string>::ok(std::to_string(x));
+        });
         REQUIRE(r.is_err());
         REQUIRE(r.error().code == Error::Code::Unknown);
     }
 
     SECTION("chain returns err") {
-        auto r = ResultV2<int>::ok(5)
-                     .and_then([](int /*x*/) {
-                         return ResultV2<std::string>::err(
-                             Error::Code::InvalidInput, "negative not allowed");
-                     });
+        auto r = ResultV2<int>::ok(5).and_then([](int /*x*/) {
+            return ResultV2<std::string>::err(Error::Code::InvalidInput, "negative not allowed");
+        });
         REQUIRE(r.is_err());
         REQUIRE(r.error().code == Error::Code::InvalidInput);
     }
@@ -148,21 +143,19 @@ TEST_CASE("ResultV2<T> and_then", "[result_v2]") {
 
 TEST_CASE("ResultV2<T> map_err", "[result_v2]") {
     SECTION("ok unchanged") {
-        auto r = ResultV2<int>::ok(42)
-                     .map_err([](Error e) {
-                         e.message = "modified";
-                         return e;
-                     });
+        auto r = ResultV2<int>::ok(42).map_err([](Error e) {
+            e.message = "modified";
+            return e;
+        });
         REQUIRE(r.is_ok());
         REQUIRE(r.value() == 42);
     }
 
     SECTION("err mapped") {
-        auto r = ResultV2<int>::err(Error::Code::NetworkTimeout, "timeout")
-                     .map_err([](Error e) {
-                         e.code = Error::Code::InternalError;
-                         return e;
-                     });
+        auto r = ResultV2<int>::err(Error::Code::NetworkTimeout, "timeout").map_err([](Error e) {
+            e.code = Error::Code::InternalError;
+            return e;
+        });
         REQUIRE(r.is_err());
         REQUIRE(r.error().code == Error::Code::InternalError);
     }
@@ -207,9 +200,7 @@ TEST_CASE("ResultV2<void> map", "[result_v2]") {
     }
 
     SECTION("err propagates") {
-        auto r = ResultV2<void>::err(Error::Code::Unknown, "err").map([]() {
-            return 42;
-        });
+        auto r = ResultV2<void>::err(Error::Code::Unknown, "err").map([]() { return 42; });
         REQUIRE(r.is_err());
         REQUIRE(r.error().code == Error::Code::Unknown);
     }
@@ -217,9 +208,7 @@ TEST_CASE("ResultV2<void> map", "[result_v2]") {
 
 TEST_CASE("ResultV2<void> and_then", "[result_v2]") {
     SECTION("ok chains") {
-        auto r = ResultV2<void>::ok().and_then([]() {
-            return ResultV2<int>::ok(99);
-        });
+        auto r = ResultV2<void>::ok().and_then([]() { return ResultV2<int>::ok(99); });
         REQUIRE(r.is_ok());
         REQUIRE(r.value() == 99);
     }
@@ -243,11 +232,10 @@ TEST_CASE("ResultV2<void> map_err", "[result_v2]") {
     }
 
     SECTION("err mapped") {
-        auto r = ResultV2<void>::err(Error::Code::NetworkTimeout, "timeout")
-                     .map_err([](Error e) {
-                         e.code = Error::Code::InternalError;
-                         return e;
-                     });
+        auto r = ResultV2<void>::err(Error::Code::NetworkTimeout, "timeout").map_err([](Error e) {
+            e.code = Error::Code::InternalError;
+            return e;
+        });
         REQUIRE(r.is_err());
         REQUIRE(r.error().code == Error::Code::InternalError);
     }
@@ -259,9 +247,7 @@ TEST_CASE("ResultV2<void> map_err", "[result_v2]") {
 
 namespace {
 
-ResultV2<int> try_return_ok() {
-    return ResultV2<int>::ok(10);
-}
+ResultV2<int> try_return_ok() { return ResultV2<int>::ok(10); }
 
 ResultV2<int> try_return_err() {
     return ResultV2<int>::err(Error::Code::NetworkTimeout, "timed out", "test");
@@ -272,7 +258,7 @@ ResultV2<int> try_test_helper(bool call_err) {
     return ResultV2<int>::ok(val.value() + 5);
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 TEST_CASE("TRY_RESULT_V2 macro", "[result_v2]") {
     SECTION("ok path") {
@@ -304,21 +290,17 @@ TEST_CASE("ResultV2 chained operations", "[result_v2]") {
     };
 
     SECTION("all ok") {
-        auto r = parse("21")
-                     .map([](int x) { return x * 2; })
-                     .and_then([](int x) {
-                         return ResultV2<std::string>::ok(std::to_string(x));
-                     });
+        auto r = parse("21").map([](int x) { return x * 2; }).and_then([](int x) {
+            return ResultV2<std::string>::ok(std::to_string(x));
+        });
         REQUIRE(r.is_ok());
         REQUIRE(r.value() == "42");
     }
 
     SECTION("parse fails") {
-        auto r = parse("abc")
-                     .map([](int x) { return x * 2; })
-                     .and_then([](int x) {
-                         return ResultV2<std::string>::ok(std::to_string(x));
-                     });
+        auto r = parse("abc").map([](int x) { return x * 2; }).and_then([](int x) {
+            return ResultV2<std::string>::ok(std::to_string(x));
+        });
         REQUIRE(r.is_err());
         REQUIRE(r.error().code == Error::Code::InvalidInput);
         REQUIRE(r.error().context == "abc");

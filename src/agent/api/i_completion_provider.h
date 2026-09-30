@@ -18,7 +18,7 @@ namespace agent {
 /// @brief 统一推理提供者接口
 /// @details ChatSession 依赖此接口而非具体 Backend/Agent
 class WORKX_API ICompletionProvider {
-public:
+   public:
     virtual ~ICompletionProvider() = default;
 
     /// @brief 提交推理请求
@@ -33,4 +33,4 @@ public:
     virtual bool is_generating() const = 0;
 };
 
-} // namespace agent
+}  // namespace agent

@@ -47,4 +47,4 @@ int32_t estimate_message_tokens(const ChatMessage& msg);
 /// @details 累加每条消息，并附加对话分隔符开销（每条 +4 tokens，对齐 claude-code）
 int32_t estimate_messages_tokens(const std::vector<ChatMessage>& messages);
 
-} // namespace agent::compact
+}  // namespace agent::compact

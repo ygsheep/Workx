@@ -16,16 +16,16 @@ namespace agent {
 
 /// @brief 流式读取状态
 enum class StreamState {
-    HasData,    ///< 有新数据可读
-    Complete,   ///< 流式完成
-    Error,      ///< 发生错误
-    Cancelled   ///< 被取消
+    HasData,   ///< 有新数据可读
+    Complete,  ///< 流式完成
+    Error,     ///< 发生错误
+    Cancelled  ///< 被取消
 };
 
 /// @brief 流式读取器接口
 /// @details 从后端增量读取响应，阻塞等待下一个 chunk
 class WORKX_API IStreamReader {
-public:
+   public:
     virtual ~IStreamReader() = default;
 
     /// @brief 读取下一个 chunk（阻塞）
@@ -38,4 +38,4 @@ public:
     virtual void cancel() = 0;
 };
 
-} // namespace agent
+}  // namespace agent

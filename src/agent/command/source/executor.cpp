@@ -67,8 +67,7 @@ ExecutorResult CommandExecutor::execute(const std::string& input, const CommandC
         }
         // PreActivate hooks：用户显式调用时执行，输出并入提示文本
         if (!prompt_cmd->hooks().empty()) {
-            const auto hook_lines = skill::run_preactivate_hooks(
-                prompt_cmd->hooks(), ctx.cwd);
+            const auto hook_lines = skill::run_preactivate_hooks(prompt_cmd->hooks(), ctx.cwd);
             const auto hook_block = skill::format_hook_output(hook_lines);
             if (!hook_block.empty()) {
                 prompt_text = "[skill hooks]\n" + hook_block + "\n" + prompt_text;
@@ -107,4 +106,4 @@ std::pair<std::string, std::string> CommandExecutor::parse(const std::string& in
     return {command_name, args};
 }
 
-} // namespace agent::command
+}  // namespace agent::command

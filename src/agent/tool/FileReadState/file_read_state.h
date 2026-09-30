@@ -25,9 +25,7 @@ struct LineRange {
     int32_t start = 0;  ///< 起始行（含）
     int32_t end = 0;    ///< 结束行（含）
 
-    [[nodiscard]] bool contains(int32_t line) const {
-        return line >= start && line <= end;
-    }
+    [[nodiscard]] bool contains(int32_t line) const { return line >= start && line <= end; }
 };
 
 /// @brief 文件读取状态快照
@@ -73,7 +71,7 @@ struct FileReadState {
 /// 对应 CC `ToolUseContext.readFileState: Map<string, ReadFileState>`，
 /// 其中 `ReadFileState = { content, timestamp, offset, limit, isPartialView }`。
 class FileReadStateTracker final {
-public:
+   public:
     /// @brief 获取单例
     /// @return 单例引用
     static FileReadStateTracker& instance() noexcept {
@@ -95,22 +93,14 @@ public:
     /// @param offset 本次读取的起始行（1-based，默认 1）
     /// @param lines_read 本次实际读取的行数（默认 0）
     /// @param total_lines 文件总行数（未知时 0；完整读取且 >0 时视为覆盖全文件）
-    void record_read(
-        const std::string& canonical_path,
-        std::string content,
-        std::filesystem::file_time_type mtime,
-        bool is_partial_view = false,
-        int32_t offset = 1,
-        int32_t lines_read = 0,
-        int32_t total_lines = 0
-    );
+    void record_read(const std::string& canonical_path, std::string content,
+                     std::filesystem::file_time_type mtime, bool is_partial_view = false,
+                     int32_t offset = 1, int32_t lines_read = 0, int32_t total_lines = 0);
 
     /// @brief 查询文件读取状态
     /// @param canonical_path 规范化路径
     /// @return 状态快照（若存在），否则 nullopt
-    [[nodiscard]] std::optional<FileReadState> get_state(
-        const std::string& canonical_path
-    ) const;
+    [[nodiscard]] std::optional<FileReadState> get_state(const std::string& canonical_path) const;
 
     /// @brief 写入后刷新状态
     /// @details 由 FileWriteTool/FileEditTool 在成功写入后调用，使后续连续写入通过 staleness 检查。
@@ -119,12 +109,9 @@ public:
     /// @param new_content 新内容（LF 规范化）
     /// @param new_mtime 写入后的 mtime（重新 stat 获取）
     /// @param is_partial_view 是否部分视图（一般为 false，因为写入后视为完整视图）
-    void update_after_write(
-        const std::string& canonical_path,
-        std::string new_content,
-        std::filesystem::file_time_type new_mtime,
-        bool is_partial_view = false
-    );
+    void update_after_write(const std::string& canonical_path, std::string new_content,
+                            std::filesystem::file_time_type new_mtime,
+                            bool is_partial_view = false);
 
     /// @brief 清除指定路径的状态
     /// @param canonical_path 规范化路径
@@ -140,7 +127,7 @@ public:
     /// @return 条目数
     [[nodiscard]] size_t size() const;
 
-private:
+   private:
     FileReadStateTracker() = default;
     ~FileReadStateTracker() = default;
 
@@ -148,4 +135,4 @@ private:
     std::unordered_map<std::string, FileReadState> m_states;
 };
 
-} // namespace agent::tool
+}  // namespace agent::tool

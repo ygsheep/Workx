@@ -18,13 +18,13 @@ namespace agent::tool {
 
 /// @brief 工具类型分类（用于 UI 渲染分组）
 enum class ToolType {
-    ReadFile,       ///< 文件读取
-    WriteFile,      ///< 文件写入
-    EditFile,       ///< 文件编辑
-    Execute,        ///< Shell 命令
-    Search,         ///< 搜索（grep/find）
-    Agent,          ///< 子代理
-    Other           ///< 其他/未知
+    ReadFile,   ///< 文件读取
+    WriteFile,  ///< 文件写入
+    EditFile,   ///< 文件编辑
+    Execute,    ///< Shell 命令
+    Search,     ///< 搜索（grep/find）
+    Agent,      ///< 子代理
+    Other       ///< 其他/未知
 };
 
 /// @brief 根据工具名推断 ToolType（用于 ToolCallEvent）
@@ -34,4 +34,4 @@ enum class ToolType {
 /// @return 对应的 ToolType；未知工具名返回 ToolType::Other
 ToolType infer_tool_type(std::string_view name);
 
-} // namespace agent::tool
+}  // namespace agent::tool

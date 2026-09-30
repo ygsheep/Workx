@@ -24,7 +24,7 @@ std::filesystem::path unique_registry_path() {
     return dir / "registry_test.json";
 }
 
-} // namespace
+}  // namespace
 
 TEST_CASE("registry: write then read_all round trip (single entry)", "[island][registry]") {
     const auto path = unique_registry_path();

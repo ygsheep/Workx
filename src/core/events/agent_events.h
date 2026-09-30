@@ -29,7 +29,7 @@ namespace agent {
 /// @details 由 TUI ChoicePanel 等宿主在 set_value 时填回，
 ///          与 tui::ChoiceResult 同构，避免 core/agent 依赖 UI 层。
 struct AskUserResult {
-    bool submitted = false;      ///< true=用户提交, false=取消/超时
+    bool submitted = false;  ///< true=用户提交, false=取消/超时
     /// @brief 答案映射: question → answer（单选/多选/自定义输入）
     std::vector<std::pair<std::string, std::string>> answers;
 };
@@ -69,9 +69,9 @@ struct AgentDoneEvent {
     int32_t total_steps = 0;
     int32_t total_tool_calls = 0;
     double total_duration_ms = 0.0;
-    int32_t agent_type = 0;    ///< AgentType 枚举值（0=Unknown 1=ReAct 2=GoalGuarded …）
-    int32_t goal_status = 0;   ///< GoalStatus 枚举值（0=Unknown 1=Pending 2=Achieved 3=Failed）
-    std::string goal_spec;     ///< agent.goal 原文（空 = 普通对话，无目标守卫）
+    int32_t agent_type = 0;   ///< AgentType 枚举值（0=Unknown 1=ReAct 2=GoalGuarded …）
+    int32_t goal_status = 0;  ///< GoalStatus 枚举值（0=Unknown 1=Pending 2=Achieved 3=Failed）
+    std::string goal_spec;    ///< agent.goal 原文（空 = 普通对话，无目标守卫）
 };
 
 /// @brief 目标验证进度事件（GoalGuardedAgent 每轮 check_goal 后发布，0.6.x）
@@ -82,7 +82,7 @@ struct AgentVerdictEvent {
     std::string goal_spec;    ///< agent.goal 原文（展示用）
     int32_t attempt = 0;      ///< 当前尝试轮数（1-based）
     int32_t goal_status = 0;  ///< GoalStatus 枚举值（0=Unknown 1=Pending 2=Achieved 3=Failed）
-    std::string detail;       ///< 验证器返回的人可读说明（如测试失败数/缺失路径）
+    std::string detail;  ///< 验证器返回的人可读说明（如测试失败数/缺失路径）
 };
 
 /// @brief Hook 执行进度事件（Issue #50 M-2：hook 进度可视化）
@@ -91,13 +91,14 @@ struct AgentVerdictEvent {
 ///          订阅方（如 TUI 卡片/状态栏）决定。phase 取 "start" / "done" / "failed"。
 struct HookProgressEvent {
     std::string session_id;
-    uint64_t hook_id = 0;     ///< 单次 hook 执行唯一 id（HookManager 单调递增分配，供 start/done 关联）
-    std::string event;        ///< 触发事件名（PreToolUse/Stop/...）
-    std::string phase;        ///< "start" / "done" / "failed"
-    std::string hook_type;    ///< command / http / prompt / agent
-    std::string tool_name;    ///< 关联工具名（PreToolUse 等工具事件才有）
-    std::string message;      ///< 执行结果摘要（done/failed 时填充）
-    std::string hook_label;   ///< 展示标签（command 内容 / prompt 摘要，UI 展示用）
+    uint64_t hook_id =
+        0;  ///< 单次 hook 执行唯一 id（HookManager 单调递增分配，供 start/done 关联）
+    std::string event;       ///< 触发事件名（PreToolUse/Stop/...）
+    std::string phase;       ///< "start" / "done" / "failed"
+    std::string hook_type;   ///< command / http / prompt / agent
+    std::string tool_name;   ///< 关联工具名（PreToolUse 等工具事件才有）
+    std::string message;     ///< 执行结果摘要（done/failed 时填充）
+    std::string hook_label;  ///< 展示标签（command 内容 / prompt 摘要，UI 展示用）
 };
 
 /// @brief 缓存诊断事件（DeepSeek 硬盘缓存命中率劣化归因）
@@ -105,11 +106,11 @@ struct HookProgressEvent {
 ///          reasons 取值："system" / "tools" / "log_rewrite"
 struct CacheDiagnosticsEvent {
     std::string session_id;
-    std::string prefix_hash;             ///< 当前前缀形状 hash（system + tools 联合）
-    bool prefix_changed = false;         ///< 与上一轮相比前缀是否变化
-    std::vector<std::string> reasons;    ///< 变化原因（空表示无变化）
-    int32_t cache_hit_tokens = 0;        ///< 本轮命中 token 数
-    int32_t cache_miss_tokens = 0;       ///< 本轮未命中 token 数
+    std::string prefix_hash;           ///< 当前前缀形状 hash（system + tools 联合）
+    bool prefix_changed = false;       ///< 与上一轮相比前缀是否变化
+    std::vector<std::string> reasons;  ///< 变化原因（空表示无变化）
+    int32_t cache_hit_tokens = 0;      ///< 本轮命中 token 数
+    int32_t cache_miss_tokens = 0;     ///< 本轮未命中 token 数
 };
 
 /// @brief 压缩暂停事件（DS_CACHE H-3：卡死守卫触发/恢复）
@@ -118,11 +119,11 @@ struct CacheDiagnosticsEvent {
 ///          UI 据此提示"压缩已暂停，前缀重新 append-only 增长以恢复缓存命中"。
 struct CompactionPausedEvent {
     std::string session_id;
-    bool paused = true;                  ///< true=卡死守卫触发暂停；false=自愈恢复
-    int32_t consecutive_compacts = 0;    ///< 触发时的连续 compact 次数
-    int32_t tokens_before = 0;           ///< 触发时的 token 数
-    float ratio = 0.0f;                  ///< 触发时的窗口占用比
-    std::string notice;                  ///< 人类可读说明
+    bool paused = true;                ///< true=卡死守卫触发暂停；false=自愈恢复
+    int32_t consecutive_compacts = 0;  ///< 触发时的连续 compact 次数
+    int32_t tokens_before = 0;         ///< 触发时的 token 数
+    float ratio = 0.0f;                ///< 触发时的窗口占用比
+    std::string notice;                ///< 人类可读说明
 };
 
 /// @brief AskUser 请求事件（AskUserTool → TUI，触发 ChoicePanel 模态）
@@ -133,8 +134,8 @@ struct CompactionPausedEvent {
 ///          同时置位 cancel_flag 并发布 AskUserTimeoutEvent 通知 TUI 关闭面板。
 struct AskUserRequestEvent {
     std::string session_id;
-    nlohmann::json questions;   ///< 原样转交 parse_choice_config 的 JSON
-    int32_t timeout_ms = 0;     ///< 超时毫秒（0=不限时；>0 超时自动返回）
+    nlohmann::json questions;  ///< 原样转交 parse_choice_config 的 JSON
+    int32_t timeout_ms = 0;    ///< 超时毫秒（0=不限时；>0 超时自动返回）
     /// @brief 结果回填通道：TUI 设置 value 后唤醒阻塞的 AskUserTool
     /// @details shared_ptr 使事件按值传递时 promise 仍共享同一实例
     std::shared_ptr<std::promise<AskUserResult>> result_promise;
@@ -158,7 +159,7 @@ struct AskUserTimeoutEvent {
 ///          本事件仅用于 UI 通知。
 struct EnterPlanModeEvent {
     std::string session_id;
-    std::string reason;   ///< 进入计划模式的原因（AI 说明，可空）
+    std::string reason;  ///< 进入计划模式的原因（AI 说明，可空）
 };
 
 /// @brief 退出计划模式事件（#28：ExitPlanModeV2Tool → TUI/宿主）
@@ -186,10 +187,10 @@ struct PlanPreviewEvent {
 ///          ⚠️ 仅作通知，不注入父 LLM 上下文（避免长输出刷屏父会话，见设计决策）。
 ///          完整输出仍通过 TaskOutputTool 按 task_id 读取。
 struct SubAgentCompletedEvent {
-    std::string task_id;        ///< 子 Agent 任务 id（AgentTool 生成的 'a'+8 随机）
-    std::string final_answer;   ///< 最终答案（Final: ...）或错误信息（Error: ...），可为空
-    bool was_error = false;     ///< 子任务是否以错误结束
-    double duration_ms = 0.0;   ///< 子 Agent 循环耗时（毫秒，与 AgentDoneEvent 同型）
+    std::string task_id;  ///< 子 Agent 任务 id（AgentTool 生成的 'a'+8 随机）
+    std::string final_answer;  ///< 最终答案（Final: ...）或错误信息（Error: ...），可为空
+    bool was_error = false;    ///< 子任务是否以错误结束
+    double duration_ms = 0.0;  ///< 子 Agent 循环耗时（毫秒，与 AgentDoneEvent 同型）
 };
 
 /// @brief 子 Agent 进度事件（AgentTool → 订阅者，v1.2.0 子任务进度流式订阅）
@@ -200,17 +201,17 @@ struct SubAgentCompletedEvent {
 ///          v1.3.0：补充结构化字段（thought_text/tool_name/tool_input/observation/is_error），
 ///          供第二层卡片渲染复用主会话 UI（思考卡/工具卡），content 仍保留格式化行。
 struct SubAgentProgressEvent {
-    std::string task_id;        ///< 子 Agent 任务 id（AgentTool 生成的 'a'+8 随机）
-    int32_t step_number = 0;    ///< 当前步骤序号（1-based，与 ReActStep.step_number 对齐）
-    std::string step_type;      ///< 步骤类型："thought" / "action" / "observation" / "final"
-    std::string content;        ///< 步骤内容（与写入 Task 输出缓冲的格式化行相同，可为空）
+    std::string task_id;      ///< 子 Agent 任务 id（AgentTool 生成的 'a'+8 随机）
+    int32_t step_number = 0;  ///< 当前步骤序号（1-based，与 ReActStep.step_number 对齐）
+    std::string step_type;    ///< 步骤类型："thought" / "action" / "observation" / "final"
+    std::string content;  ///< 步骤内容（与写入 Task 输出缓冲的格式化行相同，可为空）
     // --- v1.3.0 结构化字段（与 ReActStep 对应）---
-    std::string thought_text;   ///< thought/final 的 LLM 文本
-    std::string tool_name;      ///< action 的工具名
-    std::string tool_input;     ///< action 的工具参数 JSON 字符串
-    std::string observation;    ///< observation 的工具结果文本
-    bool is_error = false;      ///< 工具执行是否出错
-    double duration_ms = 0.0;   ///< 本步骤耗时（毫秒，思考卡标签展示用）
+    std::string thought_text;  ///< thought/final 的 LLM 文本
+    std::string tool_name;     ///< action 的工具名
+    std::string tool_input;    ///< action 的工具参数 JSON 字符串
+    std::string observation;   ///< observation 的工具结果文本
+    bool is_error = false;     ///< 工具执行是否出错
+    double duration_ms = 0.0;  ///< 本步骤耗时（毫秒，思考卡标签展示用）
 };
 
 /// @brief 后台 Agent 进度事件（BackgroundAgent → 订阅者，长时任务逐步流式订阅）
@@ -218,27 +219,27 @@ struct SubAgentProgressEvent {
 ///          渲染复用主会话 UI。task_id 前缀 'b'，与子 Agent 'a' 区分，避免混淆。
 ///          ⚠️ 仅作增量通知，不注入主会话 LLM 上下文（与 SubAgent 同策略）。
 struct BackgroundProgressEvent {
-    std::string task_id;        ///< 后台任务 id（'b'+8 随机）
-    int32_t step_number = 0;    ///< 步骤序号（1-based，与 ReActStep.step_number 对齐）
-    std::string step_type;      ///< "thought" / "action" / "observation" / "final"
-    std::string content;        ///< 步骤内容（格式化行，可为空）
+    std::string task_id;      ///< 后台任务 id（'b'+8 随机）
+    int32_t step_number = 0;  ///< 步骤序号（1-based，与 ReActStep.step_number 对齐）
+    std::string step_type;    ///< "thought" / "action" / "observation" / "final"
+    std::string content;      ///< 步骤内容（格式化行，可为空）
     // --- 结构化字段（与 ReActStep 对应，供第二层卡片渲染复用）---
-    std::string thought_text;   ///< thought/final 的 LLM 文本
-    std::string tool_name;      ///< action 的工具名
-    std::string tool_input;     ///< action 的工具参数 JSON 字符串
-    std::string observation;    ///< observation 的工具结果文本
-    bool is_error = false;      ///< 工具执行是否出错
-    double duration_ms = 0.0;   ///< 本步骤耗时（毫秒）
+    std::string thought_text;  ///< thought/final 的 LLM 文本
+    std::string tool_name;     ///< action 的工具名
+    std::string tool_input;    ///< action 的工具参数 JSON 字符串
+    std::string observation;   ///< observation 的工具结果文本
+    bool is_error = false;     ///< 工具执行是否出错
+    double duration_ms = 0.0;  ///< 本步骤耗时（毫秒）
 };
 
 /// @brief 后台 Agent 完成事件（BackgroundAgent → 订阅者，后台结果通知）
 /// @details 仅携带 task_id + 结果摘要，不注入主会话 LLM 上下文（防刷屏）。
 ///          完整输出仍通过 TaskOutput 按 task_id 读取。
 struct BackgroundCompletedEvent {
-    std::string task_id;        ///< 后台任务 id（'b'+8 随机）
-    std::string final_answer;   ///< 最终答案（Final: ...）或错误信息（Error: ...），可为空
-    bool was_error = false;     ///< 后台任务是否以错误结束
-    double duration_ms = 0.0;   ///< 后台 Agent 循环耗时（毫秒）
+    std::string task_id;  ///< 后台任务 id（'b'+8 随机）
+    std::string final_answer;  ///< 最终答案（Final: ...）或错误信息（Error: ...），可为空
+    bool was_error = false;    ///< 后台任务是否以错误结束
+    double duration_ms = 0.0;  ///< 后台 Agent 循环耗时（毫秒）
 };
 
 /// @brief 待办清单更新事件（#24：TodoStore → TUI 侧边栏/StatusBar）
@@ -246,7 +247,7 @@ struct BackgroundCompletedEvent {
 ///          restore_todos 恢复）后异步发布，携带该 session 完整清单快照。
 ///          TUI 主循环 drain 后经 ActionTodoUpdate 更新 ViewModel，触发侧边栏重绘。
 struct TodoUpdatedEvent {
-    std::string session_id;     ///< 所属会话 id
+    std::string session_id;                   ///< 所属会话 id
     std::vector<core::todo::TodoItem> todos;  ///< 变更后的完整清单快照
 };
 
@@ -256,11 +257,11 @@ struct TodoUpdatedEvent {
 
 /// @brief MCP server 状态条目（轻量，供 UI 侧栏展示；core 层不依赖 agent/mcp 类型）
 struct McpServerStatusLite {
-    std::string name;       ///< server 名
-    std::string protocol;   ///< 协商协议版本（"2026-07-28" / "2025-11-25"）
-    int tool_count = 0;     ///< 已预取工具数
-    int state = 0;          ///< 0=连接中 1=已连接 2=失败
-    std::string error;      ///< 失败原因（state==2 时）
+    std::string name;      ///< server 名
+    std::string protocol;  ///< 协商协议版本（"2026-07-28" / "2025-11-25"）
+    int tool_count = 0;    ///< 已预取工具数
+    int state = 0;         ///< 0=连接中 1=已连接 2=失败
+    std::string error;     ///< 失败原因（state==2 时）
 };
 
 /// @brief MCP server 状态变化事件（#27 M4：后台连接完成/失败时发布，UI 刷新侧栏）
@@ -278,10 +279,10 @@ struct McpStatusChangedEvent {
 /// @details 由 ChatSession::enqueue_message 生成，仅存在于内存队列：
 ///          未发送前不持久化、不进入 m_messages（发送时才合并为 user 消息）。
 struct QueuedMessageItem {
-    std::string id;                      ///< uuid（单条移除用）
-    std::string text;                    ///< 用户文本
-    std::vector<std::string> images;     ///< 图片附件绝对路径（可为空）
-    int64_t queued_at_ms = 0;            ///< 入队时刻（毫秒时间戳）
+    std::string id;                   ///< uuid（单条移除用）
+    std::string text;                 ///< 用户文本
+    std::vector<std::string> images;  ///< 图片附件绝对路径（可为空）
+    int64_t queued_at_ms = 0;         ///< 入队时刻（毫秒时间戳）
 };
 
 /// @brief 消息队列更新事件（ChatSession → TUI 队列卡片）
@@ -303,4 +304,4 @@ struct QueuedMessagesFlushedEvent {
     std::string merged_text;  ///< merge_queued_text() 合并后的 user 消息文本
 };
 
-} // namespace agent
+}  // namespace agent

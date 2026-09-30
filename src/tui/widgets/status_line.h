@@ -22,12 +22,8 @@ namespace ftxtui {
 /// @param anim_frame 动画帧号（busy 时旋转；空闲显示静态点）
 /// @param todo_done 已完成待办数（#24：>0 时显示 ✓ X/Y）
 /// @param todo_total 待办总数
-ftxui::Element build_status_line(const std::string& model,
-                                 const std::string& mode,
-                                 const std::string& permission,
-                                 bool busy,
-                                 std::size_t anim_frame,
-                                 int todo_done = 0,
-                                 int todo_total = 0);
+ftxui::Element build_status_line(const std::string& model, const std::string& mode,
+                                 const std::string& permission, bool busy, std::size_t anim_frame,
+                                 int todo_done = 0, int todo_total = 0);
 
 }  // namespace ftxtui

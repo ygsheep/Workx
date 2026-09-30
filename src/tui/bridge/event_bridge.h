@@ -22,11 +22,10 @@ namespace ftxtui {
 
 /// @brief 事件桥
 class EventBridge {
-public:
+   public:
     /// @param bus 事件总线（非拥有）
     /// @param queue 动作队列（非拥有；事件回调只向它入队）
-    EventBridge(agent::IEventBus& bus, ActionQueue& queue)
-        : m_bus(bus), m_queue(queue) {}
+    EventBridge(agent::IEventBus& bus, ActionQueue& queue) : m_bus(bus), m_queue(queue) {}
 
     /// @brief 订阅全部 UI 相关事件
     void start();
@@ -40,9 +39,9 @@ public:
     /// @brief 入队一个动作（线程安全）
     void push(Action action);
 
-private:
+   private:
     /// @brief 订阅一个事件并登记退订 lambda
-    template<typename T>
+    template <typename T>
     void subscribe_typed(std::function<void(const T&)> cb) {
         auto token = m_bus.subscribe<T>(std::move(cb));
         // 退订需带上类型；此处以类型擦除的 lambda 捕获类型信息

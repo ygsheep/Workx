@@ -77,8 +77,7 @@ std::string command_exec_token(std::string_view line) {
     if (!cur.empty()) tokens.push_back(cur);
 
     const auto strip_quote = [](std::string t) {
-        if (t.size() >= 2 &&
-            (t.front() == '"' || t.front() == '\'') && t.back() == t.front()) {
+        if (t.size() >= 2 && (t.front() == '"' || t.front() == '\'') && t.back() == t.front()) {
             t = t.substr(1, t.size() - 2);
         }
         return t;
@@ -137,17 +136,45 @@ bool is_command_allowed(std::string_view line) noexcept {
     //       里的任意命令。
     static constexpr std::string_view kAllowed[] = {
         // 构建
-        "cmake", "ctest", "ninja", "make", "nmake", "msbuild", "dotnet",
-        "cargo", "go", "gcc", "g++", "clang", "clang++", "cl",
+        "cmake",
+        "ctest",
+        "ninja",
+        "make",
+        "nmake",
+        "msbuild",
+        "dotnet",
+        "cargo",
+        "go",
+        "gcc",
+        "g++",
+        "clang",
+        "clang++",
+        "cl",
         // 包管理
-        "npm", "npx", "yarn", "pnpm", "pip", "pip3", "conan", "vcpkg",
-        "mvn", "gradle",
+        "npm",
+        "npx",
+        "yarn",
+        "pnpm",
+        "pip",
+        "pip3",
+        "conan",
+        "vcpkg",
+        "mvn",
+        "gradle",
         // 脚本/语言运行
-        "python", "python3", "py", "pytest", "node",
+        "python",
+        "python3",
+        "py",
+        "pytest",
+        "node",
         // 版本控制
         "git",
         // 基础 shell 元命令（褪去包装层后的落点，如 `cmd /C exit 0`）
-        "echo", "true", "false", "exit", "test",
+        "echo",
+        "true",
+        "false",
+        "exit",
+        "test",
     };
     const std::string tok = command_exec_token(line);
     if (tok.empty()) return false;
@@ -175,25 +202,25 @@ std::string sanitize_detail(std::string_view raw) noexcept {
     return out;
 }
 
-} // namespace
+}  // namespace
 
 /// @brief 执行命令并返回退出码；启动失败返回 -1
 int run_exit_code(const std::string& cmd, const std::string& cwd) {
     using namespace agent::process;
     // exec() 的 cmd 必须是纯可执行名、参数走 args；命令字符串需经 shell 包装
-    //（cmd：cmd.exe /d /s /c；POSIX：sh -c），对齐 skill hooks.cpp 的既有用法
+    // （cmd：cmd.exe /d /s /c；POSIX：sh -c），对齐 skill hooks.cpp 的既有用法
 #if defined(_WIN32)
     auto res = exec("cmd.exe", ExecOptions{
-        .cwd = cwd,
-        .args = {"/d", "/s", "/c", cmd},
-        .timeout = std::chrono::milliseconds(60000),
-    });
+                                   .cwd = cwd,
+                                   .args = {"/d", "/s", "/c", cmd},
+                                   .timeout = std::chrono::milliseconds(60000),
+                               });
 #else
     auto res = exec("sh", ExecOptions{
-        .cwd = cwd,
-        .args = {"-c", cmd},
-        .timeout = std::chrono::milliseconds(60000),
-    });
+                              .cwd = cwd,
+                              .args = {"-c", cmd},
+                              .timeout = std::chrono::milliseconds(60000),
+                          });
 #endif
     if (res.is_err()) {
         LOG_WARN("[verdict] exec failed cmd='{}': {}", cmd, res.error().message);
@@ -260,7 +287,7 @@ Verdict checker_build(const AgentGoal& goal, const std::string& cwd) {
 namespace {
 /// @brief lint 默认命令（纯 echo 落 0 退出，避免含 shell 元字符的默认值过白名单）
 constexpr const char* kLintCmd = "echo 'no lint config'";
-}
+}  // namespace
 
 Verdict checker_lint(const AgentGoal& goal, const std::string& cwd) {
     const std::string cmd = guard_command(goal.command.empty() ? kLintCmd : goal.command);
@@ -285,7 +312,7 @@ Verdict checker_file_exists(const AgentGoal& goal, const std::string& cwd) {
     //        再用"父子包含"判定是否逃逸出 cwd（防 file_exists:../../.ssh/id_rsa 探测
     //        任意文件）。P2-3：路径大小写保持原名，不做 lowered。
     std::error_code ec;
-    const fs::path base = fs::weakly_canonical(fs::path(cwd), ec);       // cwd 规范化
+    const fs::path base = fs::weakly_canonical(fs::path(cwd), ec);  // cwd 规范化
     if (ec) {
         return {GoalStatus::Failed, "cannot resolve working directory"};
     }
@@ -296,7 +323,8 @@ Verdict checker_file_exists(const AgentGoal& goal, const std::string& cwd) {
     }
     const fs::path canon = fs::weakly_canonical(target, ec);
     if (ec) {
-        return {GoalStatus::Failed, sanitize_detail(std::format("cannot resolve path: {}", goal.path))};
+        return {GoalStatus::Failed,
+                sanitize_detail(std::format("cannot resolve path: {}", goal.path))};
     }
     // 判定 canon 是否在 base 子树内（自身或位于 base 之下）
     const std::string base_s = base.lexically_normal().string();
@@ -344,11 +372,16 @@ Verdict checker_custom(const AgentGoal& goal, const std::string& cwd) {
 
 Verdict check_goal(const AgentGoal& goal, const std::string& cwd) {
     switch (goal.type) {
-        case AgentGoal::TestsPass:    return checker_tests(goal, cwd);
-        case AgentGoal::BuildClean:   return checker_build(goal, cwd);
-        case AgentGoal::LintZero:     return checker_lint(goal, cwd);
-        case AgentGoal::FileExists:   return checker_file_exists(goal, cwd);
-        case AgentGoal::CustomScript: return checker_custom(goal, cwd);
+        case AgentGoal::TestsPass:
+            return checker_tests(goal, cwd);
+        case AgentGoal::BuildClean:
+            return checker_build(goal, cwd);
+        case AgentGoal::LintZero:
+            return checker_lint(goal, cwd);
+        case AgentGoal::FileExists:
+            return checker_file_exists(goal, cwd);
+        case AgentGoal::CustomScript:
+            return checker_custom(goal, cwd);
         case AgentGoal::Script:
         case AgentGoal::Batch:
         case AgentGoal::Watch:
@@ -384,7 +417,7 @@ bool starts_with(std::string_view v, std::string_view prefix) noexcept {
     return v.size() >= prefix.size() && v.substr(0, prefix.size()) == prefix;
 }
 
-} // namespace
+}  // namespace
 
 AgentGoal parse_goal(std::string_view spec) noexcept {
     // P2-3：类型前缀判定大小写不敏感（lowered_trim），但 file_exists:/cmd: 的
@@ -425,8 +458,8 @@ AgentGoal parse_goal(std::string_view spec) noexcept {
     }
     if (starts_with(v_low, "batch:") || starts_with(v_low, "watch:")) {
         const bool is_watch = starts_with(v_low, "watch:");
-        const std::string_view sfx = is_watch ? std::string_view("watch:")
-                                               : std::string_view("batch:");
+        const std::string_view sfx =
+            is_watch ? std::string_view("watch:") : std::string_view("batch:");
         const std::string rest = trimmed(spec).substr(sfx.size());
         // & 分隔的 k=v 键值表
         std::vector<std::pair<std::string, std::string>> kv;
@@ -435,22 +468,34 @@ AgentGoal parse_goal(std::string_view spec) noexcept {
         while (std::getline(ss, tok, '&')) {
             const size_t eq = tok.find('=');
             if (eq == std::string::npos) {
-                kv.emplace_back(tok, "");   // 裸键（如 concurrency）值为空
+                kv.emplace_back(tok, "");  // 裸键（如 concurrency）值为空
             } else {
                 kv.emplace_back(tok.substr(0, eq), tok.substr(eq + 1));
             }
         }
         goal.type = is_watch ? AgentGoal::Watch : AgentGoal::Batch;
         for (auto& [k, val] : kv) {
-            if (k == "cmd")        goal.command = val;
-            else if (k == "glob")  goal.glob = val;
-            else if (k == "path")  goal.path = val;
+            if (k == "cmd")
+                goal.command = val;
+            else if (k == "glob")
+                goal.glob = val;
+            else if (k == "path")
+                goal.path = val;
             else if (k == "concurrency") {
-                try { goal.concurrency = std::max(1, std::stoi(val)); } catch (...) {}
+                try {
+                    goal.concurrency = std::max(1, std::stoi(val));
+                } catch (...) {
+                }
             } else if (k == "polls") {
-                try { goal.watch_polls = std::max(1, std::stoi(val)); } catch (...) {}
+                try {
+                    goal.watch_polls = std::max(1, std::stoi(val));
+                } catch (...) {
+                }
             } else if (k == "interval") {
-                try { goal.watch_interval_ms = std::max(0, std::stoi(val)); } catch (...) {}
+                try {
+                    goal.watch_interval_ms = std::max(0, std::stoi(val));
+                } catch (...) {
+                }
             }
         }
         return goal;
@@ -459,4 +504,4 @@ AgentGoal parse_goal(std::string_view spec) noexcept {
     return goal;
 }
 
-} // namespace agent
+}  // namespace agent

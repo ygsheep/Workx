@@ -34,9 +34,7 @@ inline bool write_clipboard(const std::string& text);
 
 #if defined(_WIN32)
 
-inline bool clipboard_available() {
-    return true;
-}
+inline bool clipboard_available() { return true; }
 
 inline bool write_clipboard(const std::string& text) {
     if (text.empty()) return false;
@@ -46,22 +44,20 @@ inline bool write_clipboard(const std::string& text) {
         return false;
     }
 
-    const int wlen = MultiByteToWideChar(CP_UTF8, 0, text.data(),
-                                         static_cast<int>(text.size()), nullptr, 0);
+    const int wlen =
+        MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
     if (wlen <= 0) {
         CloseClipboard();
         return false;
     }
-    HGLOBAL mem = GlobalAlloc(GMEM_MOVEABLE,
-                              (static_cast<size_t>(wlen) + 1) * sizeof(wchar_t));
+    HGLOBAL mem = GlobalAlloc(GMEM_MOVEABLE, (static_cast<size_t>(wlen) + 1) * sizeof(wchar_t));
     if (!mem) {
         CloseClipboard();
         return false;
     }
     wchar_t* dst = static_cast<wchar_t*>(GlobalLock(mem));
     if (dst) {
-        MultiByteToWideChar(CP_UTF8, 0, text.data(),
-                            static_cast<int>(text.size()), dst, wlen);
+        MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), dst, wlen);
         dst[wlen] = L'\0';
         GlobalUnlock(mem);
     }
@@ -87,26 +83,34 @@ inline int probe_tool() {
         std::string cmd = std::string("command -v ") + name + " >/dev/null 2>&1";
         return std::system(cmd.c_str()) == 0;
     };
-    if (has("pbcopy")) tool = 1;
-    else if (has("xclip")) tool = 2;
-    else if (has("xsel")) tool = 3;
+    if (has("pbcopy"))
+        tool = 1;
+    else if (has("xclip"))
+        tool = 2;
+    else if (has("xsel"))
+        tool = 3;
     return tool;
 }
 
 }  // namespace clipboard_detail
 
-inline bool clipboard_available() {
-    return clipboard_detail::probe_tool() != 0;
-}
+inline bool clipboard_available() { return clipboard_detail::probe_tool() != 0; }
 
 inline bool write_clipboard(const std::string& text) {
     if (text.empty()) return false;
     FILE* pipe = nullptr;
     switch (clipboard_detail::probe_tool()) {
-        case 1: pipe = popen("pbcopy", "w"); break;
-        case 2: pipe = popen("xclip -selection clipboard", "w"); break;
-        case 3: pipe = popen("xsel --clipboard --input", "w"); break;
-        default: return false;
+        case 1:
+            pipe = popen("pbcopy", "w");
+            break;
+        case 2:
+            pipe = popen("xclip -selection clipboard", "w");
+            break;
+        case 3:
+            pipe = popen("xsel --clipboard --input", "w");
+            break;
+        default:
+            return false;
     }
     if (!pipe) return false;
     const size_t written = std::fwrite(text.data(), 1, text.size(), pipe);

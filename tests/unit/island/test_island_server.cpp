@@ -30,9 +30,8 @@ namespace {
 
 /// @brief 测试客户端：连接 + 读写一行
 class TestClient {
-public:
-    explicit TestClient(const std::string& endpoint)
-        : m_conn(island::ipc::create_connector()) {
+   public:
+    explicit TestClient(const std::string& endpoint) : m_conn(island::ipc::create_connector()) {
         CHECK((m_conn && m_conn->connect(endpoint)));
     }
 
@@ -42,14 +41,13 @@ public:
         const std::string id = "r" + std::to_string(m_counter++);
         const std::string line = serialize_request(type, data, id);
         CHECK(m_conn->write(std::as_bytes(std::span(line))) > 0);
-        return read_until([&](const Envelope& e) {
-            return e.kind == island::MsgKind::Response && e.id == id;
-        });
+        return read_until(
+            [&](const Envelope& e) { return e.kind == island::MsgKind::Response && e.id == id; });
     }
 
     /// @brief 阻塞读满一行（容忍粘包：缓冲剩余数据供下次读取）
-    [[nodiscard]] std::optional<Envelope> read_line(std::chrono::milliseconds timeout
-                                                    = std::chrono::seconds(2)) {
+    [[nodiscard]] std::optional<Envelope> read_line(
+        std::chrono::milliseconds timeout = std::chrono::seconds(2)) {
         const auto deadline = std::chrono::steady_clock::now() + timeout;
         while (std::chrono::steady_clock::now() < deadline) {
             const size_t nl = m_buf.find('\n');
@@ -61,13 +59,12 @@ public:
             std::vector<std::byte> buf(65536);
             const auto n = m_conn->read(buf);
             if (n <= 0) return std::nullopt;
-            m_buf.append(reinterpret_cast<const char*>(buf.data()),
-                         static_cast<size_t>(n));
+            m_buf.append(reinterpret_cast<const char*>(buf.data()), static_cast<size_t>(n));
         }
         return std::nullopt;
     }
 
-private:
+   private:
     template <typename F>
     std::optional<Envelope> read_until(F&& pred) {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
@@ -82,7 +79,7 @@ private:
     std::string m_buf;  ///< 粘包缓冲（跨 read 保留未解析字节）
     uint64_t m_counter = 0;
 
-public:
+   public:
     [[nodiscard]] const std::string& debug_buf() const { return m_buf; }
 };
 
@@ -101,8 +98,8 @@ uint32_t current_pid() {
 }
 
 std::string unique_endpoint() {
-    return island::ipc::default_endpoint(current_pid()) + "-srv"
-         + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count() % 1000000);
+    return island::ipc::default_endpoint(current_pid()) + "-srv" +
+           std::to_string(std::chrono::steady_clock::now().time_since_epoch().count() % 1000000);
 }
 
 std::filesystem::path unique_registry_path() {
@@ -111,7 +108,7 @@ std::filesystem::path unique_registry_path() {
     return dir / ("server_registry_" + std::to_string(current_pid()) + ".json");
 }
 
-} // namespace
+}  // namespace
 
 TEST_CASE("server: hello handshake returns metadata", "[island][server]") {
     const auto ep = unique_endpoint();

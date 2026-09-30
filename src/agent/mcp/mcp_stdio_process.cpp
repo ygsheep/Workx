@@ -46,10 +46,16 @@ namespace {
 struct HandleGuard {
     HANDLE h = INVALID_HANDLE_VALUE;
     explicit HandleGuard(HANDLE handle = INVALID_HANDLE_VALUE) : h(handle) {}
-    ~HandleGuard() { if (h != INVALID_HANDLE_VALUE && h != nullptr) CloseHandle(h); }
+    ~HandleGuard() {
+        if (h != INVALID_HANDLE_VALUE && h != nullptr) CloseHandle(h);
+    }
     HandleGuard(const HandleGuard&) = delete;
     HandleGuard& operator=(const HandleGuard&) = delete;
-    HANDLE release() { HANDLE tmp = h; h = INVALID_HANDLE_VALUE; return tmp; }
+    HANDLE release() {
+        HANDLE tmp = h;
+        h = INVALID_HANDLE_VALUE;
+        return tmp;
+    }
 };
 
 /// 创建匿名管道，一端可继承（子进程持有），另一端父进程持有且不可继承
@@ -172,8 +178,8 @@ bool resolve_command(const std::string& cmd, std::wstring& out_full) {
     static const wchar_t* kExts[] = {L".exe", L".cmd", L".bat", L".com"};
     std::vector<wchar_t> buf(32768);
     for (const wchar_t* ext : kExts) {
-        DWORD n = SearchPathW(nullptr, wcmd.c_str(), ext,
-                              static_cast<DWORD>(buf.size()), buf.data(), nullptr);
+        DWORD n = SearchPathW(nullptr, wcmd.c_str(), ext, static_cast<DWORD>(buf.size()),
+                              buf.data(), nullptr);
         if (n > 0 && n < buf.size()) {
             out_full.assign(buf.data(), n);
             return true;
@@ -188,33 +194,29 @@ bool is_batch_script(const std::wstring& path) {
         const size_t sl = std::wcslen(suffix);
         if (path.size() < sl) return false;
         for (size_t i = 0; i < sl; ++i) {
-            if (std::towlower(path[path.size() - sl + i]) !=
-                std::towlower(suffix[i])) return false;
+            if (std::towlower(path[path.size() - sl + i]) != std::towlower(suffix[i])) return false;
         }
         return true;
     };
     return ends_with_ci(L".cmd") || ends_with_ci(L".bat");
 }
-#endif // _WIN32
+#endif  // _WIN32
 
-} // anonymous namespace
+}  // anonymous namespace
 
 McpStdioProcess::McpStdioProcess() = default;
 
-McpStdioProcess::~McpStdioProcess() {
-    stop();
-}
+McpStdioProcess::~McpStdioProcess() { stop(); }
 
-ResultV2<void> McpStdioProcess::start(
-    const std::string& cmd,
-    const std::vector<std::string>& args,
-    const std::map<std::string, std::string>& env) {
+ResultV2<void> McpStdioProcess::start(const std::string& cmd, const std::vector<std::string>& args,
+                                      const std::map<std::string, std::string>& env) {
 #ifdef _WIN32
     // 1. 解析命令为完整路径（PATH 搜索 + 扩展名补全，如 npx → npx.cmd）
     std::wstring resolved;
     if (!resolve_command(cmd, resolved)) {
         return ResultV2<void>::err(Error::Code::ResourceNotFound,
-            "无法在 PATH 中找到命令 '" + cmd + "'", "McpStdioProcess::start");
+                                   "无法在 PATH 中找到命令 '" + cmd + "'",
+                                   "McpStdioProcess::start");
     }
 
     // 2. 构建命令行：批处理脚本（.cmd/.bat）CreateProcessW 无法直接执行，需经 cmd.exe /c
@@ -222,8 +224,8 @@ ResultV2<void> McpStdioProcess::start(
     std::wstring cmdline;
     if (is_batch_script(resolved)) {
         std::wstring comspec(MAX_PATH, L'\0');
-        const DWORD cs = GetEnvironmentVariableW(L"ComSpec", comspec.data(),
-                                                 static_cast<DWORD>(comspec.size()));
+        const DWORD cs =
+            GetEnvironmentVariableW(L"ComSpec", comspec.data(), static_cast<DWORD>(comspec.size()));
         if (cs == 0 || cs >= comspec.size()) {
             app_name = L"cmd.exe";  // 兜底：依赖 PATH 解析
         } else {
@@ -250,13 +252,13 @@ ResultV2<void> McpStdioProcess::start(
     HANDLE stdin_parent = INVALID_HANDLE_VALUE, stdin_child = INVALID_HANDLE_VALUE;
     HANDLE stdout_parent = INVALID_HANDLE_VALUE, stdout_child = INVALID_HANDLE_VALUE;
     if (!create_pipe(&stdin_parent, &stdin_child, /*child_reads=*/true)) {
-        return ResultV2<void>::err(Error::Code::InternalError,
-            "CreatePipe(stdin) failed", "McpStdioProcess::start");
+        return ResultV2<void>::err(Error::Code::InternalError, "CreatePipe(stdin) failed",
+                                   "McpStdioProcess::start");
     }
     HandleGuard g_stdin_parent(stdin_parent), g_stdin_child(stdin_child);
     if (!create_pipe(&stdout_parent, &stdout_child, /*child_reads=*/false)) {
-        return ResultV2<void>::err(Error::Code::InternalError,
-            "CreatePipe(stdout) failed", "McpStdioProcess::start");
+        return ResultV2<void>::err(Error::Code::InternalError, "CreatePipe(stdout) failed",
+                                   "McpStdioProcess::start");
     }
     HandleGuard g_stdout_parent(stdout_parent), g_stdout_child(stdout_child);
 
@@ -270,17 +272,13 @@ ResultV2<void> McpStdioProcess::start(
     PROCESS_INFORMATION pi{};
 
     std::wstring env_block = build_environment_block(env);
-    if (!CreateProcessW(
-            app_name.c_str(),
-            cmdline.data(),
-            nullptr, nullptr,
-            TRUE,   // bInheritHandles（继承管道句柄）
-            CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT,
-            env_block.empty() ? nullptr : env_block.data(),
-            nullptr,
-            &si, &pi)) {
+    if (!CreateProcessW(app_name.c_str(), cmdline.data(), nullptr, nullptr,
+                        TRUE,  // bInheritHandles（继承管道句柄）
+                        CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT,
+                        env_block.empty() ? nullptr : env_block.data(), nullptr, &si, &pi)) {
         DWORD err = GetLastError();
-        return ResultV2<void>::err(Error::Code::ResourceNotFound,
+        return ResultV2<void>::err(
+            Error::Code::ResourceNotFound,
             "CreateProcessW failed for '" + cmd + "' (error " + std::to_string(err) + ")",
             "McpStdioProcess::start");
     }
@@ -305,26 +303,38 @@ ResultV2<void> McpStdioProcess::start(
     int stdin_pipe[2] = {-1, -1};
     int stdout_pipe[2] = {-1, -1};
     if (pipe(stdin_pipe) < 0 || pipe(stdout_pipe) < 0) {
-        if (stdin_pipe[0] >= 0) { close(stdin_pipe[0]); close(stdin_pipe[1]); }
-        if (stdout_pipe[0] >= 0) { close(stdout_pipe[0]); close(stdout_pipe[1]); }
+        if (stdin_pipe[0] >= 0) {
+            close(stdin_pipe[0]);
+            close(stdin_pipe[1]);
+        }
+        if (stdout_pipe[0] >= 0) {
+            close(stdout_pipe[0]);
+            close(stdout_pipe[1]);
+        }
         return ResultV2<void>::err(Error::Code::InternalError,
-            "pipe() failed: " + std::string(strerror(errno)), "McpStdioProcess::start");
+                                   "pipe() failed: " + std::string(strerror(errno)),
+                                   "McpStdioProcess::start");
     }
 
     pid_t pid = fork();
     if (pid < 0) {
-        close(stdin_pipe[0]); close(stdin_pipe[1]);
-        close(stdout_pipe[0]); close(stdout_pipe[1]);
+        close(stdin_pipe[0]);
+        close(stdin_pipe[1]);
+        close(stdout_pipe[0]);
+        close(stdout_pipe[1]);
         return ResultV2<void>::err(Error::Code::InternalError,
-            "fork() failed: " + std::string(strerror(errno)), "McpStdioProcess::start");
+                                   "fork() failed: " + std::string(strerror(errno)),
+                                   "McpStdioProcess::start");
     }
 
     if (pid == 0) {
         // 子进程
         dup2(stdin_pipe[0], STDIN_FILENO);
         dup2(stdout_pipe[1], STDOUT_FILENO);
-        close(stdin_pipe[0]); close(stdin_pipe[1]);
-        close(stdout_pipe[0]); close(stdout_pipe[1]);
+        close(stdin_pipe[0]);
+        close(stdin_pipe[1]);
+        close(stdout_pipe[0]);
+        close(stdout_pipe[1]);
 
         signal(SIGINT, SIG_DFL);
         signal(SIGQUIT, SIG_DFL);
@@ -436,28 +446,28 @@ void McpStdioProcess::stop() {
 ResultV2<void> McpStdioProcess::write_line(const std::string& line) {
 #ifdef _WIN32
     if (!m_h_stdin_write) {
-        return ResultV2<void>::err(Error::Code::NetworkDisconnected,
-            "MCP stdio 管道已关闭", "McpStdioProcess::write_line");
+        return ResultV2<void>::err(Error::Code::NetworkDisconnected, "MCP stdio 管道已关闭",
+                                   "McpStdioProcess::write_line");
     }
     std::string data = line + "\n";
     DWORD written = 0;
     if (!WriteFile(static_cast<HANDLE>(m_h_stdin_write), data.data(),
                    static_cast<DWORD>(data.size()), &written, nullptr)) {
-        return ResultV2<void>::err(Error::Code::NetworkDisconnected,
-            "MCP stdio 写入失败", "McpStdioProcess::write_line");
+        return ResultV2<void>::err(Error::Code::NetworkDisconnected, "MCP stdio 写入失败",
+                                   "McpStdioProcess::write_line");
     }
     return ResultV2<void>::ok();
 #else
     if (m_stdin_fd < 0) {
-        return ResultV2<void>::err(Error::Code::NetworkDisconnected,
-            "MCP stdio 管道已关闭", "McpStdioProcess::write_line");
+        return ResultV2<void>::err(Error::Code::NetworkDisconnected, "MCP stdio 管道已关闭",
+                                   "McpStdioProcess::write_line");
     }
     std::string data = line + "\n";
     ssize_t n = write(m_stdin_fd, data.data(), data.size());
     if (n < 0) {
         return ResultV2<void>::err(Error::Code::NetworkDisconnected,
-            "MCP stdio 写入失败: " + std::string(strerror(errno)),
-            "McpStdioProcess::write_line");
+                                   "MCP stdio 写入失败: " + std::string(strerror(errno)),
+                                   "McpStdioProcess::write_line");
     }
     return ResultV2<void>::ok();
 #endif
@@ -471,8 +481,8 @@ ResultV2<std::string> McpStdioProcess::read_line(int timeout_ms) {
         return ResultV2<std::string>::ok(std::move(line));
     }
     if (m_eof) {
-        return ResultV2<std::string>::err(Error::Code::NetworkDisconnected,
-            "MCP stdio 已 EOF", "McpStdioProcess::read_line");
+        return ResultV2<std::string>::err(Error::Code::NetworkDisconnected, "MCP stdio 已 EOF",
+                                          "McpStdioProcess::read_line");
     }
 
     if (timeout_ms <= 0) {
@@ -488,12 +498,12 @@ ResultV2<std::string> McpStdioProcess::read_line(int timeout_ms) {
         return ResultV2<std::string>::ok(std::move(line));
     }
     if (m_eof) {
-        return ResultV2<std::string>::err(Error::Code::NetworkDisconnected,
-            "MCP stdio 已 EOF", "McpStdioProcess::read_line");
+        return ResultV2<std::string>::err(Error::Code::NetworkDisconnected, "MCP stdio 已 EOF",
+                                          "McpStdioProcess::read_line");
     }
     return ResultV2<std::string>::err(Error::Code::NetworkTimeout,
-        "MCP stdio 读取超时 (" + std::to_string(timeout_ms) + "ms)",
-        "McpStdioProcess::read_line");
+                                      "MCP stdio 读取超时 (" + std::to_string(timeout_ms) + "ms)",
+                                      "McpStdioProcess::read_line");
 }
 
 bool McpStdioProcess::is_alive() const {
@@ -575,4 +585,4 @@ void McpStdioProcess::reader_thread_main() {
     m_cv.notify_all();
 }
 
-} // namespace agent::mcp
+}  // namespace agent::mcp

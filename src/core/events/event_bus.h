@@ -24,7 +24,7 @@
 namespace agent {
 
 class WORKX_API EventBus final : public IEventBus {
-public:
+   public:
     static EventBus& instance() noexcept {
         static EventBus inst;
         return inst;
@@ -44,13 +44,11 @@ public:
         auto token = EventToken(m_next_token_id++);
 
         auto& callbacks = m_callbacks[type];
-        callbacks.push_back(CallbackWrapper{
-            .callback = std::move(callback),
-            .token_id = token.get_id()
-        });
+        callbacks.push_back(
+            CallbackWrapper{.callback = std::move(callback), .token_id = token.get_id()});
 
-        LOG_DEBUG("[event={}] subscribe, token={}, total_subscribers={}",
-                  type.name(), token.get_id(), callbacks.size());
+        LOG_DEBUG("[event={}] subscribe, token={}, total_subscribers={}", type.name(),
+                  token.get_id(), callbacks.size());
         return token;
     }
 
@@ -62,15 +60,13 @@ public:
         auto it = m_callbacks.find(type);
         if (it != m_callbacks.end()) {
             auto& callbacks = it->second;
-            callbacks.erase(
-                std::remove_if(callbacks.begin(), callbacks.end(),
-                    [&token](const CallbackWrapper& wrapper) {
-                        return wrapper.token_id == token.get_id();
-                    }),
-                callbacks.end()
-            );
-            LOG_DEBUG("[event={}] unsubscribe, token={}, remaining={}",
-                      type.name(), token.get_id(), callbacks.size());
+            callbacks.erase(std::remove_if(callbacks.begin(), callbacks.end(),
+                                           [&token](const CallbackWrapper& wrapper) {
+                                               return wrapper.token_id == token.get_id();
+                                           }),
+                            callbacks.end());
+            LOG_DEBUG("[event={}] unsubscribe, token={}, remaining={}", type.name(), token.get_id(),
+                      callbacks.size());
         }
     }
 
@@ -95,18 +91,15 @@ public:
         }
     }
 
-    void publish_async_raw(std::type_index type,
-                           std::function<void()> emitter) override {
+    void publish_async_raw(std::type_index type, std::function<void()> emitter) override {
         std::lock_guard<std::mutex> lock(m_async_mutex);
         m_async_queue.push_back(std::move(emitter));
         // G-1 日志：记录事件入队与队列积压
         const size_t queue_size = m_async_queue.size();
         if (queue_size > 100) {
-            LOG_WARN("[event={}] publish_async backlog: {} events",
-                     type.name(), queue_size);
+            LOG_WARN("[event={}] publish_async backlog: {} events", type.name(), queue_size);
         } else {
-            LOG_DEBUG("[event={}] publish_async enqueue, queue_size={}",
-                      type.name(), queue_size);
+            LOG_DEBUG("[event={}] publish_async enqueue, queue_size={}", type.name(), queue_size);
         }
     }
 
@@ -118,8 +111,8 @@ public:
             m_async_queue.clear();
         }
         if (!queue_copy.empty()) {
-            LOG_DEBUG("process {} async events, remaining={}",
-                      queue_copy.size(), m_async_queue.size());
+            LOG_DEBUG("process {} async events, remaining={}", queue_copy.size(),
+                      m_async_queue.size());
         }
         for (auto& callback : queue_copy) {
             callback();
@@ -141,8 +134,8 @@ public:
             queue_size = m_async_queue.size();
             m_async_queue.clear();
         }
-        LOG_INFO("EventBus cleared: {} subscribers, {} async events dropped",
-                 subscriber_count, queue_size);
+        LOG_INFO("EventBus cleared: {} subscribers, {} async events dropped", subscriber_count,
+                 queue_size);
     }
 
     // === 诊断接口 ===
@@ -161,14 +154,14 @@ public:
         return total;
     }
 
-protected:
+   protected:
     [[nodiscard]] size_t subscriber_count_typed(std::type_index type) const override {
         std::lock_guard<std::mutex> lock(m_mutex);
         auto it = m_callbacks.find(type);
         return it != m_callbacks.end() ? it->second.size() : 0;
     }
 
-private:
+   private:
     EventBus() = default;
     ~EventBus() override = default;
 
@@ -192,4 +185,4 @@ private:
 //   bus.unsubscribe<T>(token);
 // 或在 RAII 容器中持有 EventToken 并在析构时调用 bus.unsubscribe()。
 
-} // namespace agent
+}  // namespace agent

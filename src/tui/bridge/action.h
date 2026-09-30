@@ -28,7 +28,7 @@ namespace ftxtui {
 
 /// @brief 追加一条已完成的消息（用户/历史回放/本地命令回显）
 struct ActionAppendMessage {
-    std::string role;   ///< "user" / "assistant"
+    std::string role;  ///< "user" / "assistant"
     std::string text;
 };
 
@@ -37,9 +37,9 @@ struct ActionAppendMessage {
 ///          以复用现有「Skills：名」工具卡渲染。卡片仅存在于 ViewModel 转录区，
 ///          不进入会话模型上下文（实际发往模型的仍是技能展开后的提示词）。
 struct ActionAppendSkill {
-    std::string name;      ///< 技能名（不含前导 /）
-    std::string input;     ///< 用户传入的参数文本（卡内展示）
-    bool is_error = false; ///< 技能本地解析是否出错
+    std::string name;       ///< 技能名（不含前导 /）
+    std::string input;      ///< 用户传入的参数文本（卡内展示）
+    bool is_error = false;  ///< 技能本地解析是否出错
 };
 
 /// @brief 本地命令执行完成：合成 Bash 卡片（！命令，跨平台 cmd/sh）
@@ -47,16 +47,16 @@ struct ActionAppendSkill {
 ///          （tool_name="Bash"，arguments 含 command，result 用 <stdout>/<stderr>/
 ///          <exit_code> 或 <error> 标签）。卡片只存在于 ViewModel 转录区。
 struct ActionAppendCmdResult {
-    std::string command;   ///< 命令文本（卡 subject 展示）
-    std::string result;    ///< 已组装好标签文本（<stdout>/<stderr>/<exit_code> 或 <error>）
-    bool is_error = false; ///< 执行/退出码非 0 是否视为失败（默认展开）
+    std::string command;  ///< 命令文本（卡 subject 展示）
+    std::string result;  ///< 已组装好标签文本（<stdout>/<stderr>/<exit_code> 或 <error>）
+    bool is_error = false;  ///< 执行/退出码非 0 是否视为失败（默认展开）
 };
 
 /// @brief 把结构化命令结果作为用户消息提交给模型（！命令 + Ctrl+Enter）
 /// @details UI 线程处理：回显 user 消息 + 置 busy + on_submit（文本已含命令、
 ///          退出码与输出，便于模型理解上下文）。
 struct ActionSubmitCmdToModel {
-    std::string text;      ///< 结构化文本（用户执行了什么命令、结果如何）
+    std::string text;  ///< 结构化文本（用户执行了什么命令、结果如何）
 };
 
 /// @brief 流式正文增量（追加到当前流式消息节点）
@@ -157,23 +157,23 @@ struct ActionOpenPlan {
 struct ActionCacheDiagnostics {
     std::string prefix_hash;
     bool prefix_changed = false;
-    std::vector<std::string> reasons;   ///< 变化原因（"system"/"tools"/"log_rewrite"）
+    std::vector<std::string> reasons;  ///< 变化原因（"system"/"tools"/"log_rewrite"）
     int32_t cache_hit_tokens = 0;
     int32_t cache_miss_tokens = 0;
 };
 
 /// @brief 压缩暂停/恢复事件（DS_CACHE H-3 卡死守卫）
 struct ActionCompactionPaused {
-    bool paused = true;                 ///< true=守卫触发暂停；false=自愈恢复
+    bool paused = true;  ///< true=守卫触发暂停；false=自愈恢复
     int32_t consecutive_compacts = 0;
-    std::string notice;                 ///< 人类可读说明
+    std::string notice;  ///< 人类可读说明
 };
 
 /// @brief 排队消息条目（TUI 侧轻量拷贝，避免 action.h 依赖 agent 层 QueuedMessageItem）
 struct QueueItemLite {
-    std::string id;           ///< uuid（单条移除用）
-    std::string text;         ///< 用户文本（队列卡片展示）
-    int64_t queued_at_ms = 0; ///< 入队时刻（毫秒时间戳）
+    std::string id;            ///< uuid（单条移除用）
+    std::string text;          ///< 用户文本（队列卡片展示）
+    int64_t queued_at_ms = 0;  ///< 入队时刻（毫秒时间戳）
 };
 
 /// @brief 消息队列更新（模型忙碌时前端入队的用户消息）
@@ -189,15 +189,15 @@ struct ActionQueueUpdate {
 struct ActionSubAgentProgress {
     std::string task_id;
     int32_t step_number = 0;
-    std::string step_type;              ///< "thought"/"action"/"observation"/"final"
+    std::string step_type;  ///< "thought"/"action"/"observation"/"final"
     std::string content;
     // --- v1.3.0 结构化字段（与 ReActStep 对应）---
-    std::string thought_text;           ///< thought/final 的 LLM 文本
-    std::string tool_name;              ///< action 的工具名
-    std::string tool_input;             ///< action 的工具参数 JSON 字符串
-    std::string observation;            ///< observation 的工具结果文本
-    bool is_error = false;              ///< 工具执行是否出错
-    double duration_ms = 0.0;           ///< 本步骤耗时（毫秒，思考卡标签展示用）
+    std::string thought_text;  ///< thought/final 的 LLM 文本
+    std::string tool_name;     ///< action 的工具名
+    std::string tool_input;    ///< action 的工具参数 JSON 字符串
+    std::string observation;   ///< observation 的工具结果文本
+    bool is_error = false;     ///< 工具执行是否出错
+    double duration_ms = 0.0;  ///< 本步骤耗时（毫秒，思考卡标签展示用）
 };
 
 /// @brief 子 Agent 完成（AgentTool → 订阅者）
@@ -220,14 +220,15 @@ struct ActionToast {
 /// @brief 模型列表加载完成（App 后台线程 list_models 后入队）
 struct ActionModelsLoaded {
     std::vector<std::string> models;
-    std::vector<agent::ModelInfo> models_info;  ///< 完整模型信息（含 context_length，切换时解析窗口）
+    std::vector<agent::ModelInfo>
+        models_info;  ///< 完整模型信息（含 context_length，切换时解析窗口）
 };
 
 /// @brief 会话列表条目（UI 侧轻量拷贝，避免 action.h 依赖 SessionStore）
 struct SessionLite {
-    std::string title;       ///< 会话标题（无则回退 session_id）
-    std::string file_path;   ///< JSONL 文件路径（恢复用）
-    std::string project_name;///< 项目名称（cwd 末级目录名，展示用）
+    std::string title;         ///< 会话标题（无则回退 session_id）
+    std::string file_path;     ///< JSONL 文件路径（恢复用）
+    std::string project_name;  ///< 项目名称（cwd 末级目录名，展示用）
     int message_count = 0;
 };
 
@@ -259,11 +260,11 @@ struct ActionTodoUpdate {
 
 /// @brief MCP server 状态条目（#27 M4：侧栏展示）
 struct McpServerLite {
-    std::string name;       ///< server 名
-    std::string protocol;   ///< 协商协议版本（"2026-07-28" / "2025-11-25"）
-    int tool_count = 0;     ///< 已预取工具数
-    int state = 0;          ///< 0=连接中 1=已连接 2=失败
-    std::string error;      ///< 失败原因（state==2 时）
+    std::string name;      ///< server 名
+    std::string protocol;  ///< 协商协议版本（"2026-07-28" / "2025-11-25"）
+    int tool_count = 0;    ///< 已预取工具数
+    int state = 0;         ///< 0=连接中 1=已连接 2=失败
+    std::string error;     ///< 失败原因（state==2 时）
 };
 
 /// @brief MCP server 状态更新（#27 M4：启动时查询 + 后台连接事件驱动）
@@ -277,12 +278,12 @@ struct ActionMcpStatus {
 ///          children 嵌套，文件用 status 标记 git 状态点。rel_path 为相对项目根
 ///          的 '/' 分隔路径（目录/文件唯一键，合并保留展开状态用）。
 struct ProjectNode {
-    std::string name;          ///< 展示名（叶子名）
-    std::string rel_path;      ///< 相对项目根路径（合并/展开键）
+    std::string name;      ///< 展示名（叶子名）
+    std::string rel_path;  ///< 相对项目根路径（合并/展开键）
     bool is_dir = false;
-    bool expanded = false;     ///< 目录展开状态（UI 线程维护；默认收起，避免自动全部展开）
-    char status = ' ';         ///< git porcelain 状态码（'M'/'A'/'D'/'R'/'?'，' '=clean）
-    bool has_status = false;   ///< 是否在 git 中处于非干净状态（渲染状态点）
+    bool expanded = false;  ///< 目录展开状态（UI 线程维护；默认收起，避免自动全部展开）
+    char status = ' ';        ///< git porcelain 状态码（'M'/'A'/'D'/'R'/'?'，' '=clean）
+    bool has_status = false;  ///< 是否在 git 中处于非干净状态（渲染状态点）
     std::vector<ProjectNode> children;  ///< 子节点（仅目录）
 };
 
@@ -290,10 +291,10 @@ struct ProjectNode {
 /// @details 携带完整树 + 项目根 + 是否 git 仓库；ViewModel 合并入 tabs.project
 ///          （保留既有目录展开状态）。
 struct ActionProjectFiles {
-    std::string root;                   ///< 项目根目录（相对路径解析基准）
-    bool is_git = false;                ///< 是否为 git 仓库
-    bool loading = false;               ///< 仅用于初始化占位（true=加载中）
-    std::vector<ProjectNode> tree;      ///< 根 children
+    std::string root;               ///< 项目根目录（相对路径解析基准）
+    bool is_git = false;            ///< 是否为 git 仓库
+    bool loading = false;           ///< 仅用于初始化占位（true=加载中）
+    std::vector<ProjectNode> tree;  ///< 根 children
 };
 
 /// @brief Hook 执行进度（订阅 HookProgressEvent → 输入区上方进度条）
@@ -301,49 +302,24 @@ struct ActionProjectFiles {
 ///          合并为一条卡片（进行中用 spinner，结束打勾/叉）。
 struct ActionHookProgress {
     uint64_t hook_id = 0;
-    std::string event;      ///< PreToolUse/PostToolUse/Stop/...
-    std::string phase;      ///< start / done / failed
-    std::string hook_type;  ///< command / http / prompt / agent
-    std::string tool_name;  ///< 关联工具名
-    std::string message;    ///< 执行结果摘要（done/failed）
-    std::string hook_label; ///< 展示标签
+    std::string event;       ///< PreToolUse/PostToolUse/Stop/...
+    std::string phase;       ///< start / done / failed
+    std::string hook_type;   ///< command / http / prompt / agent
+    std::string tool_name;   ///< 关联工具名
+    std::string message;     ///< 执行结果摘要（done/failed）
+    std::string hook_label;  ///< 展示标签
 };
 
 /// @brief 统一动作类型
-using Action = std::variant<
-    ActionAppendMessage,
-    ActionAppendSkill,
-    ActionAppendCmdResult,
-    ActionSubmitCmdToModel,
-    ActionTokenDelta,
-    ActionReasoningDelta,
-    ActionStepDone,
-    ActionTurnDone,
-    ActionError,
-    ActionBeginTool,
-    ActionEndTool,
-    ActionAgentDone,
-    ActionSetBusy,
-    ActionPermissions,
-    ActionSetMode,
-    ActionAskUser,
-    ActionAskUserTimeout,
-    ActionOpenPlan,
-    ActionCacheDiagnostics,
-    ActionCompactionPaused,
-    ActionQueueUpdate,
-    ActionSubAgentProgress,
-    ActionSubAgentCompleted,
-    ActionHookProgress,
-    ActionShutdown,
-    ActionToast,
-    ActionModelsLoaded,
-    ActionSessionsLoaded,
-    ActionProviderSwitched,
-    ActionProviderSwitchFailed,
-    ActionTodoUpdate,
-    ActionMcpStatus,
-    ActionProjectFiles
->;
+using Action =
+    std::variant<ActionAppendMessage, ActionAppendSkill, ActionAppendCmdResult,
+                 ActionSubmitCmdToModel, ActionTokenDelta, ActionReasoningDelta, ActionStepDone,
+                 ActionTurnDone, ActionError, ActionBeginTool, ActionEndTool, ActionAgentDone,
+                 ActionSetBusy, ActionPermissions, ActionSetMode, ActionAskUser,
+                 ActionAskUserTimeout, ActionOpenPlan, ActionCacheDiagnostics,
+                 ActionCompactionPaused, ActionQueueUpdate, ActionSubAgentProgress,
+                 ActionSubAgentCompleted, ActionHookProgress, ActionShutdown, ActionToast,
+                 ActionModelsLoaded, ActionSessionsLoaded, ActionProviderSwitched,
+                 ActionProviderSwitchFailed, ActionTodoUpdate, ActionMcpStatus, ActionProjectFiles>;
 
 }  // namespace ftxtui

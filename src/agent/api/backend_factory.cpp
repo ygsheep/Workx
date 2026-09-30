@@ -12,7 +12,7 @@
 namespace agent {
 
 std::unique_ptr<IBackend> BackendFactory::create(const BackendConfig& config,
-                                                   IEventBus* event_bus) {
+                                                 IEventBus* event_bus) {
     switch (config.type) {
         case BackendConfig::Type::Remote:
             return std::make_unique<RemoteBackend>(event_bus);
@@ -24,4 +24,4 @@ std::unique_ptr<IBackend> BackendFactory::create(const BackendConfig& config,
     }
 }
 
-} // namespace agent
+}  // namespace agent

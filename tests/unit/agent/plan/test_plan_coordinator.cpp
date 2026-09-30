@@ -25,9 +25,7 @@ using namespace agent::test;
 namespace {
 
 /// @brief 冷却默认（auto+interview 全开启）的协调器
-PlanCoordinator make_default_coordinator(MockConfigManager& cfg) {
-    return PlanCoordinator(cfg);
-}
+PlanCoordinator make_default_coordinator(MockConfigManager& cfg) { return PlanCoordinator(cfg); }
 
 void run_explore_click(PlanCoordinator& pc) {
     // 模拟宿主：逐个收尾 explore 任务（按启动顺序）
@@ -37,7 +35,7 @@ void run_explore_click(PlanCoordinator& pc) {
     }
 }
 
-} // namespace
+}  // namespace
 
 TEST_CASE("PlanCoordinator auto+interview: begin_plan stays in Interview", "[plan]") {
     MockConfigManager cfg;
@@ -56,9 +54,8 @@ TEST_CASE("PlanCoordinator skips interview when disabled and auto on", "[plan]")
     PlanCoordinator pc = make_default_coordinator(cfg);
 
     int launched = 0;
-    pc.set_explore_runner([&](const std::string&, const std::string&, const std::string&) {
-        ++launched;
-    });
+    pc.set_explore_runner(
+        [&](const std::string&, const std::string&, const std::string&) { ++launched; });
     pc.begin_plan("refactor");
     REQUIRE(pc.stage() == PlanStage::Exploring);
     REQUIRE(launched == pc.explore_agent_count());
@@ -72,12 +69,12 @@ TEST_CASE("PlanCoordinator launches explore_agent_count parallel tasks", "[plan]
     PlanCoordinator pc = make_default_coordinator(cfg);
 
     std::vector<std::string> task_ids;
-    pc.set_explore_runner([&](const std::string& id, const std::string& area,
-                              const std::string& prompt) {
-        task_ids.push_back(id);
-        REQUIRE_FALSE(area.empty());
-        REQUIRE_FALSE(prompt.empty());
-    });
+    pc.set_explore_runner(
+        [&](const std::string& id, const std::string& area, const std::string& prompt) {
+            task_ids.push_back(id);
+            REQUIRE_FALSE(area.empty());
+            REQUIRE_FALSE(prompt.empty());
+        });
     pc.begin_plan("refactor");
     REQUIRE(task_ids.size() == 4);
     REQUIRE(pc.active_task_ids().size() == 4);
@@ -95,9 +92,8 @@ TEST_CASE("PlanCoordinator interview → interview notes → explore", "[plan]")
     REQUIRE(pc.stage() == PlanStage::Interview);
 
     int launched = 0;
-    pc.set_explore_runner([&](const std::string&, const std::string&, const std::string&) {
-        ++launched;
-    });
+    pc.set_explore_runner(
+        [&](const std::string&, const std::string&, const std::string&) { ++launched; });
     pc.set_interview_notes("约束：保持兼容，只读调研");
     REQUIRE(pc.stage() == PlanStage::Exploring);
     REQUIRE(launched == pc.explore_agent_count());
@@ -139,9 +135,7 @@ TEST_CASE("PlanCoordinator PlanRunner supplies structured artifact + critical_fi
         a.summary = "综合方案";
         a.interview_notes = notes;
         a.critical_files = {"src/module.cpp", "include/module.h"};
-        a.steps = nlohmann::json::array({{
-            {"action", "改接口"}, {"detail", "调整 module.h"}
-        }});
+        a.steps = nlohmann::json::array({{{"action", "改接口"}, {"detail", "调整 module.h"}}});
         a.risks = nlohmann::json::array({"风险A"});
         a.findings = findings;
         return a;
@@ -254,7 +248,8 @@ TEST_CASE("explore conclusion critical files are extracted into finding and aggr
     REQUIRE_FALSE(ids.empty());
 
     // 手动回报含路径的 explore 结论 → 关键文件应从文本中解析出来
-    pc.on_explore_task_done(ids[0],
+    pc.on_explore_task_done(
+        ids[0],
         "Key files: src/agent/core/react_loop.cpp and src/agent/tool/registry.h; "
         "also tests/unit/test_plan_mode_tools.cpp.",
         false);
@@ -262,13 +257,13 @@ TEST_CASE("explore conclusion critical files are extracted into finding and aggr
     REQUIRE(pc.findings().size() == 1);
     const auto& critical = pc.findings()[0].critical_files;
     REQUIRE_FALSE(critical.empty());
-    REQUIRE(std::find(critical.begin(), critical.end(), "src/agent/core/react_loop.cpp")
-            != critical.end());
-    REQUIRE(std::find(critical.begin(), critical.end(), "src/agent/tool/registry.h")
-            != critical.end());
+    REQUIRE(std::find(critical.begin(), critical.end(), "src/agent/core/react_loop.cpp") !=
+            critical.end());
+    REQUIRE(std::find(critical.begin(), critical.end(), "src/agent/tool/registry.h") !=
+            critical.end());
 
     // 机械综合产物应聚合到该文件（M-1 修复：不再恒为空）
     const auto& aggregated = pc.artifact().critical_files;
-    REQUIRE(std::find(aggregated.begin(), aggregated.end(), "src/agent/core/react_loop.cpp")
-            != aggregated.end());
+    REQUIRE(std::find(aggregated.begin(), aggregated.end(), "src/agent/core/react_loop.cpp") !=
+            aggregated.end());
 }

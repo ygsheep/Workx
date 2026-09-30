@@ -11,9 +11,7 @@ using namespace agent;
 TEST_CASE("SSEParser basic event", "[sse]") {
     std::vector<SSEEvent> events;
 
-    SSEParser parser([&](const SSEEvent& event) {
-        events.push_back(event);
-    });
+    SSEParser parser([&](const SSEEvent& event) { events.push_back(event); });
 
     parser.parse("data: hello\n\n");
 
@@ -24,9 +22,7 @@ TEST_CASE("SSEParser basic event", "[sse]") {
 TEST_CASE("SSEParser multiple events", "[sse]") {
     std::vector<SSEEvent> events;
 
-    SSEParser parser([&](const SSEEvent& event) {
-        events.push_back(event);
-    });
+    SSEParser parser([&](const SSEEvent& event) { events.push_back(event); });
 
     parser.parse("data: first\n\ndata: second\n\n");
 
@@ -38,9 +34,7 @@ TEST_CASE("SSEParser multiple events", "[sse]") {
 TEST_CASE("SSEParser event with id", "[sse]") {
     std::vector<SSEEvent> events;
 
-    SSEParser parser([&](const SSEEvent& event) {
-        events.push_back(event);
-    });
+    SSEParser parser([&](const SSEEvent& event) { events.push_back(event); });
 
     parser.parse("id: 42\ndata: test\n\n");
 
@@ -52,9 +46,7 @@ TEST_CASE("SSEParser event with id", "[sse]") {
 TEST_CASE("SSEParser event field", "[sse]") {
     std::vector<SSEEvent> events;
 
-    SSEParser parser([&](const SSEEvent& event) {
-        events.push_back(event);
-    });
+    SSEParser parser([&](const SSEEvent& event) { events.push_back(event); });
 
     parser.parse("event: custom\ndata: payload\n\n");
 
@@ -66,9 +58,7 @@ TEST_CASE("SSEParser event field", "[sse]") {
 TEST_CASE("SSEParser split data lines", "[sse]") {
     std::vector<SSEEvent> events;
 
-    SSEParser parser([&](const SSEEvent& event) {
-        events.push_back(event);
-    });
+    SSEParser parser([&](const SSEEvent& event) { events.push_back(event); });
 
     parser.parse("data: line1\ndata: line2\n\n");
 
@@ -79,9 +69,7 @@ TEST_CASE("SSEParser split data lines", "[sse]") {
 TEST_CASE("SSEParser incremental parsing", "[sse]") {
     std::vector<SSEEvent> events;
 
-    SSEParser parser([&](const SSEEvent& event) {
-        events.push_back(event);
-    });
+    SSEParser parser([&](const SSEEvent& event) { events.push_back(event); });
 
     parser.parse("data: hel");
     REQUIRE(events.empty());
@@ -94,9 +82,7 @@ TEST_CASE("SSEParser incremental parsing", "[sse]") {
 TEST_CASE("SSEParser ignore comments", "[sse]") {
     std::vector<SSEEvent> events;
 
-    SSEParser parser([&](const SSEEvent& event) {
-        events.push_back(event);
-    });
+    SSEParser parser([&](const SSEEvent& event) { events.push_back(event); });
 
     parser.parse(": this is a comment\ndata: real\n\n");
 
@@ -107,12 +93,12 @@ TEST_CASE("SSEParser ignore comments", "[sse]") {
 TEST_CASE("SSEParser anthropic-style named events", "[sse]") {
     std::vector<SSEEvent> events;
 
-    SSEParser parser([&](const SSEEvent& event) {
-        events.push_back(event);
-    });
+    SSEParser parser([&](const SSEEvent& event) { events.push_back(event); });
 
     // Anthropic 使用 event: + data: 组合
-    parser.parse("event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"Hello\"}}\n\n");
+    parser.parse(
+        "event: content_block_delta\ndata: "
+        "{\"type\":\"content_block_delta\",\"delta\":{\"text\":\"Hello\"}}\n\n");
 
     REQUIRE(events.size() == 1);
     REQUIRE(events[0].event == "content_block_delta");
@@ -122,9 +108,7 @@ TEST_CASE("SSEParser anthropic-style named events", "[sse]") {
 TEST_CASE("SSEParser anthropic message_stop event", "[sse]") {
     std::vector<SSEEvent> events;
 
-    SSEParser parser([&](const SSEEvent& event) {
-        events.push_back(event);
-    });
+    SSEParser parser([&](const SSEEvent& event) { events.push_back(event); });
 
     parser.parse("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n");
 
@@ -136,9 +120,7 @@ TEST_CASE("SSEParser anthropic message_stop event", "[sse]") {
 TEST_CASE("SSEParser event with data and no event field - OpenAI style", "[sse]") {
     std::vector<SSEEvent> events;
 
-    SSEParser parser([&](const SSEEvent& event) {
-        events.push_back(event);
-    });
+    SSEParser parser([&](const SSEEvent& event) { events.push_back(event); });
 
     // OpenAI 格式：只有 data，没有 event
     parser.parse("data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n\n");
@@ -151,9 +133,7 @@ TEST_CASE("SSEParser event with data and no event field - OpenAI style", "[sse]"
 TEST_CASE("SSEParser empty data", "[sse]") {
     std::vector<SSEEvent> events;
 
-    SSEParser parser([&](const SSEEvent& event) {
-        events.push_back(event);
-    });
+    SSEParser parser([&](const SSEEvent& event) { events.push_back(event); });
 
     parser.parse("data:\n\n");
 

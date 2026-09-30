@@ -55,7 +55,8 @@ TEST_CASE("Error code_string", "[error]") {
 }
 
 TEST_CASE("Error to_string with context", "[error]") {
-    Error e{Error::Code::NetworkTimeout, "Request timed out after 30000ms", "url=https://api.example.com"};
+    Error e{Error::Code::NetworkTimeout, "Request timed out after 30000ms",
+            "url=https://api.example.com"};
     REQUIRE_THAT(e.to_string(),
                  ContainsSubstring("[NetworkTimeout]") && ContainsSubstring("Request timed out"));
     REQUIRE_THAT(e.to_string(), ContainsSubstring("context=url=https://api.example.com"));
@@ -63,7 +64,8 @@ TEST_CASE("Error to_string with context", "[error]") {
 
 TEST_CASE("Error to_string without context", "[error]") {
     Error e{Error::Code::Unknown, "Something went wrong"};
-    REQUIRE_THAT(e.to_string(), ContainsSubstring("[Unknown]") && ContainsSubstring("Something went wrong"));
+    REQUIRE_THAT(e.to_string(),
+                 ContainsSubstring("[Unknown]") && ContainsSubstring("Something went wrong"));
     REQUIRE_FALSE(e.to_string().find("context=") != std::string::npos);
 }
 

@@ -23,7 +23,7 @@ std::shared_ptr<const ModelCatalog> make_catalog(std::string_view json) {
     return std::make_shared<const ModelCatalog>(std::move(result.value()));
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 TEST_CASE("resolve_context_length priority chain", "[model][resolver]") {
     auto catalog = make_catalog(R"({

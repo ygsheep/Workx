@@ -27,7 +27,7 @@ namespace agent {
 /// @brief 缓存感知分级压缩器
 /// @details 有状态（卡死计数器、rewrite_version），非线程安全（调用方须串行调用 maybe_compact）
 class CacheAwareCompactor {
-public:
+   public:
     /// @brief 压缩配置
     struct Config {
         int32_t context_window_tokens = 1'000'000;  ///< 上下文窗口（DeepSeek 默认 1M）
@@ -38,9 +38,9 @@ public:
         float compact_ratio = 0.8f;  ///< 摘要中段
         float force_ratio = 0.9f;    ///< 强制折叠低价值区
 
-        int32_t tail_token_budget = 16'384;  ///< 尾部保留预算（token）
-        int32_t snip_head_lines = 80;        ///< snip 保留头行数
-        int32_t snip_tail_lines = 12;        ///< snip 保留尾行数
+        int32_t tail_token_budget = 16'384;    ///< 尾部保留预算（token）
+        int32_t snip_head_lines = 80;          ///< snip 保留头行数
+        int32_t snip_tail_lines = 12;          ///< snip 保留尾行数
         int32_t max_consecutive_compacts = 2;  ///< 卡死守卫阈值
 
         /// DS_CACHE M-1：归档目录（非空时，compact_middle 折叠前将原消息
@@ -60,9 +60,8 @@ public:
     /// @param ratio 触发时的窗口占用比
     /// @param notice 人类可读说明
     /// @details 调用方（ChatSession）据此发布 CompactionPausedEvent 到 EventBus
-    using PausedCallback = std::function<void(bool paused, int consecutive_compacts,
-                                              int32_t tokens, float ratio,
-                                              const std::string& notice)>;
+    using PausedCallback = std::function<void(bool paused, int consecutive_compacts, int32_t tokens,
+                                              float ratio, const std::string& notice)>;
 
     /// @brief 压缩结果动作
     enum class Action {
@@ -87,8 +86,7 @@ public:
 
     CacheAwareCompactor() : CacheAwareCompactor(Config{}, SummarizeFn{}) {}
 
-    explicit CacheAwareCompactor(Config cfg)
-        : CacheAwareCompactor(std::move(cfg), SummarizeFn{}) {}
+    explicit CacheAwareCompactor(Config cfg) : CacheAwareCompactor(std::move(cfg), SummarizeFn{}) {}
 
     CacheAwareCompactor(Config cfg, SummarizeFn summarize_fn);
 
@@ -112,9 +110,7 @@ public:
     /// @details 非空时，compact_middle 会将中段原消息序列化追加到
     ///          <archive_dir>/<timestamp>.jsonl，并在摘要消息中标注归档路径。
     ///          必须在首次 maybe_compact 前调用。
-    void set_archive_dir(std::string dir) {
-        m_config.archive_dir = std::move(dir);
-    }
+    void set_archive_dir(std::string dir) { m_config.archive_dir = std::move(dir); }
 
     /// @brief 检查并执行压缩
     /// @param messages 消息列表（会被修改）
@@ -131,10 +127,10 @@ public:
     /// @brief 获取当前 rewrite_version（前缀形状追踪用）
     int rewrite_version() const { return m_rewrite_version; }
 
-private:
+   private:
     Config m_config;
     SummarizeFn m_summarize_fn;
-    PausedCallback m_paused_cb;                   ///< H-3：暂停事件回调
+    PausedCallback m_paused_cb;                  ///< H-3：暂停事件回调
     std::atomic<int> m_consecutive_compacts{0};  ///< 连续 compact 次数
     std::atomic<bool> m_stuck{false};            ///< 卡死暂停标志
     int m_rewrite_version = 0;                   ///< 历史改写版本号
@@ -149,13 +145,13 @@ private:
 
     /// @brief snip 阶段：机械截短旧 tool_result（无 API 调用）
     /// @return 截短的消息数
-    int snip_stale_tool_results(std::vector<ChatMessage>& messages,
-                                 size_t head_end, size_t tail_start_idx);
+    int snip_stale_tool_results(std::vector<ChatMessage>& messages, size_t head_end,
+                                size_t tail_start_idx);
 
     /// @brief compact 阶段：摘要中段
     /// @return 摘要后的消息数
-    int compact_middle(std::vector<ChatMessage>& messages,
-                       size_t pinned_end, size_t tail_start_idx);
+    int compact_middle(std::vector<ChatMessage>& messages, size_t pinned_end,
+                       size_t tail_start_idx);
 };
 
-} // namespace agent
+}  // namespace agent

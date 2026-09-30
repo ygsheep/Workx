@@ -133,18 +133,16 @@ TEST_CASE("InputProcessor reports missing image and skips it", "[input][processo
 namespace {
 
 /// @brief 注册一个 PromptCommand（模拟 skill），提示文本为固定字符串
-std::shared_ptr<PromptCommand> make_skill_cmd(const std::string& name,
-                                              const std::string& prompt) {
+std::shared_ptr<PromptCommand> make_skill_cmd(const std::string& name, const std::string& prompt) {
     auto cmd = make_prompt_command(name, "skill " + name);
-    cmd->set_prompt_generator([prompt](const std::string&,
-                                       const CommandContext&) {
-        return std::vector<PromptBlock>{PromptBlock{
-            .type = PromptBlockType::Text, .text = prompt, .image = {}}};
+    cmd->set_prompt_generator([prompt](const std::string&, const CommandContext&) {
+        return std::vector<PromptBlock>{
+            PromptBlock{.type = PromptBlockType::Text, .text = prompt, .image = {}}};
     });
     return cmd;
 }
 
-} // namespace
+}  // namespace
 
 TEST_CASE("InputProcessor executes multiple slash commands joined by +",
           "[input][processor][multi_command]") {
@@ -181,11 +179,10 @@ TEST_CASE("InputProcessor treats + inside args as non-multi command",
     // 记录被调用的命令名
     std::vector<std::string> called;
     auto cmd = make_prompt_command("skill-001", "skill");
-    cmd->set_prompt_generator([&called](const std::string& args,
-                                        const CommandContext&) {
+    cmd->set_prompt_generator([&called](const std::string& args, const CommandContext&) {
         called.push_back(args);
-        return std::vector<PromptBlock>{PromptBlock{
-            .type = PromptBlockType::Text, .text = "PROMPT", .image = {}}};
+        return std::vector<PromptBlock>{
+            PromptBlock{.type = PromptBlockType::Text, .text = "PROMPT", .image = {}}};
     });
     registry->register_command(cmd);
     InputProcessor processor(registry);

@@ -33,15 +33,15 @@ namespace agent::process::sandbox {
 ///          SandboxAdapter::wrap_command() 生成平台 profile。
 struct SandboxConfig {
     // === 文件系统规则 ===
-    std::vector<std::string> allow_write;   ///< 允许写入的路径前缀（deny 优先）
-    std::vector<std::string> deny_write;    ///< 拒绝写入的路径前缀
-    std::vector<std::string> allow_read;    ///< 允许读取的路径前缀
-    std::vector<std::string> deny_read;     ///< 拒绝读取的路径前缀
+    std::vector<std::string> allow_write;  ///< 允许写入的路径前缀（deny 优先）
+    std::vector<std::string> deny_write;   ///< 拒绝写入的路径前缀
+    std::vector<std::string> allow_read;   ///< 允许读取的路径前缀
+    std::vector<std::string> deny_read;    ///< 拒绝读取的路径前缀
 
     // === 网络规则 ===
-    std::vector<std::string> allow_domains; ///< 允许的网络域名（支持 `*` 通配符）
-    std::vector<std::string> deny_domains;  ///< 拒绝的网络域名
-    bool network_isolated = true;           ///< 是否完全隔离网络（true 时忽略 allow_domains）
+    std::vector<std::string> allow_domains;  ///< 允许的网络域名（支持 `*` 通配符）
+    std::vector<std::string> deny_domains;   ///< 拒绝的网络域名
+    bool network_isolated = true;  ///< 是否完全隔离网络（true 时忽略 allow_domains）
 
     // === 系统目录默认策略 ===
     /// 是否允许读取系统目录（/usr /lib /lib64 /etc /bin /sbin）
@@ -67,4 +67,4 @@ struct SandboxConfig {
     [[nodiscard]] bool is_permissive() const noexcept;
 };
 
-} // namespace agent::process::sandbox
+}  // namespace agent::process::sandbox

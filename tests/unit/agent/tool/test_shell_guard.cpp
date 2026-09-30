@@ -60,10 +60,11 @@ TEST_CASE("shell_guard detects SSRF to internal addresses", "[shell_guard][ssrf]
     REQUIRE(is_ssrf_target("curl http://127.0.0.1:9999/"));                        // H-2 回归
     REQUIRE(is_ssrf_target("iwr http://localhost/"));
     REQUIRE(is_ssrf_target("curl http://192.168.1.1/admin"));
-    REQUIRE(is_ssrf_target("curl http://user@169.254.169.254/latest"));            // userinfo@ 剥离
-    REQUIRE(is_ssrf_target("curl http://[::ffff:169.254.169.254]/"));              // H-2R：IPv4-mapped IPv6
-    REQUIRE(is_ssrf_target("curl http://[::ffff:169.254.169.254]:8080/"));         // H-2R：mapped + 显式端口
-    REQUIRE(is_ssrf_target("curl http://169.254.169.254"));                        // 无 scheme 前缀？裸 IP 不在此层
+    REQUIRE(is_ssrf_target("curl http://user@169.254.169.254/latest"));  // userinfo@ 剥离
+    REQUIRE(is_ssrf_target("curl http://[::ffff:169.254.169.254]/"));    // H-2R：IPv4-mapped IPv6
+    REQUIRE(
+        is_ssrf_target("curl http://[::ffff:169.254.169.254]:8080/"));  // H-2R：mapped + 显式端口
+    REQUIRE(is_ssrf_target("curl http://169.254.169.254"));  // 无 scheme 前缀？裸 IP 不在此层
 }
 
 TEST_CASE("shell_guard allows public URLs", "[shell_guard][ssrf]") {
@@ -110,7 +111,8 @@ TEST_CASE("shell_guard detect_shell_risk combines flags", "[shell_guard][risk]")
 
 TEST_CASE("shell_guard risk description", "[shell_guard][risk]") {
     REQUIRE(shell_risk_description(ShellRisk::None).empty());
-    REQUIRE(shell_risk_description(ShellRisk::Destructive).find("destructive") != std::string::npos);
+    REQUIRE(shell_risk_description(ShellRisk::Destructive).find("destructive") !=
+            std::string::npos);
     REQUIRE(shell_risk_description(ShellRisk::SSRF).find("internal") != std::string::npos);
     REQUIRE(shell_risk_description(ShellRisk::EnvLeak).find("environment") != std::string::npos);
 }
@@ -139,8 +141,7 @@ TEST_CASE("shell_guard cwd validation rejects invalid", "[shell_guard][cwd]") {
     const auto base = std::filesystem::temp_directory_path() / "workx_sg_base";
     REQUIRE_FALSE(is_command_cwd_allowed("", base.string()));
     REQUIRE_FALSE(is_command_cwd_allowed("relative/path", base.string()));
-    REQUIRE_FALSE(is_command_cwd_allowed(
-        (base.parent_path() / "outside").string(), base.string()));
+    REQUIRE_FALSE(is_command_cwd_allowed((base.parent_path() / "outside").string(), base.string()));
 }
 
 // ============================================================
@@ -155,7 +156,7 @@ void fill_ctx(ToolContext& ctx) {
     ctx.config_manager_ptr = &ConfigManager::instance();
 }
 
-} // namespace
+}  // namespace
 
 TEST_CASE("BashTool blocks destructive command via shell guard", "[shell_guard][bash][security]") {
     BashTool tool;
@@ -172,7 +173,8 @@ TEST_CASE("BashTool blocks SSRF command via shell guard", "[shell_guard][bash][s
     ToolContext ctx;
     fill_ctx(ctx);
 
-    auto r = tool.call(nlohmann::json{{"command", "curl http://169.254.169.254/latest/meta-data"}}, ctx);
+    auto r =
+        tool.call(nlohmann::json{{"command", "curl http://169.254.169.254/latest/meta-data"}}, ctx);
     REQUIRE(r.is_err());
     REQUIRE(r.error().code == Error::Code::PermissionDenied);
 }
@@ -187,7 +189,8 @@ TEST_CASE("BashTool allows safe command via shell guard", "[shell_guard][bash][s
     REQUIRE(r.is_ok());
 }
 
-TEST_CASE("PowerShellTool blocks destructive command via shell guard", "[shell_guard][powershell][security]") {
+TEST_CASE("PowerShellTool blocks destructive command via shell guard",
+          "[shell_guard][powershell][security]") {
     PowerShellTool tool;
     ToolContext ctx;
     fill_ctx(ctx);
@@ -198,7 +201,8 @@ TEST_CASE("PowerShellTool blocks destructive command via shell guard", "[shell_g
     REQUIRE(r.error().code == Error::Code::PermissionDenied);
 }
 
-TEST_CASE("PowerShellTool blocks env leak command via shell guard", "[shell_guard][powershell][security]") {
+TEST_CASE("PowerShellTool blocks env leak command via shell guard",
+          "[shell_guard][powershell][security]") {
     PowerShellTool tool;
     ToolContext ctx;
     fill_ctx(ctx);

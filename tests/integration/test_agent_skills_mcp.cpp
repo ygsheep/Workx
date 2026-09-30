@@ -43,8 +43,8 @@ namespace {
 
 /// @brief 定位 fake MCP server 脚本（tests/unit/agent/mcp/fake_mcp_server.py）
 std::string fake_mcp_server_path() {
-    return (std::filesystem::path(SOURCE_DIR) /
-            "tests" / "unit" / "agent" / "mcp" / "fake_mcp_server.py")
+    return (std::filesystem::path(SOURCE_DIR) / "tests" / "unit" / "agent" / "mcp" /
+            "fake_mcp_server.py")
         .string();
 }
 
@@ -62,24 +62,21 @@ nlohmann::json inline_fake_server(const std::string& mode = "discover") {
 
 /// @brief 写一个仅含 fake server 的 .mcp.json 到临时目录（供父 manager load_and_connect）
 std::filesystem::path make_project_config_with_fake(const std::string& mode) {
-    auto dir = std::filesystem::temp_directory_path() /
-               ("workx_mcp_it_" + std::to_string(::rand()));
+    auto dir =
+        std::filesystem::temp_directory_path() / ("workx_mcp_it_" + std::to_string(::rand()));
     std::filesystem::create_directories(dir);
     std::string script = fake_mcp_server_path();
     std::replace(script.begin(), script.end(), '\\', '/');
     std::ofstream ofs(dir / ".mcp.json");
-    ofs << R"({"mcpServers":{"fake":{"command":"python","args":[")"
-        << script
-        << R"("],"env":{"FAKE_MCP_MODE":")" << mode
-        << R"(","PYTHONHASHSEED":"0"}}}})";
+    ofs << R"({"mcpServers":{"fake":{"command":"python","args":[")" << script
+        << R"("],"env":{"FAKE_MCP_MODE":")" << mode << R"(","PYTHONHASHSEED":"0"}}}})";
     ofs.close();
     return dir;
 }
 
 /// @brief 后台连接异步：轮询等待全部 server 进入终态，避免竞态
 void wait_until_settled(mcp::McpClientManager& manager, int timeout_ms = 8000) {
-    const auto deadline = std::chrono::steady_clock::now()
-                          + std::chrono::milliseconds(timeout_ms);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     while (std::chrono::steady_clock::now() < deadline) {
         bool all_terminal = true;
         for (const auto& st : manager.server_status()) {
@@ -114,23 +111,21 @@ std::shared_ptr<command::PromptCommand> make_skill_cmd(
     const std::string& name, const std::vector<std::string>& text_blocks) {
     auto cmd = command::make_prompt_command(name, "skill description");
     cmd->set_loaded_from(command::LoadSource::Skills);
-    cmd->set_prompt_generator(
-        [text_blocks](const std::string&, const command::CommandContext&) {
-            std::vector<command::PromptBlock> blocks;
-            for (const auto& t : text_blocks) {
-                blocks.push_back({command::PromptBlockType::Text, t});
-            }
-            return blocks;
-        });
+    cmd->set_prompt_generator([text_blocks](const std::string&, const command::CommandContext&) {
+        std::vector<command::PromptBlock> blocks;
+        for (const auto& t : text_blocks) {
+            blocks.push_back({command::PromptBlockType::Text, t});
+        }
+        return blocks;
+    });
     return cmd;
 }
 
 /// @brief 在消息列表中查找首条以 prefix 开头的 System 消息，命中时把全文写入 out
-bool find_system_msg_prefix(const std::vector<ChatMessage>& msgs,
-                            const std::string& prefix, std::string& out) {
+bool find_system_msg_prefix(const std::vector<ChatMessage>& msgs, const std::string& prefix,
+                            std::string& out) {
     for (const auto& m : msgs) {
-        if (m.role == ChatMessage::Role::System &&
-            m.content.rfind(prefix, 0) == 0) {
+        if (m.role == ChatMessage::Role::System && m.content.rfind(prefix, 0) == 0) {
             out = m.content;
             return true;
         }
@@ -138,15 +133,14 @@ bool find_system_msg_prefix(const std::vector<ChatMessage>& msgs,
     return false;
 }
 
-} // namespace
+}  // namespace
 
 // ============================================================
 // #56 方案 C：技能预载集成
 // ============================================================
 
-TEST_CASE_METHOD(AgentToolsFixture,
-    "方案C 集成：AgentTool skills 预载全文进入子 Agent 初始请求",
-    "[agent_tool][skill_preload][integration]") {
+TEST_CASE_METHOD(AgentToolsFixture, "方案C 集成：AgentTool skills 预载全文进入子 Agent 初始请求",
+                 "[agent_tool][skill_preload][integration]") {
     MockEventBus bus;
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -172,10 +166,12 @@ TEST_CASE_METHOD(AgentToolsFixture,
     ctx.command_registry_ptr = &cmd_registry;  // #56 方案 C：技能全文来源
 
     AgentTool tool;
-    auto r = tool.call(nlohmann::json{
-        {"prompt", "review the code"},
-        {"skills", nlohmann::json::array({"review"})},
-    }, ctx);
+    auto r = tool.call(
+        nlohmann::json{
+            {"prompt", "review the code"},
+            {"skills", nlohmann::json::array({"review"})},
+        },
+        ctx);
     REQUIRE(r.is_ok());
 
     // 子 Agent 在后台线程池执行并完成
@@ -194,9 +190,8 @@ TEST_CASE_METHOD(AgentToolsFixture,
     REQUIRE(system_msg.find("关注正确性与回归风险。") != std::string::npos);
 }
 
-TEST_CASE_METHOD(AgentToolsFixture,
-    "方案C 集成：未知名 skill 不阻断子 Agent 启动",
-    "[agent_tool][skill_preload][integration]") {
+TEST_CASE_METHOD(AgentToolsFixture, "方案C 集成：未知名 skill 不阻断子 Agent 启动",
+                 "[agent_tool][skill_preload][integration]") {
     MockEventBus bus;
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -218,10 +213,12 @@ TEST_CASE_METHOD(AgentToolsFixture,
     ctx.command_registry_ptr = &cmd_registry;
 
     AgentTool tool;
-    auto r = tool.call(nlohmann::json{
-        {"prompt", "do the task"},
-        {"skills", nlohmann::json::array({"no_such_skill"})},
-    }, ctx);
+    auto r = tool.call(
+        nlohmann::json{
+            {"prompt", "do the task"},
+            {"skills", nlohmann::json::array({"no_such_skill"})},
+        },
+        ctx);
     REQUIRE(r.is_ok());
 
     auto tasks = tm.getTasks();
@@ -232,8 +229,8 @@ TEST_CASE_METHOD(AgentToolsFixture,
 
     // 未知名 skill 静默跳过：请求消息中无 "Skill: no_such_skill" system 消息
     std::string system_msg;
-    REQUIRE_FALSE(find_system_msg_prefix(provider->last_messages,
-                                         "Skill: no_such_skill", system_msg));
+    REQUIRE_FALSE(
+        find_system_msg_prefix(provider->last_messages, "Skill: no_such_skill", system_msg));
 }
 
 // ============================================================
@@ -265,8 +262,7 @@ TEST_CASE("方案D 集成：inline mcpServers 连接 fake server 并预取工具
     REQUIRE_FALSE(r.owned_clients[0]->is_connected());
 }
 
-TEST_CASE("方案D 集成：inline 连接失败静默跳过，不抛异常",
-          "[agent_tool][mcp_scope][integration]") {
+TEST_CASE("方案D 集成：inline 连接失败静默跳过，不抛异常", "[agent_tool][mcp_scope][integration]") {
     // 命令不存在 → connect_one_off 返回 nullptr，build_mcp_scope 静默跳过
     nlohmann::json servers = nlohmann::json::array({
         {{"name", "ghost"}, {"command", "no_such_cmd_xyz"}, {"args", nlohmann::json::array()}},
@@ -277,9 +273,8 @@ TEST_CASE("方案D 集成：inline 连接失败静默跳过，不抛异常",
     REQUIRE(r.owned_clients.empty());
 }
 
-TEST_CASE_METHOD(AgentToolsFixture,
-    "方案D 集成：字符串引用复用父 client 且不产生 owned_clients",
-    "[agent_tool][mcp_scope][integration]") {
+TEST_CASE_METHOD(AgentToolsFixture, "方案D 集成：字符串引用复用父 client 且不产生 owned_clients",
+                 "[agent_tool][mcp_scope][integration]") {
     // 父全局管理器先连接 fake server
     mcp::McpClientManager parent(nullptr);
     auto dir = make_project_config_with_fake("discover");
@@ -303,9 +298,8 @@ TEST_CASE_METHOD(AgentToolsFixture,
     std::filesystem::remove_all(dir);
 }
 
-TEST_CASE_METHOD(AgentToolsFixture,
-    "方案D 集成：子 Agent 经 inline mcpServers 端到端调用 MCP 工具",
-    "[agent_tool][mcp_scope][integration]") {
+TEST_CASE_METHOD(AgentToolsFixture, "方案D 集成：子 Agent 经 inline mcpServers 端到端调用 MCP 工具",
+                 "[agent_tool][mcp_scope][integration]") {
     MockEventBus bus;
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -321,8 +315,7 @@ TEST_CASE_METHOD(AgentToolsFixture,
     auto provider = std::make_shared<MockCompletionProvider>();
     auto r1 = std::make_shared<MockStreamReader>();
     r1->add_tool_use_start("mcp_1", "MCP");
-    r1->add_tool_use_delta("mcp_1",
-        R"({"server":"fake","tool":"echo","input":{"text":"hi"}})");
+    r1->add_tool_use_delta("mcp_1", R"({"server":"fake","tool":"echo","input":{"text":"hi"}})");
     auto r2 = std::make_shared<MockStreamReader>();
     r2->add_content_chunk("mcp done");
     provider->set_next_reader(r1);
@@ -339,10 +332,12 @@ TEST_CASE_METHOD(AgentToolsFixture,
     ctx.permission_mode = PermissionMode::BypassPermissions;  // 跳过 MCPTool AskUser 确认
 
     AgentTool tool;
-    auto r = tool.call(nlohmann::json{
-        {"prompt", "call the MCP echo tool"},
-        {"mcpServers", nlohmann::json::array({inline_fake_server("discover")})},
-    }, ctx);
+    auto r = tool.call(
+        nlohmann::json{
+            {"prompt", "call the MCP echo tool"},
+            {"mcpServers", nlohmann::json::array({inline_fake_server("discover")})},
+        },
+        ctx);
     REQUIRE(r.is_ok());
 
     auto tasks = tm.getTasks();
@@ -363,8 +358,7 @@ TEST_CASE_METHOD(AgentToolsFixture,
     // inline fake server（ctx.mcp_manager_ptr 优先于 MCPTool 构造期父 manager）
     bool saw_echo = false;
     for (const auto& m : provider->last_messages) {
-        if (m.role == ChatMessage::Role::Tool &&
-            m.content.find("echo: hi") != std::string::npos) {
+        if (m.role == ChatMessage::Role::Tool && m.content.find("echo: hi") != std::string::npos) {
             saw_echo = true;
         }
     }

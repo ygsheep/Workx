@@ -25,8 +25,8 @@ Element file_header(const std::string& path, int count) {
         ftxui::text(" "),
         ftxui::text(path) | ftxui::color(theme::T::Text),
         ftxui::flex(ftxui::text("")),
-        ftxui::text(std::to_string(count) + std::string(str::kChangeCountSuffix))
-            | ftxui::color(theme::T::TextFaint),
+        ftxui::text(std::to_string(count) + std::string(str::kChangeCountSuffix)) |
+            ftxui::color(theme::T::TextFaint),
         ftxui::text(" "),
     });
 }
@@ -35,11 +35,10 @@ Element file_header(const std::string& path, int count) {
 Element change_point_line(const FileChange& ch, bool selected) {
     const std::string marker = selected ? std::string(str::kAskCursor) : "  ";
     return ftxui::hbox({
-        ftxui::text(marker)
-            | ftxui::color(selected ? theme::T::Accent : theme::T::TextFaint),
+        ftxui::text(marker) | ftxui::color(selected ? theme::T::Accent : theme::T::TextFaint),
         ftxui::text(std::string(str::kChangeIcon)) | ftxui::color(theme::T::Accent),
-        ftxui::text(ch.purpose.empty() ? std::string(str::kChangeNoPurpose) : ch.purpose)
-            | ftxui::color(selected ? theme::T::Text : theme::T::TextDim),
+        ftxui::text(ch.purpose.empty() ? std::string(str::kChangeNoPurpose) : ch.purpose) |
+            ftxui::color(selected ? theme::T::Text : theme::T::TextDim),
         ftxui::flex(ftxui::text("")),
     });
 }
@@ -50,8 +49,7 @@ Element purpose_lines(const FileChange& ch, bool expanded) {
     if (!expanded) {
         rows.push_back(ftxui::hbox({
             ftxui::text("   "),
-            ftxui::text(std::string(str::kChangePurposeLabel))
-                | ftxui::color(theme::T::TextFaint),
+            ftxui::text(std::string(str::kChangePurposeLabel)) | ftxui::color(theme::T::TextFaint),
             ftxui::text(ch.purpose) | ftxui::color(theme::T::TextDim),
         }));
         return ftxui::vbox(std::move(rows));
@@ -90,15 +88,13 @@ Element hunk_line(const agent::DiffLine& dl) {
 
 }  // namespace
 
-Element build_change_viewer(const ChangeViewState& changes,
-                            std::deque<ChangeHit>* hits) {
+Element build_change_viewer(const ChangeViewState& changes, std::deque<ChangeHit>* hits) {
     if (changes.changes.empty()) {
         return ftxui::vbox({
             ftxui::text(" "),
             ftxui::hbox({
                 ftxui::text("  "),
-                ftxui::text(std::string(str::kTabChangesEmpty))
-                    | ftxui::color(theme::T::TextFaint),
+                ftxui::text(std::string(str::kTabChangesEmpty)) | ftxui::color(theme::T::TextFaint),
             }),
         });
     }
@@ -112,8 +108,8 @@ Element build_change_viewer(const ChangeViewState& changes,
         if (ch.file_path != cur_file) {
             cur_file = ch.file_path;
             int count = 0;
-            for (std::size_t j = i; j < changes.changes.size() &&
-                 changes.changes[j].file_path == cur_file; ++j)
+            for (std::size_t j = i;
+                 j < changes.changes.size() && changes.changes[j].file_path == cur_file; ++j)
                 ++count;
             rows.push_back(file_header(cur_file, count));
         }
@@ -146,27 +142,31 @@ Element build_change_viewer(const ChangeViewState& changes,
 namespace {
 
 class ChangeViewer : public ftxui::ComponentBase {
-public:
+   public:
     ChangeViewer(ChangeViewState* changes, std::function<void()> on_jump)
         : m_changes(changes), m_on_jump(std::move(on_jump)) {}
 
     bool OnEvent(Event event) override {
         if (!m_changes) return false;
-        if (event == Event::ArrowUp) { move(-1); return true; }
-        if (event == Event::ArrowDown) { move(+1); return true; }
+        if (event == Event::ArrowUp) {
+            move(-1);
+            return true;
+        }
+        if (event == Event::ArrowDown) {
+            move(+1);
+            return true;
+        }
         if (event == Event::Return) {
             if (m_on_jump) m_on_jump();
             return true;
         }
-        if (event.is_character() &&
-            (event.character() == "e" || event.character() == "E")) {
+        if (event.is_character() && (event.character() == "e" || event.character() == "E")) {
             m_changes->purpose_expanded = !m_changes->purpose_expanded;
             return true;
         }
         if (event.is_mouse()) {
             const auto& m = event.mouse();
-            if (m.button == ftxui::Mouse::Left &&
-                m.motion == ftxui::Mouse::Pressed) {
+            if (m.button == ftxui::Mouse::Left && m.motion == ftxui::Mouse::Pressed) {
                 for (std::size_t k = 0; k < m_item_boxes.size(); ++k) {
                     if (m_item_boxes[k].box.Contain(m.x, m.y)) {
                         m_changes->selected = m_item_boxes[k].index;
@@ -189,7 +189,7 @@ public:
         return el | ftxui::reflect(m_box);
     }
 
-private:
+   private:
     void move(int delta) {
         const int total = static_cast<int>(m_changes->changes.size());
         if (total <= 0) return;
@@ -205,8 +205,7 @@ private:
 
 }  // namespace
 
-ftxui::Component make_change_viewer(ChangeViewState* changes,
-                                    std::function<void()> on_jump) {
+ftxui::Component make_change_viewer(ChangeViewState* changes, std::function<void()> on_jump) {
     return ftxui::Make<ChangeViewer>(changes, std::move(on_jump));
 }
 

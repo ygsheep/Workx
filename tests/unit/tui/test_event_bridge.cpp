@@ -40,8 +40,8 @@ size_t bridge_subscriber_count(MockEventBus& bus) {
     n += bus.subscriber_count_typed<agent::CompactionPausedEvent>();
     n += bus.subscriber_count_typed<agent::SubAgentProgressEvent>();
     n += bus.subscriber_count_typed<agent::SubAgentCompletedEvent>();
-    n += bus.subscriber_count_typed<agent::TodoUpdatedEvent>();  // #24：待办清单更新
-    n += bus.subscriber_count_typed<agent::McpStatusChangedEvent>();  // #27 M4：MCP 状态
+    n += bus.subscriber_count_typed<agent::TodoUpdatedEvent>();          // #24：待办清单更新
+    n += bus.subscriber_count_typed<agent::McpStatusChangedEvent>();     // #27 M4：MCP 状态
     n += bus.subscriber_count_typed<agent::MessageQueueUpdatedEvent>();  // 消息队列更新
     n += bus.subscriber_count_typed<agent::QueuedMessagesFlushedEvent>();  // 队列冲刷回显
     n += bus.subscriber_count_typed<agent::HookProgressEvent>();  // Issue #50 M-2：Hook 进度
@@ -77,8 +77,8 @@ TEST_CASE("EventBridge stop does not affect unrelated subscribers", "[event_brid
     ActionQueue queue;
 
     // 一个与本桥无关的订阅者（模拟 EventBus 上其他组件的订阅）
-    auto unrelated_token = bus.subscribe<agent::StreamTokenEvent>(
-        [](const agent::StreamTokenEvent&) {});
+    auto unrelated_token =
+        bus.subscribe<agent::StreamTokenEvent>([](const agent::StreamTokenEvent&) {});
 
     EventBridge bridge(bus, queue);
     bridge.start();
@@ -126,8 +126,11 @@ TEST_CASE("EventBridge dispatch maps events to actions", "[event_bridge][dispatc
     bridge.stop();
     queue.drain();
     bus.publish(agent::StreamTokenEvent{
-        .session_id = "s", .content_delta = "bye", .reasoning_delta = "",
-        .is_thinking = false, .token_count = 1,
+        .session_id = "s",
+        .content_delta = "bye",
+        .reasoning_delta = "",
+        .is_thinking = false,
+        .token_count = 1,
     });
     REQUIRE(queue.empty());
 }

@@ -28,11 +28,11 @@ namespace agent {
 ///            2. 去 provider 前缀匹配（如 "kimi/kimi-k3" → "kimi-k3"）
 ///            3. 最长子串匹配
 class ModelCatalog {
-public:
+   public:
     /// @brief 模型能力信息
     struct ModelInfo {
-        int32_t context_window = 0;    ///< 上下文窗口 token 数
-        int32_t max_output_tokens = 0; ///< 最大输出 token 数
+        int32_t context_window = 0;     ///< 上下文窗口 token 数
+        int32_t max_output_tokens = 0;  ///< 最大输出 token 数
     };
 
     ModelCatalog() = default;
@@ -73,11 +73,11 @@ public:
     /// @brief 模型数量
     std::size_t size() const { return m_models.size(); }
 
-private:
+   private:
     /// @brief 内部查找：返回模型信息指针，未命中返回 nullptr
     const ModelInfo* find(std::string_view model_name) const;
 
-    std::unordered_map<std::string, ModelInfo> m_models; ///< key = 规范化模型名（小写）
+    std::unordered_map<std::string, ModelInfo> m_models;  ///< key = 规范化模型名（小写）
 };
 
-} // namespace agent
+}  // namespace agent

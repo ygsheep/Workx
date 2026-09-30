@@ -6,9 +6,9 @@
 #include <filesystem>
 #include <string>
 
-#include "agent/core/verdict.h"                  // guard_command
-#include "agent/tool/GlobTool/glob_tool.h"       // tool::glob_match
-#include "core/process/subprocess.h"             // process::exec / ExecOptions
+#include "agent/core/verdict.h"             // guard_command
+#include "agent/tool/GlobTool/glob_tool.h"  // tool::glob_match
+#include "core/process/subprocess.h"        // process::exec / ExecOptions
 
 namespace fs = std::filesystem;
 
@@ -17,8 +17,7 @@ namespace agent {
 namespace {
 
 // 数组化替换字符串中的全部 {item} 占位为子串 repl
-std::string replace_all(std::string s, const std::string& needle,
-                        const std::string& repl) {
+std::string replace_all(std::string s, const std::string& needle, const std::string& repl) {
     if (needle.empty()) {
         return s;
     }
@@ -33,16 +32,29 @@ std::string replace_all(std::string s, const std::string& needle,
 // 命令字符串是否包含需 shell 引用的敏感字符（注入面）
 bool has_shell_meta(char c) noexcept {
     switch (c) {
-        case '"': case '\'': case '`': case ';': case '&': case '|':
-        case '<': case '>': case '$': case '(': case ')': case '\n':
-        case '\r': case '\t': case '*': case '?':
+        case '"':
+        case '\'':
+        case '`':
+        case ';':
+        case '&':
+        case '|':
+        case '<':
+        case '>':
+        case '$':
+        case '(':
+        case ')':
+        case '\n':
+        case '\r':
+        case '\t':
+        case '*':
+        case '?':
             return true;
         default:
             return false;
     }
 }
 
-} // namespace
+}  // namespace
 
 // BatchAgent 单一 run 的绝对最大并发（纵深防御：即使 concurrency 配得极大，
 // 也截断到该值，避免一次性拉起上万线程）；条目数更少时取其小。
@@ -53,9 +65,8 @@ BatchSpec parse_batch_spec(const AgentGoal& goal) noexcept {
     spec.glob = goal.glob.empty() ? "**/*" : goal.glob;
     spec.cmd_template = goal.command;
     // P2：concurrency 截断到 [1, kMaxBatchWorkers]，防止配置极大值瞬间拉起海量线程
-    spec.concurrency =
-        static_cast<size_t>(std::clamp(std::max(1, goal.concurrency),
-                                       1, static_cast<int>(kMaxBatchWorkers)));
+    spec.concurrency = static_cast<size_t>(
+        std::clamp(std::max(1, goal.concurrency), 1, static_cast<int>(kMaxBatchWorkers)));
     return spec;
 }
 
@@ -70,18 +81,14 @@ WatchSpec parse_watch_spec(const AgentGoal& goal) noexcept {
     spec.glob = goal.glob.empty() ? "" : goal.glob;
     spec.cmd_template = goal.command;
     // P2：polls/interval 截断到有界区间，防忙循环 / 超长挂起
-    spec.max_polls =
-        std::clamp(std::max(1, goal.watch_polls), 1, kMaxWatchPolls);
-    spec.interval_ms =
-        std::clamp(std::max(0, goal.watch_interval_ms), 0, kMaxWatchIntervalMs);
+    spec.max_polls = std::clamp(std::max(1, goal.watch_polls), 1, kMaxWatchPolls);
+    spec.interval_ms = std::clamp(std::max(0, goal.watch_interval_ms), 0, kMaxWatchIntervalMs);
     return spec;
 }
 
-std::string materialize_cmd(const std::string& tmpl,
-                            const std::string& item) noexcept {
+std::string materialize_cmd(const std::string& tmpl, const std::string& item) noexcept {
     // 拒绝含 shell 敏感字符的 item（文件路径不应含这些；含则按"无法安全引用"跳过）
-    if (std::any_of(item.begin(), item.end(),
-                    [](char c) { return has_shell_meta(c); })) {
+    if (std::any_of(item.begin(), item.end(), [](char c) { return has_shell_meta(c); })) {
         return {};
     }
     // 平台 shell 引用：cmd.exe 用双引号、POSIX 用单引号（item 已保证不含对应引号）
@@ -94,8 +101,7 @@ std::string materialize_cmd(const std::string& tmpl,
     return replace_all(tmpl, "{item}", quoted);
 }
 
-std::vector<std::string> expand_glob_cwd(const std::string& cwd,
-                                         const std::string& pattern,
+std::vector<std::string> expand_glob_cwd(const std::string& cwd, const std::string& pattern,
                                          std::string* err) {
     std::vector<std::string> result;
     if (err) {
@@ -146,8 +152,7 @@ std::vector<std::string> expand_glob_cwd(const std::string& cwd,
     return result;
 }
 
-std::string snapshot_signature(const std::string& cwd,
-                               const std::vector<std::string>& rels) {
+std::string snapshot_signature(const std::string& cwd, const std::vector<std::string>& rels) {
     const fs::path root(cwd.empty() ? fs::current_path() : fs::path(cwd));
     std::error_code ec;
     std::string sig;
@@ -165,8 +170,8 @@ std::string snapshot_signature(const std::string& cwd,
         if (ec) {
             continue;
         }
-        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            t.time_since_epoch()).count();
+        const auto ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(t.time_since_epoch()).count();
         sig += rel;
         sig += '|';
         sig += std::to_string(sz);
@@ -177,8 +182,7 @@ std::string snapshot_signature(const std::string& cwd,
     return sig;
 }
 
-process::ExecOutput run_whitelisted(const std::string& cmd,
-                                    const std::string& cwd,
+process::ExecOutput run_whitelisted(const std::string& cmd, const std::string& cwd,
                                     bool* rejected) {
     if (rejected) {
         *rejected = false;
@@ -193,16 +197,16 @@ process::ExecOutput run_whitelisted(const std::string& cmd,
     using namespace agent::process;
 #if defined(_WIN32)
     auto res = exec("cmd.exe", ExecOptions{
-        .cwd = cwd,
-        .args = {"/d", "/s", "/c", cmd},
-        .timeout = std::chrono::milliseconds(60000),
-    });
+                                   .cwd = cwd,
+                                   .args = {"/d", "/s", "/c", cmd},
+                                   .timeout = std::chrono::milliseconds(60000),
+                               });
 #else
     auto res = exec("sh", ExecOptions{
-        .cwd = cwd,
-        .args = {"-c", cmd},
-        .timeout = std::chrono::milliseconds(60000),
-    });
+                              .cwd = cwd,
+                              .args = {"-c", cmd},
+                              .timeout = std::chrono::milliseconds(60000),
+                          });
 #endif
     if (res.is_err()) {
         ExecOutput out;
@@ -214,4 +218,4 @@ process::ExecOutput run_whitelisted(const std::string& cmd,
     return res.value();
 }
 
-} // namespace agent
+}  // namespace agent

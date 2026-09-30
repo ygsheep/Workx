@@ -43,7 +43,6 @@ ChatMessage ContextCompressor::summarize_tool_result(const ChatMessage& msg) {
 
 std::vector<ChatMessage> ContextCompressor::compress(
     const std::vector<ChatMessage>& messages) const {
-
     if (messages.empty()) return messages;
 
     std::vector<ChatMessage> result = messages;
@@ -53,8 +52,7 @@ std::vector<ChatMessage> ContextCompressor::compress(
     if (static_cast<int>(result.size()) > m_config.max_messages) {
         const size_t drop = result.size() - m_config.max_messages;
         result.erase(result.begin(), result.begin() + drop);
-        LOG_INFO("[context_compressor] dropped {} old messages, remaining={}",
-                 drop, result.size());
+        LOG_INFO("[context_compressor] dropped {} old messages, remaining={}", drop, result.size());
     }
 
     // 2. token 估算超限：压缩旧的 tool_result
@@ -76,9 +74,10 @@ std::vector<ChatMessage> ContextCompressor::compress(
 
             if (compressed_count > 0) {
                 const int32_t new_tokens = compact::estimate_messages_tokens(result);
-                LOG_INFO("[context_compressor] compressed {} tool_results, "
-                         "tokens {} -> {}",
-                         compressed_count, estimated_tokens, new_tokens);
+                LOG_INFO(
+                    "[context_compressor] compressed {} tool_results, "
+                    "tokens {} -> {}",
+                    compressed_count, estimated_tokens, new_tokens);
             }
         }
     }
@@ -86,4 +85,4 @@ std::vector<ChatMessage> ContextCompressor::compress(
     return result;
 }
 
-} // namespace agent
+}  // namespace agent

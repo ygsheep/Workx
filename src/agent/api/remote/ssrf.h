@@ -36,4 +36,4 @@ bool is_ip_literal(const std::string& s) noexcept;
 /// @return true = 不安全（解析失败、或任一结果命中内网地址）
 bool host_resolves_to_private(const std::string& host) noexcept;
 
-} // namespace agent
+}  // namespace agent

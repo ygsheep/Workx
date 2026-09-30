@@ -21,7 +21,7 @@ namespace {
 
 /// @brief 临时目录 RAII（同工具测试惯例）
 class TempDir {
-public:
+   public:
     TempDir() {
         std::random_device rd;
         std::mt19937 gen(rd());
@@ -46,7 +46,7 @@ public:
     }
     const fs::path& path() const { return path_; }
 
-private:
+   private:
     fs::path path_;
 };
 
@@ -59,7 +59,7 @@ const std::string kSample =
     "# Sample\n"
     "Do the thing\n";
 
-} // anonymous namespace
+}  // anonymous namespace
 
 TEST_CASE("load a valid skill from dir", "[skill][loader]") {
     TempDir tmp;
@@ -81,14 +81,14 @@ TEST_CASE("load a valid skill from dir", "[skill][loader]") {
 TEST_CASE("loader attaches context agent hooks", "[skill][loader]") {
     TempDir tmp;
     tmp.make_file("proj/.claude/skills/ctx/SKILL.md",
-        "---\n"
-        "name: ctx\n"
-        "context: React 场景\n"
-        "agent: frontend\n"
-        "hooks:\n"
-        "- echo one\n"
-        "---\n"
-        "body\n");
+                  "---\n"
+                  "name: ctx\n"
+                  "context: React 场景\n"
+                  "agent: frontend\n"
+                  "hooks:\n"
+                  "- echo one\n"
+                  "---\n"
+                  "body\n");
     const auto dir = (tmp.path() / "proj/.claude/skills").string();
 
     const auto cmds = load_skills_from_dirs({dir});
@@ -260,7 +260,8 @@ TEST_CASE("register_bundled_skill registers with Bundled source", "[skill][loade
                   "Do alpha things\n");
 
     CommandRegistry registry;
-    const auto count = register_bundled_skill(registry, (tmp.path() / "bundled" / "alpha").string());
+    const auto count =
+        register_bundled_skill(registry, (tmp.path() / "bundled" / "alpha").string());
 
     REQUIRE(count == 2);
     const auto cmd = registry.find_by_name("alpha");
@@ -282,7 +283,8 @@ TEST_CASE("register_bundled_skill skips missing SKILL.md", "[skill][loader]") {
     fs::create_directories(tmp.path() / "bundled/empty");
 
     CommandRegistry registry;
-    const auto count = register_bundled_skill(registry, (tmp.path() / "bundled" / "empty").string());
+    const auto count =
+        register_bundled_skill(registry, (tmp.path() / "bundled" / "empty").string());
 
     REQUIRE(count == 0);
     REQUIRE(registry.size() == 0);
@@ -328,8 +330,7 @@ TEST_CASE("find_user_skill_dirs returns existing home dirs", "[skill][loader]") 
     REQUIRE(dirs[1] == (tmp.path() / ".workx" / "skills").string());
 }
 
-TEST_CASE("register_bundled_skills registers all subdirs with Bundled source",
-          "[skill][loader]") {
+TEST_CASE("register_bundled_skills registers all subdirs with Bundled source", "[skill][loader]") {
     TempDir tmp;
     tmp.make_file("bundled/loop/SKILL.md",
                   "---\nname: loop\ndescription: iterate\n---\n# Loop\nDo loop\n");
@@ -339,8 +340,7 @@ TEST_CASE("register_bundled_skills registers all subdirs with Bundled source",
     fs::create_directories(tmp.path() / "bundled/empty");
 
     CommandRegistry registry;
-    const auto count =
-        register_bundled_skills(registry, (tmp.path() / "bundled").string());
+    const auto count = register_bundled_skills(registry, (tmp.path() / "bundled").string());
 
     REQUIRE(count == 2);
     REQUIRE(registry.size() == 2);
@@ -356,11 +356,9 @@ TEST_CASE("register_bundled_skills handles empty or missing root", "[skill][load
     REQUIRE(register_bundled_skills(empty_reg, "") == 0);
 
     CommandRegistry missing_reg;
-    REQUIRE(register_bundled_skills(missing_reg,
-                                    (tmp.path() / "no_such_dir").string()) == 0);
+    REQUIRE(register_bundled_skills(missing_reg, (tmp.path() / "no_such_dir").string()) == 0);
 
     CommandRegistry empty_root_reg;
     fs::create_directories(tmp.path() / "empty_root");
-    REQUIRE(register_bundled_skills(empty_root_reg,
-                                    (tmp.path() / "empty_root").string()) == 0);
+    REQUIRE(register_bundled_skills(empty_root_reg, (tmp.path() / "empty_root").string()) == 0);
 }

@@ -46,7 +46,7 @@ namespace {
 /// @details 与 encoding.cpp 的 validate_utf8 同源逻辑，core 层独立实现以避免分层倒置
 bool is_valid_utf8(const std::string& s) noexcept {
     const size_t n = s.size();
-    for (size_t i = 0; i < n; ) {
+    for (size_t i = 0; i < n;) {
         const unsigned char c = static_cast<unsigned char>(s[i]);
         if (c < 0x80) {
             ++i;
@@ -56,15 +56,15 @@ bool is_valid_utf8(const std::string& s) noexcept {
             if (i + 1 >= n || (static_cast<unsigned char>(s[i + 1]) & 0xC0) != 0x80) return false;
             i += 2;
         } else if (c < 0xF0) {
-            if (i + 2 >= n
-                || (static_cast<unsigned char>(s[i + 1]) & 0xC0) != 0x80
-                || (static_cast<unsigned char>(s[i + 2]) & 0xC0) != 0x80) return false;
+            if (i + 2 >= n || (static_cast<unsigned char>(s[i + 1]) & 0xC0) != 0x80 ||
+                (static_cast<unsigned char>(s[i + 2]) & 0xC0) != 0x80)
+                return false;
             i += 3;
         } else if (c < 0xF5) {
-            if (i + 3 >= n
-                || (static_cast<unsigned char>(s[i + 1]) & 0xC0) != 0x80
-                || (static_cast<unsigned char>(s[i + 2]) & 0xC0) != 0x80
-                || (static_cast<unsigned char>(s[i + 3]) & 0xC0) != 0x80) return false;
+            if (i + 3 >= n || (static_cast<unsigned char>(s[i + 1]) & 0xC0) != 0x80 ||
+                (static_cast<unsigned char>(s[i + 2]) & 0xC0) != 0x80 ||
+                (static_cast<unsigned char>(s[i + 3]) & 0xC0) != 0x80)
+                return false;
             i += 4;
         } else {
             return false;
@@ -92,28 +92,32 @@ std::string sanitize_invalid_utf8(std::string s) {
             ++i;
         } else if (c < 0xE0) {
             if (i + 1 < n && (static_cast<unsigned char>(s[i + 1]) & 0xC0) == 0x80) {
-                out += s[i]; out += s[i + 1];
+                out += s[i];
+                out += s[i + 1];
                 i += 2;
             } else {
                 out += '?';
                 ++i;
             }
         } else if (c < 0xF0) {
-            if (i + 2 < n
-                && (static_cast<unsigned char>(s[i + 1]) & 0xC0) == 0x80
-                && (static_cast<unsigned char>(s[i + 2]) & 0xC0) == 0x80) {
-                out += s[i]; out += s[i + 1]; out += s[i + 2];
+            if (i + 2 < n && (static_cast<unsigned char>(s[i + 1]) & 0xC0) == 0x80 &&
+                (static_cast<unsigned char>(s[i + 2]) & 0xC0) == 0x80) {
+                out += s[i];
+                out += s[i + 1];
+                out += s[i + 2];
                 i += 3;
             } else {
                 out += '?';
                 ++i;
             }
         } else if (c < 0xF5) {
-            if (i + 3 < n
-                && (static_cast<unsigned char>(s[i + 1]) & 0xC0) == 0x80
-                && (static_cast<unsigned char>(s[i + 2]) & 0xC0) == 0x80
-                && (static_cast<unsigned char>(s[i + 3]) & 0xC0) == 0x80) {
-                out += s[i]; out += s[i + 1]; out += s[i + 2]; out += s[i + 3];
+            if (i + 3 < n && (static_cast<unsigned char>(s[i + 1]) & 0xC0) == 0x80 &&
+                (static_cast<unsigned char>(s[i + 2]) & 0xC0) == 0x80 &&
+                (static_cast<unsigned char>(s[i + 3]) & 0xC0) == 0x80) {
+                out += s[i];
+                out += s[i + 1];
+                out += s[i + 2];
+                out += s[i + 3];
                 i += 4;
             } else {
                 out += '?';
@@ -140,18 +144,17 @@ std::string sanitize_output_to_utf8(std::string s) {
 
 #ifdef _WIN32
     // 尝试 CP_ACP（系统 ANSI 代码页）→ UTF-16 → UTF-8
-    const int wlen = MultiByteToWideChar(CP_ACP, 0, s.data(),
-                                         static_cast<int>(s.size()), nullptr, 0);
+    const int wlen =
+        MultiByteToWideChar(CP_ACP, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
     if (wlen > 0) {
         std::wstring wstr(static_cast<size_t>(wlen), L'\0');
-        MultiByteToWideChar(CP_ACP, 0, s.data(), static_cast<int>(s.size()),
-                            wstr.data(), wlen);
-        const int ulen = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), wlen,
-                                             nullptr, 0, nullptr, nullptr);
+        MultiByteToWideChar(CP_ACP, 0, s.data(), static_cast<int>(s.size()), wstr.data(), wlen);
+        const int ulen =
+            WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), wlen, nullptr, 0, nullptr, nullptr);
         if (ulen > 0) {
             std::string result(static_cast<size_t>(ulen), '\0');
-            WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), wlen,
-                                result.data(), ulen, nullptr, nullptr);
+            WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), wlen, result.data(), ulen, nullptr,
+                                nullptr);
             // 转换成功则使用解码结果；转换结果仍含非法字节则再清洗一次（保险）
             return is_valid_utf8(result) ? result : sanitize_invalid_utf8(std::move(result));
         }
@@ -161,8 +164,8 @@ std::string sanitize_output_to_utf8(std::string s) {
     return sanitize_invalid_utf8(std::move(s));
 }
 
-} // anonymous namespace
-} // namespace agent::process
+}  // anonymous namespace
+}  // namespace agent::process
 
 namespace agent::process {
 
@@ -177,13 +180,19 @@ namespace {
 struct HandleGuard {
     HANDLE h = INVALID_HANDLE_VALUE;
     explicit HandleGuard(HANDLE handle = INVALID_HANDLE_VALUE) : h(handle) {}
-    ~HandleGuard() { if (h != INVALID_HANDLE_VALUE && h != nullptr) CloseHandle(h); }
+    ~HandleGuard() {
+        if (h != INVALID_HANDLE_VALUE && h != nullptr) CloseHandle(h);
+    }
     HandleGuard(const HandleGuard&) = delete;
     HandleGuard& operator=(const HandleGuard&) = delete;
     operator HANDLE() const { return h; }
     HANDLE* operator&() { return &h; }
     /// 释放所有权（返回 handle，不再负责关闭）
-    HANDLE release() { HANDLE tmp = h; h = INVALID_HANDLE_VALUE; return tmp; }
+    HANDLE release() {
+        HANDLE tmp = h;
+        h = INVALID_HANDLE_VALUE;
+        return tmp;
+    }
 };
 
 /// 创建匿名管道，读端不继承（父进程持有），写端可继承（子进程持有）
@@ -239,16 +248,14 @@ bool read_pipe(HANDLE pipe, std::string& buf, size_t max_bytes) {
 
     // Peek 成功且有数据：按 available 量读
     // Peek 失败（broken pipe）：试读 8192 字节，可能拿到缓冲区剩余数据
-    DWORD to_read = static_cast<DWORD>(std::min<size_t>(
-        (peek_ok && available > 0) ? available : 8192,
-        max_bytes - buf.size()
-    ));
+    DWORD to_read = static_cast<DWORD>(
+        std::min<size_t>((peek_ok && available > 0) ? available : 8192, max_bytes - buf.size()));
     if (to_read == 0) return false;
 
     std::string chunk(to_read, '\0');
     DWORD read_bytes = 0;
     if (!ReadFile(pipe, chunk.data(), to_read, &read_bytes, nullptr) || read_bytes == 0) {
-        return false; // 真正 EOF（无更多数据）
+        return false;  // 真正 EOF（无更多数据）
     }
     chunk.resize(read_bytes);
     buf += chunk;
@@ -272,8 +279,10 @@ std::string escape_arg(const std::string& arg) {
     result.reserve(arg.size() + 4);
     result += '"';
     for (char c : arg) {
-        if (c == '"') result += "\\\"";
-        else result += c;
+        if (c == '"')
+            result += "\\\"";
+        else
+            result += c;
     }
     result += '"';
     return result;
@@ -295,13 +304,13 @@ ResultV2<ExecOutput> exec_windows(const std::string& cmd, const ExecOptions& opt
     HANDLE stdout_read = INVALID_HANDLE_VALUE, stdout_write = INVALID_HANDLE_VALUE;
     HANDLE stderr_read = INVALID_HANDLE_VALUE, stderr_write = INVALID_HANDLE_VALUE;
     if (!create_inheritable_pipe(&stdout_read, &stdout_write)) {
-        return ResultV2<ExecOutput>::err(Error::Code::InternalError,
-            "CreatePipe(stdout) failed", "subprocess::exec");
+        return ResultV2<ExecOutput>::err(Error::Code::InternalError, "CreatePipe(stdout) failed",
+                                         "subprocess::exec");
     }
     HandleGuard g_stdout_read(stdout_read), g_stdout_write(stdout_write);
     if (!create_inheritable_pipe(&stderr_read, &stderr_write)) {
-        return ResultV2<ExecOutput>::err(Error::Code::InternalError,
-            "CreatePipe(stderr) failed", "subprocess::exec");
+        return ResultV2<ExecOutput>::err(Error::Code::InternalError, "CreatePipe(stderr) failed",
+                                         "subprocess::exec");
     }
     HandleGuard g_stderr_read(stderr_read), g_stderr_write(stderr_write);
 
@@ -314,17 +323,16 @@ ResultV2<ExecOutput> exec_windows(const std::string& cmd, const ExecOptions& opt
     si.hStdInput = nullptr;
     PROCESS_INFORMATION pi{};
 
-    if (!CreateProcessW(
-            nullptr,                       // lpApplicationName（nullptr 表示从 cmdline 解析）
-            wcmdline.data(),               // lpCommandLine（可写缓冲区）
-            nullptr, nullptr,              // 进程/线程安全属性
-            TRUE,                          // bInheritHandles
-            CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT,  // dwCreationFlags
-            nullptr,                       // lpEnvironment（继承父进程）
-            wcwd.empty() ? nullptr : wcwd.c_str(),
-            &si, &pi)) {
+    if (!CreateProcessW(nullptr,          // lpApplicationName（nullptr 表示从 cmdline 解析）
+                        wcmdline.data(),  // lpCommandLine（可写缓冲区）
+                        nullptr, nullptr,                               // 进程/线程安全属性
+                        TRUE,                                           // bInheritHandles
+                        CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT,  // dwCreationFlags
+                        nullptr,  // lpEnvironment（继承父进程）
+                        wcwd.empty() ? nullptr : wcwd.c_str(), &si, &pi)) {
         DWORD err = GetLastError();
-        return ResultV2<ExecOutput>::err(Error::Code::ResourceNotFound,
+        return ResultV2<ExecOutput>::err(
+            Error::Code::ResourceNotFound,
             "CreateProcessW failed for '" + cmd + "' (error " + std::to_string(err) + ")",
             "subprocess::exec");
     }
@@ -367,7 +375,8 @@ ResultV2<ExecOutput> exec_windows(const std::string& cmd, const ExecOptions& opt
                     got_data = true;
                 } else {
                     DWORD available = 0;
-                    if (!PeekNamedPipe(stdout_read, nullptr, 0, nullptr, &available, nullptr) && available == 0) {
+                    if (!PeekNamedPipe(stdout_read, nullptr, 0, nullptr, &available, nullptr) &&
+                        available == 0) {
                         stdout_open = false;
                     }
                 }
@@ -380,7 +389,8 @@ ResultV2<ExecOutput> exec_windows(const std::string& cmd, const ExecOptions& opt
                     }
                 } else {
                     DWORD available = 0;
-                    if (!PeekNamedPipe(stdout_read, nullptr, 0, nullptr, &available, nullptr) && available == 0) {
+                    if (!PeekNamedPipe(stdout_read, nullptr, 0, nullptr, &available, nullptr) &&
+                        available == 0) {
                         stdout_open = false;
                     }
                 }
@@ -396,7 +406,8 @@ ResultV2<ExecOutput> exec_windows(const std::string& cmd, const ExecOptions& opt
                     got_data = true;
                 } else {
                     DWORD available = 0;
-                    if (!PeekNamedPipe(stderr_read, nullptr, 0, nullptr, &available, nullptr) && available == 0) {
+                    if (!PeekNamedPipe(stderr_read, nullptr, 0, nullptr, &available, nullptr) &&
+                        available == 0) {
                         stderr_open = false;
                     }
                 }
@@ -408,7 +419,8 @@ ResultV2<ExecOutput> exec_windows(const std::string& cmd, const ExecOptions& opt
                     }
                 } else {
                     DWORD available = 0;
-                    if (!PeekNamedPipe(stderr_read, nullptr, 0, nullptr, &available, nullptr) && available == 0) {
+                    if (!PeekNamedPipe(stderr_read, nullptr, 0, nullptr, &available, nullptr) &&
+                        available == 0) {
                         stderr_open = false;
                     }
                 }
@@ -421,8 +433,10 @@ ResultV2<ExecOutput> exec_windows(const std::string& cmd, const ExecOptions& opt
             DWORD exit_code = 0;
             if (GetExitCodeProcess(pi.hProcess, &exit_code) && exit_code != STILL_ACTIVE) {
                 // 进程已退出，drain 剩余管道数据
-                while (read_pipe(stdout_read, output.stdout_text, opts.max_output_bytes)) {}
-                while (read_pipe(stderr_read, output.stderr_text, opts.max_output_bytes)) {}
+                while (read_pipe(stdout_read, output.stdout_text, opts.max_output_bytes)) {
+                }
+                while (read_pipe(stderr_read, output.stderr_text, opts.max_output_bytes)) {
+                }
                 break;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -443,7 +457,7 @@ ResultV2<ExecOutput> exec_windows(const std::string& cmd, const ExecOptions& opt
     return ResultV2<ExecOutput>::ok(std::move(output));
 }
 
-#else  // !_WIN32
+#else   // !_WIN32
 // ============================================================
 // POSIX 实现
 // ============================================================
@@ -468,7 +482,7 @@ ssize_t read_nonblocking(int fd, std::string& buf, size_t max_bytes) {
         buf += chunk;
         return n;
     }
-    if (n == 0) return 0; // EOF
+    if (n == 0) return 0;  // EOF
     // EAGAIN/EWOULDBLOCK：暂无数据，继续轮询
     if (errno == EAGAIN || errno == EWOULDBLOCK) return -1;
     // 其他错误（EIO/EBADF 等）：视为 EOF，调用方应关闭管道
@@ -481,21 +495,27 @@ ResultV2<ExecOutput> exec_posix(const std::string& cmd, const ExecOptions& opts)
     int stderr_pipe[2] = {-1, -1};
     if (pipe(stdout_pipe) < 0) {
         return ResultV2<ExecOutput>::err(Error::Code::InternalError,
-            "pipe(stdout) failed: " + std::string(strerror(errno)), "subprocess::exec");
+                                         "pipe(stdout) failed: " + std::string(strerror(errno)),
+                                         "subprocess::exec");
     }
     if (pipe(stderr_pipe) < 0) {
-        close(stdout_pipe[0]); close(stdout_pipe[1]);
+        close(stdout_pipe[0]);
+        close(stdout_pipe[1]);
         return ResultV2<ExecOutput>::err(Error::Code::InternalError,
-            "pipe(stderr) failed: " + std::string(strerror(errno)), "subprocess::exec");
+                                         "pipe(stderr) failed: " + std::string(strerror(errno)),
+                                         "subprocess::exec");
     }
 
     // 2. fork
     pid_t pid = fork();
     if (pid < 0) {
-        close(stdout_pipe[0]); close(stdout_pipe[1]);
-        close(stderr_pipe[0]); close(stderr_pipe[1]);
+        close(stdout_pipe[0]);
+        close(stdout_pipe[1]);
+        close(stderr_pipe[0]);
+        close(stderr_pipe[1]);
         return ResultV2<ExecOutput>::err(Error::Code::InternalError,
-            "fork() failed: " + std::string(strerror(errno)), "subprocess::exec");
+                                         "fork() failed: " + std::string(strerror(errno)),
+                                         "subprocess::exec");
     }
 
     if (pid == 0) {
@@ -503,8 +523,10 @@ ResultV2<ExecOutput> exec_posix(const std::string& cmd, const ExecOptions& opts)
         // 重定向 stdout/stderr 到管道写端
         dup2(stdout_pipe[1], STDOUT_FILENO);
         dup2(stderr_pipe[1], STDERR_FILENO);
-        close(stdout_pipe[0]); close(stdout_pipe[1]);
-        close(stderr_pipe[0]); close(stderr_pipe[1]);
+        close(stdout_pipe[0]);
+        close(stdout_pipe[1]);
+        close(stderr_pipe[0]);
+        close(stderr_pipe[1]);
 
         // 切换工作目录
         if (!opts.cwd.empty()) {
@@ -538,7 +560,8 @@ ResultV2<ExecOutput> exec_posix(const std::string& cmd, const ExecOptions& opts)
     }
 
     // ---- 父进程 ----
-    close(stdout_pipe[1]); close(stderr_pipe[1]);
+    close(stdout_pipe[1]);
+    close(stderr_pipe[1]);
 
     // #23 P1：竞态兜底 —— 与子进程的 setpgid(0,0) 幂等，确保 kill(-pid)
     //         在进入取消/超时分支前进程组一定已建立（失败可忽略）。
@@ -559,7 +582,7 @@ ResultV2<ExecOutput> exec_posix(const std::string& cmd, const ExecOptions& opts)
             kill(-pid, SIGTERM);  // 杀整个进程组（含 bash 的子孙进程）
             // 给 5s 升级到 SIGKILL
             int status = 0;
-            for (int i = 0; i < 50; ++i) { // 5s = 50 * 100ms
+            for (int i = 0; i < 50; ++i) {  // 5s = 50 * 100ms
                 pid_t w = waitpid(pid, &status, WNOHANG);
                 if (w == pid || w == -1) goto kill_done_cancelled;
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -622,10 +645,12 @@ ResultV2<ExecOutput> exec_posix(const std::string& cmd, const ExecOptions& opts)
                     output.stdout_truncated = true;
                     char discard[8192];
                     ssize_t n = read(stdout_pipe[0], discard, sizeof(discard));
-                    if (n == 0) stdout_open = false; // EOF
+                    if (n == 0) stdout_open = false;  // EOF
                 } else {
-                    ssize_t n = read_nonblocking(stdout_pipe[0], output.stdout_text, opts.max_output_bytes);
-                    if (n == 0) stdout_open = false; // EOF
+                    ssize_t n =
+                        read_nonblocking(stdout_pipe[0], output.stdout_text, opts.max_output_bytes);
+                    if (n == 0)
+                        stdout_open = false;  // EOF
                     else if (n > 0 && output.stdout_text.size() >= opts.max_output_bytes) {
                         output.stdout_truncated = true;
                     }
@@ -641,8 +666,10 @@ ResultV2<ExecOutput> exec_posix(const std::string& cmd, const ExecOptions& opts)
                     ssize_t n = read(stderr_pipe[0], discard, sizeof(discard));
                     if (n == 0) stderr_open = false;
                 } else {
-                    ssize_t n = read_nonblocking(stderr_pipe[0], output.stderr_text, opts.max_output_bytes);
-                    if (n == 0) stderr_open = false;
+                    ssize_t n =
+                        read_nonblocking(stderr_pipe[0], output.stderr_text, opts.max_output_bytes);
+                    if (n == 0)
+                        stderr_open = false;
                     else if (n > 0 && output.stderr_text.size() >= opts.max_output_bytes) {
                         output.stderr_truncated = true;
                     }
@@ -669,9 +696,9 @@ ResultV2<ExecOutput> exec_posix(const std::string& cmd, const ExecOptions& opts)
     close(stderr_pipe[0]);
     return ResultV2<ExecOutput>::ok(std::move(output));
 }
-#endif // _WIN32
+#endif  // _WIN32
 
-} // anonymous namespace
+}  // anonymous namespace
 
 ResultV2<ExecOutput> exec(const std::string& cmd, const ExecOptions& opts) {
 #ifdef _WIN32
@@ -713,17 +740,13 @@ ResultV2<InteractiveExecResult> exec_interactive_windows(const std::string& cmd,
 
     // 不设置 STARTF_USESTDHANDLES → 子进程继承父进程控制台 stdio（nvim 需要交互式终端）
     // 不设置 CREATE_NO_WINDOW → 子进程复用父进程控制台窗口
-    if (!CreateProcessW(
-            nullptr,
-            wcmdline.data(),
-            nullptr, nullptr,
-            TRUE,                          // bInheritHandles（继承标准句柄）
-            CREATE_UNICODE_ENVIRONMENT,
-            nullptr,
-            wcwd.empty() ? nullptr : wcwd.c_str(),
-            &si, &pi)) {
+    if (!CreateProcessW(nullptr, wcmdline.data(), nullptr, nullptr,
+                        TRUE,  // bInheritHandles（继承标准句柄）
+                        CREATE_UNICODE_ENVIRONMENT, nullptr, wcwd.empty() ? nullptr : wcwd.c_str(),
+                        &si, &pi)) {
         DWORD err = GetLastError();
-        return ResultV2<InteractiveExecResult>::err(Error::Code::ResourceNotFound,
+        return ResultV2<InteractiveExecResult>::err(
+            Error::Code::ResourceNotFound,
             "CreateProcessW failed for '" + cmd + "' (error " + std::to_string(err) + ")",
             "subprocess::exec_interactive");
     }
@@ -736,25 +759,28 @@ ResultV2<InteractiveExecResult> exec_interactive_windows(const std::string& cmd,
         return ResultV2<InteractiveExecResult>::ok(
             InteractiveExecResult{static_cast<int>(exit_code)});
     }
-    return ResultV2<InteractiveExecResult>::err(Error::Code::InternalError,
-        "GetExitCodeProcess failed", "subprocess::exec_interactive");
+    return ResultV2<InteractiveExecResult>::err(
+        Error::Code::InternalError, "GetExitCodeProcess failed", "subprocess::exec_interactive");
 }
-#else  // !_WIN32
+#else   // !_WIN32
 ResultV2<InteractiveExecResult> exec_interactive_posix(const std::string& cmd,
                                                        const std::vector<std::string>& args,
                                                        const std::string& cwd) {
     // 子进程 → 父进程：execvp 失败时传递 errno，区分"命令不存在"与"退出码 127"
     int err_pipe[2] = {-1, -1};
     if (pipe(err_pipe) < 0) {
-        return ResultV2<InteractiveExecResult>::err(Error::Code::InternalError,
-            "pipe() failed: " + std::string(strerror(errno)), "subprocess::exec_interactive");
+        return ResultV2<InteractiveExecResult>::err(
+            Error::Code::InternalError, "pipe() failed: " + std::string(strerror(errno)),
+            "subprocess::exec_interactive");
     }
 
     pid_t pid = fork();
     if (pid < 0) {
-        close(err_pipe[0]); close(err_pipe[1]);
-        return ResultV2<InteractiveExecResult>::err(Error::Code::InternalError,
-            "fork() failed: " + std::string(strerror(errno)), "subprocess::exec_interactive");
+        close(err_pipe[0]);
+        close(err_pipe[1]);
+        return ResultV2<InteractiveExecResult>::err(
+            Error::Code::InternalError, "fork() failed: " + std::string(strerror(errno)),
+            "subprocess::exec_interactive");
     }
 
     if (pid == 0) {
@@ -798,7 +824,8 @@ ResultV2<InteractiveExecResult> exec_interactive_posix(const std::string& cmd,
                 const ssize_t n = read(err_pipe[0], &e, sizeof(e));
                 close(err_pipe[0]);
                 if (n == static_cast<ssize_t>(sizeof(e))) {
-                    return ResultV2<InteractiveExecResult>::err(Error::Code::ResourceNotFound,
+                    return ResultV2<InteractiveExecResult>::err(
+                        Error::Code::ResourceNotFound,
                         "execvp failed for '" + cmd + "': " + std::string(strerror(e)),
                         "subprocess::exec_interactive");
                 }
@@ -812,11 +839,12 @@ ResultV2<InteractiveExecResult> exec_interactive_posix(const std::string& cmd,
     }
     close(err_pipe[0]);
     return ResultV2<InteractiveExecResult>::err(Error::Code::InternalError,
-        "waitpid failed: " + std::string(strerror(errno)), "subprocess::exec_interactive");
+                                                "waitpid failed: " + std::string(strerror(errno)),
+                                                "subprocess::exec_interactive");
 }
-#endif // _WIN32
+#endif  // _WIN32
 
-} // anonymous namespace
+}  // anonymous namespace
 
 ResultV2<InteractiveExecResult> exec_interactive(const std::string& cmd,
                                                  const std::vector<std::string>& args,
@@ -828,4 +856,4 @@ ResultV2<InteractiveExecResult> exec_interactive(const std::string& cmd,
 #endif
 }
 
-} // namespace agent::process
+}  // namespace agent::process

@@ -28,9 +28,9 @@ namespace agent {
 /// @brief 上下文压缩器（DEPRECATED，缓存杀手）
 /// @details 无状态（仅配置），线程安全
 /// @deprecated 使用 CacheAwareCompactor 替代
-class [[deprecated("Use CacheAwareCompactor instead (cache_aware_compactor.h)")]]
-ContextCompressor {
-public:
+class [[deprecated(
+    "Use CacheAwareCompactor instead (cache_aware_compactor.h)")]] ContextCompressor {
+   public:
     /// @brief 压缩配置
     struct Config {
         int max_messages = 50;           ///< 最大保留消息数（超出则丢弃最旧消息）
@@ -38,21 +38,19 @@ public:
         bool compress_old_tools = true;  ///< 是否压缩旧的 tool_result 为摘要
     };
 
-    explicit ContextCompressor(Config cfg)
-        : m_config(std::move(cfg)) {}
+    explicit ContextCompressor(Config cfg) : m_config(std::move(cfg)) {}
 
     ContextCompressor() : ContextCompressor(Config{}) {}
 
     /// @brief 压缩消息列表，返回压缩后的列表（不修改原始列表）
     /// @param messages 原始消息列表
     /// @return 压缩后的消息列表（长度 <= max_messages）
-    [[nodiscard]] std::vector<ChatMessage> compress(
-        const std::vector<ChatMessage>& messages) const;
+    [[nodiscard]] std::vector<ChatMessage> compress(const std::vector<ChatMessage>& messages) const;
 
     /// @brief 获取配置
     [[nodiscard]] const Config& config() const noexcept { return m_config; }
 
-private:
+   private:
     Config m_config;
 
     /// @brief 将旧 tool_result 消息替换为摘要
@@ -61,4 +59,4 @@ private:
     [[nodiscard]] static ChatMessage summarize_tool_result(const ChatMessage& msg);
 };
 
-} // namespace agent
+}  // namespace agent

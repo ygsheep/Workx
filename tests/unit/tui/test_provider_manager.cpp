@@ -31,8 +31,7 @@ struct Fixture {
     ftxui::Component comp;
 
     Fixture() {
-        auto mk = [](std::string id, std::string name, std::string url,
-                     std::string model) {
+        auto mk = [](std::string id, std::string name, std::string url, std::string model) {
             ProviderConfigEntry e;
             e.id = std::move(id);
             e.name = std::move(name);

@@ -27,11 +27,11 @@
 #include "agent/api/chat_types.h"
 #include "agent/api/i_backend.h"
 #include "agent/api/i_backend_admin.h"  // C-2：dynamic_cast 到 IBackendAdmin*
-#include "agent/config/app_config.h"  // keys:: / default_config_path()
+#include "agent/config/app_config.h"    // keys:: / default_config_path()
 #include "agent/core/chat_session.h"
 #include "agent/mcp/mcp_client_manager.h"
 #include "agent/model/provider_preset.h"
-#include "agent/prompt/memory.h"  // 项目记忆加载（CLAUDE.md / AGENT.md）
+#include "agent/prompt/memory.h"          // 项目记忆加载（CLAUDE.md / AGENT.md）
 #include "agent/session/session_store.h"  // 项目会话恢复
 #include "agent/tool/AgentTool/agent_tool.h"
 #include "agent/tool/BashTool/bash_tool.h"
@@ -70,8 +70,7 @@ namespace agent {
 // create_backend
 // ============================================================
 
-BackendCreateResult create_backend(IConfigManager& cfg,
-                                   const ProviderPreset* preset,
+BackendCreateResult create_backend(IConfigManager& cfg, const ProviderPreset* preset,
                                    IEventBus& event_bus) {
     BackendCreateResult result;
 
@@ -103,7 +102,8 @@ BackendCreateResult create_backend(IConfigManager& cfg,
     backend_config.api_key = cfg.get_or<std::string>(keys::API_KEY, "");
     int default_timeout = preset && preset->timeout_ms > 0 ? preset->timeout_ms : 30000;
     backend_config.timeout_ms = cfg.get_or<int>(keys::TIMEOUT_MS, default_timeout);
-    // DS_CACHE P2：reasoning_content 往返配置（默认 false，仅 DeepSeek-reasoner 等 thinking 模型开启）
+    // DS_CACHE P2：reasoning_content 往返配置（默认 false，仅 DeepSeek-reasoner 等 thinking
+    // 模型开启）
     backend_config.send_reasoning_content = cfg.get_or<bool>(keys::SEND_REASONING, false);
 
     // 创建后端（H-1：显式注入 event_bus 以保留 BackendStatusEvent 发布；
@@ -126,8 +126,7 @@ BackendCreateResult create_backend(IConfigManager& cfg,
 // create_backend_for_entry — 按供应商条目创建后端（/provider 热切换）
 // ============================================================
 
-BackendCreateResult create_backend_for_entry(IConfigManager& cfg,
-                                             const ProviderConfigEntry& entry,
+BackendCreateResult create_backend_for_entry(IConfigManager& cfg, const ProviderConfigEntry& entry,
                                              IEventBus& event_bus) {
     BackendCreateResult result;
 
@@ -184,10 +183,8 @@ BackendCreateResult create_backend_for_entry(IConfigManager& cfg,
     return result;
 }
 
-SessionResult create_session(IConfigManager& cfg,
-                             const ProviderPreset* preset,
-                             ITaskManager& task_manager,
-                             IEventBus& event_bus) {
+SessionResult create_session(IConfigManager& cfg, const ProviderPreset* preset,
+                             ITaskManager& task_manager, IEventBus& event_bus) {
     SessionResult result;
 
     // 复用 create_backend：URL/Model 解析 + 后端创建与初始化
@@ -224,12 +221,8 @@ SessionResult create_session(IConfigManager& cfg,
     // 项目会话恢复：生成 UUID 作为 session_id（替换硬编码 "default"）
     std::string session_id = core::util::generate_uuid();
     int default_retry_delay = preset && preset->retry_delay_ms > 0 ? preset->retry_delay_ms : 1000;
-    result.session = std::make_unique<ChatSession>(
-        std::move(backend_result.provider),
-        task_manager,
-        event_bus,
-        cfg,
-        default_retry_delay, session_id);
+    result.session = std::make_unique<ChatSession>(std::move(backend_result.provider), task_manager,
+                                                   event_bus, cfg, default_retry_delay, session_id);
 
     // #45：CLI --bypass-permissions 启动即全权模式（跳过文件/命令确认）
     if (cfg.get_or<bool>(keys::BYPASS_PERMISSIONS, false)) {
@@ -275,7 +268,8 @@ SessionResult create_session(IConfigManager& cfg,
         });
 
     // DS_CACHE H-4：从 provider preset 或 cfg 注入上下文窗口到压缩器
-    // 优先级：cfg.backend.context_length > preset.default_context_length > 0（压缩器内部 fallback 1M）
+    // 优先级：cfg.backend.context_length > preset.default_context_length > 0（压缩器内部 fallback
+    // 1M）
     int32_t context_window = cfg.get_or<int>(keys::CONTEXT_LENGTH, 0);
     if (context_window <= 0 && preset && preset->default_context_length > 0) {
         context_window = preset->default_context_length;
@@ -308,8 +302,8 @@ SessionResult create_session(IConfigManager& cfg,
         if (fs::exists(fs::current_path() / ".git")) {
             git_branch = "unknown";
         }
-        result.session->configure_session_store(
-            project_dir.string(), cwd, result.model_name, git_branch);
+        result.session->configure_session_store(project_dir.string(), cwd, result.model_name,
+                                                git_branch);
     } catch (const std::exception&) {
         // 配置失败不阻断会话启动，仅失去持久化能力
     }
@@ -389,11 +383,11 @@ std::string get_os_version_string() {
     OSVERSIONINFOEXW osvi{};
     osvi.dwOSVersionInfoSize = sizeof(osvi);
     // RtlGetVersion 不受 manifest 影响，返回真实版本
-    typedef LONG(WINAPI* RtlGetVersionPtr)(OSVERSIONINFOEXW*);
+    typedef LONG(WINAPI * RtlGetVersionPtr)(OSVERSIONINFOEXW*);
     HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
     if (ntdll) {
-        auto pRtlGetVersion = reinterpret_cast<RtlGetVersionPtr>(
-            GetProcAddress(ntdll, "RtlGetVersion"));
+        auto pRtlGetVersion =
+            reinterpret_cast<RtlGetVersionPtr>(GetProcAddress(ntdll, "RtlGetVersion"));
         if (pRtlGetVersion && pRtlGetVersion(&osvi) == 0) {
             // 粗略判定 Windows 版本名
             const char* edition = "Windows";
@@ -470,9 +464,7 @@ std::string build_environment_context() {
         "- Working directory: {}\n"
         "- Is directory a git repo: {}\n"
         "- Available shells: {}\n",
-        os_version, platform, cwd,
-        git_repo ? "Yes" : "No",
-        shell_line);
+        os_version, platform, cwd, git_repo ? "Yes" : "No", shell_line);
 
     // Windows 平台补充 shell 选择指引
 #ifdef _WIN32
@@ -498,10 +490,9 @@ std::string build_environment_context() {
     return env_block;
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
-std::string build_system_prompt(const std::string& user_prompt,
-                                const tool::ToolRegistry& registry,
+std::string build_system_prompt(const std::string& user_prompt, const tool::ToolRegistry& registry,
                                 tool::SessionMode mode) {
     std::string sys_prompt = user_prompt;
 
@@ -511,7 +502,8 @@ std::string build_system_prompt(const std::string& user_prompt,
 
     // 注入项目记忆（CLAUDE.md / AGENT.md，从 CWD 向上遍历）
     // 放在环境上下文之后、工具 prompt 之前，让项目约定优先级高于工具说明
-    std::string project_memory = prompt::load_and_format_project_memory(std::filesystem::current_path());
+    std::string project_memory =
+        prompt::load_and_format_project_memory(std::filesystem::current_path());
     if (!project_memory.empty()) {
         sys_prompt += "\n\n";
         sys_prompt += project_memory;
@@ -536,4 +528,4 @@ std::string build_system_prompt(const std::string& user_prompt,
     return sys_prompt;
 }
 
-} // namespace agent
+}  // namespace agent

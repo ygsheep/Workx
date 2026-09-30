@@ -60,7 +60,7 @@ bool ViewModel::apply_variant(const ActionAppendSkill& a) {
         t.result = "(技能已本地解析，指令已交由模型处理" +
                    (a.input.empty() ? std::string{} : std::string("：") + a.input) + ")";
     }
-    t.done = true;     // 本地技能同步解析完成
+    t.done = true;  // 本地技能同步解析完成
     t.running = false;
     t.is_error = a.is_error;
     t.expanded = a.is_error;  // 出错默认展开
@@ -169,7 +169,7 @@ bool ViewModel::apply_variant(const ActionBeginTool& a) {
     t.call_id = a.call_id;
     t.arguments = a.arguments;
     t.running = true;
-    t.expanded = true;  // 任务开始：工具卡自动展开
+    t.expanded = true;           // 任务开始：工具卡自动展开
     t.text_pos = m.text.size();  // 记录正文插入点，供与正文交错渲染
     m.tool_calls.push_back(std::move(t));
     m.tool_use_ids.push_back(a.call_id);
@@ -200,11 +200,11 @@ bool ViewModel::apply_variant(const ActionEndTool& a) {
 bool ViewModel::apply_variant(const ActionAgentDone& a) {
     busy = false;
     // 成功路径 StreamDoneEvent（ActionTurnDone）已先行封口并填充 final_answer
-    //（同一线程顺序发布，队列保序），AgentDoneEvent 只是最终汇总：
+    // （同一线程顺序发布，队列保序），AgentDoneEvent 只是最终汇总：
     // 仅当流式路径缺失（事件丢失/顺序异常）且消息未封口时才补填，
     // 绝不追加新消息——否则 final_answer 会作为第二遍重复显示。
-    if (!messages.empty() && messages.back().role == MsgRole::Assistant
-        && !messages.back().sealed) {
+    if (!messages.empty() && messages.back().role == MsgRole::Assistant &&
+        !messages.back().sealed) {
         auto& m = messages.back();
         if (m.text.empty() && !a.final_answer.empty()) m.text = a.final_answer;
         m.sealed = true;
@@ -251,20 +251,21 @@ bool ViewModel::apply_variant(const ActionCacheDiagnostics& a) {
         if (i > 0) reason_str += "+";
         reason_str += a.reasons[i];
     }
-    prompt_echo = std::string(str::kCachePrefixChanged)
-                  + (reason_str.empty() ? "?" : reason_str)
-                  + std::string(str::kCacheMissSep)
-                  + std::to_string(a.cache_miss_tokens)
-                  + std::string(str::kCacheTokensUnit);
+    prompt_echo = std::string(str::kCachePrefixChanged) + (reason_str.empty() ? "?" : reason_str) +
+                  std::string(str::kCacheMissSep) + std::to_string(a.cache_miss_tokens) +
+                  std::string(str::kCacheTokensUnit);
     return true;
 }
 
 bool ViewModel::apply_variant(const ActionCompactionPaused& a) {
-    if (!a.notice.empty()) prompt_echo = a.notice;
-    else if (a.paused) prompt_echo = std::string(str::kCompactPausedPrefix)
-                                        + std::to_string(a.consecutive_compacts)
-                                        + std::string(str::kCompactPausedSuffix);
-    else prompt_echo = std::string(str::kCompactResumed);
+    if (!a.notice.empty())
+        prompt_echo = a.notice;
+    else if (a.paused)
+        prompt_echo = std::string(str::kCompactPausedPrefix) +
+                      std::to_string(a.consecutive_compacts) +
+                      std::string(str::kCompactPausedSuffix);
+    else
+        prompt_echo = std::string(str::kCompactResumed);
     return true;
 }
 
@@ -287,7 +288,7 @@ bool ViewModel::apply_variant(const ActionSubAgentProgress& a) {
 
     // 第二层：完整记录（独立渲染）
     auto it = std::find_if(sub_records.begin(), sub_records.end(),
-        [&](const SubAgentDetail& s) { return s.task_id == a.task_id; });
+                           [&](const SubAgentDetail& s) { return s.task_id == a.task_id; });
     if (it == sub_records.end()) {
         sub_records.push_back(SubAgentDetail{});
         it = std::prev(sub_records.end());
@@ -335,7 +336,7 @@ bool ViewModel::apply_variant(const ActionSubAgentProgress& a) {
 
     // 侧边栏任务调度 tab 聚合（轻量条目）
     auto lit = std::find_if(tabs.sub_agents.begin(), tabs.sub_agents.end(),
-        [&](const SubAgentLite& s) { return s.task_id == a.task_id; });
+                            [&](const SubAgentLite& s) { return s.task_id == a.task_id; });
     if (lit == tabs.sub_agents.end()) {
         tabs.sub_agents.push_back(SubAgentLite{});
         lit = std::prev(tabs.sub_agents.end());
@@ -370,7 +371,7 @@ bool ViewModel::apply_variant(const ActionSubAgentProgress& a) {
 bool ViewModel::apply_variant(const ActionSubAgentCompleted& a) {
     // 第二层：更新状态/耗时/最终答复（不混入主转录区）
     auto it = std::find_if(sub_records.begin(), sub_records.end(),
-        [&](const SubAgentDetail& s) { return s.task_id == a.task_id; });
+                           [&](const SubAgentDetail& s) { return s.task_id == a.task_id; });
     if (it == sub_records.end()) {
         sub_records.push_back(SubAgentDetail{});
         it = std::prev(sub_records.end());
@@ -382,7 +383,7 @@ bool ViewModel::apply_variant(const ActionSubAgentCompleted& a) {
 
     // 侧边栏任务调度 tab 聚合
     auto lit = std::find_if(tabs.sub_agents.begin(), tabs.sub_agents.end(),
-        [&](const SubAgentLite& s) { return s.task_id == a.task_id; });
+                            [&](const SubAgentLite& s) { return s.task_id == a.task_id; });
     if (lit == tabs.sub_agents.end()) {
         tabs.sub_agents.push_back(SubAgentLite{});
         lit = std::prev(tabs.sub_agents.end());
@@ -397,7 +398,7 @@ bool ViewModel::apply_variant(const ActionSubAgentCompleted& a) {
 bool ViewModel::apply_variant(const ActionHookProgress& a) {
     // 按 hook_id 关联同一条 hook 的 start / done(failed) 两拍，合并为一行
     auto it = std::find_if(hook_progress.begin(), hook_progress.end(),
-        [&](const HookRow& r) { return r.hook_id == a.hook_id; });
+                           [&](const HookRow& r) { return r.hook_id == a.hook_id; });
     HookRow row;
     row.hook_id = a.hook_id;
     row.event = a.event;
@@ -413,8 +414,9 @@ bool ViewModel::apply_variant(const ActionHookProgress& a) {
     }
     // FIFO 淘汰最旧条目（历史 done/failed 行随新事件滚动离开，保持面板精简）
     if (hook_progress.size() > kMaxHookRows)
-        hook_progress.erase(hook_progress.begin(), hook_progress.begin() +
-            static_cast<std::ptrdiff_t>(hook_progress.size() - kMaxHookRows));
+        hook_progress.erase(hook_progress.begin(),
+                            hook_progress.begin() +
+                                static_cast<std::ptrdiff_t>(hook_progress.size() - kMaxHookRows));
     return true;
 }
 
@@ -456,7 +458,11 @@ bool ViewModel::apply_variant(const ActionMcpStatus& a) {
     entries.reserve(a.servers.size());
     for (const auto& s : a.servers) {
         entries.push_back(McpServerEntry{
-            s.name, s.protocol, s.tool_count, s.state, s.error,
+            s.name,
+            s.protocol,
+            s.tool_count,
+            s.state,
+            s.error,
         });
     }
     if (sidebar.mcp_servers == entries) return false;  // 无变化，避免无谓重绘
@@ -467,8 +473,7 @@ bool ViewModel::apply_variant(const ActionMcpStatus& a) {
 namespace {
 
 /// @brief 复制时合并新树到旧树：目录递归继承旧展开状态（按 rel_path 匹配）
-void merge_project_expand(const std::vector<ProjectNode>& src,
-                          std::vector<ProjectNode>& dst) {
+void merge_project_expand(const std::vector<ProjectNode>& src, std::vector<ProjectNode>& dst) {
     for (auto& d : dst) {
         if (!d.is_dir) continue;
         // 在旧树中找同路径目录，继承其 expanded
@@ -528,10 +533,8 @@ std::string truncate_utf8(std::string s, std::size_t max) {
     if (s.size() <= max) return s;
     s.resize(max);
     // 去掉续字节回到字符首字节；若首字节是不完整多字节字符则一并去掉
-    while (!s.empty() && (static_cast<unsigned char>(s.back()) & 0xC0) == 0x80)
-        s.pop_back();
-    if (!s.empty() && (static_cast<unsigned char>(s.back()) & 0xC0) == 0xC0)
-        s.pop_back();
+    while (!s.empty() && (static_cast<unsigned char>(s.back()) & 0xC0) == 0x80) s.pop_back();
+    if (!s.empty() && (static_cast<unsigned char>(s.back()) & 0xC0) == 0xC0) s.pop_back();
     s += "…";
     return s;
 }
@@ -544,9 +547,7 @@ std::string purpose_from_reasoning(const std::string& reasoning) {
         last.pop_back();  // 去掉末尾换行，避免取到空行
     const std::size_t pos = last.find_last_of('\n');
     if (pos != std::string::npos) last = last.substr(pos + 1);
-    const auto is_space = [](char c) {
-        return c == ' ' || c == '\t' || c == '\r' || c == '\n';
-    };
+    const auto is_space = [](char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
     while (!last.empty() && is_space(last.front())) last.erase(last.begin());
     while (!last.empty() && is_space(last.back())) last.pop_back();
     return truncate_utf8(std::move(last), 40);
@@ -586,7 +587,8 @@ void ViewModel::track_file_change(const ActionBeginTool& a) {
     }
 
     ch.timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
     // active_stream() 保证 messages 非空，但显式检查防止重构后下溢
     ch.msg_index = messages.empty() ? 0 : messages.size() - 1;
     ch.diff = agent::line_diff(split_lines(ch.old_string), split_lines(ch.new_string), 1);

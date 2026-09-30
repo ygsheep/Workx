@@ -21,9 +21,7 @@ const std::string& TaskListTool::name() const {
 }
 
 const std::string& TaskListTool::description() const {
-    static const std::string d{
-        "Lists all tasks in the session task list."
-    };
+    static const std::string d{"Lists all tasks in the session task list."};
     return d;
 }
 
@@ -32,8 +30,7 @@ const std::string& TaskListTool::prompt() const {
         "Lists all tasks in the current session's task list. "
         "Returns an array of task objects (id, subject, description, status, "
         "activeForm, owner, blocks, blockedBy). Returns an empty array if there "
-        "are no tasks."
-    };
+        "are no tasks."};
     return p;
 }
 
@@ -45,13 +42,11 @@ nlohmann::json TaskListTool::input_schema() const {
     return nlohmann::json::parse(schema_str);
 }
 
-ResultV2<ToolResult> TaskListTool::call(
-    const nlohmann::json& /*input*/,
-    const ToolContext& ctx
-) const {
+ResultV2<ToolResult> TaskListTool::call(const nlohmann::json& /*input*/,
+                                        const ToolContext& ctx) const {
     const auto todos = TodoStore::instance().list_todos(ctx.session_id);
     nlohmann::json result = {{"tasks", todos}};
     return ResultV2<ToolResult>::ok(ToolResult::ok(std::move(result)));
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

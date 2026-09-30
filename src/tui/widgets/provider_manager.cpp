@@ -76,35 +76,44 @@ struct SuggestItem {
 
 const char* field_label(Field f) {
     switch (f) {
-        case F_NAME:    return "名称";
-        case F_URL:     return "Base URL";
-        case F_MODEL:   return "模型 ID";
-        case F_CONTEXT: return "上下文窗口";
-        case F_KEY:     return "API Key";
-        default:        return "";
+        case F_NAME:
+            return "名称";
+        case F_URL:
+            return "Base URL";
+        case F_MODEL:
+            return "模型 ID";
+        case F_CONTEXT:
+            return "上下文窗口";
+        case F_KEY:
+            return "API Key";
+        default:
+            return "";
     }
 }
 
 std::string* field_value(agent::ProviderConfigEntry& e, Field f) {
     switch (f) {
-        case F_NAME:    return &e.name;
-        case F_URL:     return &e.base_url;
-        case F_MODEL:   return &e.model;
-        case F_KEY:     return &e.api_key;
-        default:        return nullptr;  // F_CONTEXT 无字符串存储
+        case F_NAME:
+            return &e.name;
+        case F_URL:
+            return &e.base_url;
+        case F_MODEL:
+            return &e.model;
+        case F_KEY:
+            return &e.api_key;
+        default:
+            return nullptr;  // F_CONTEXT 无字符串存储
     }
 }
 
 /// 模型 ID → 上下文窗口自动匹配（catalog 优先，静态能力表兜底）
-int32_t match_context_window(const agent::ModelCatalog* catalog,
-                             const std::string& model) {
+int32_t match_context_window(const agent::ModelCatalog* catalog, const std::string& model) {
     if (model.empty()) return 0;
     if (catalog) {
         int32_t v = catalog->context_window_for(model);
         if (v > 0) return v;
     }
-    if (const auto* cap = agent::find_model_capability(model))
-        return cap->context_window;
+    if (const auto* cap = agent::find_model_capability(model)) return cap->context_window;
     return 0;
 }
 
@@ -113,8 +122,7 @@ std::string input_type_glyphs(const std::string& model) {
     std::string out(theme::icon_input_text());
     bool vision = false;
     if (!model.empty())
-        if (const auto* cap = agent::find_model_capability(model))
-            vision = cap->supports_vision;
+        if (const auto* cap = agent::find_model_capability(model)) vision = cap->supports_vision;
     if (vision) out += " " + std::string(theme::icon_input_vision());
     return out;
 }
@@ -135,9 +143,7 @@ std::vector<SuggestItem> build_suggestions() {
         out.push_back(SuggestItem{
             .name = std::string(p->name),
             .display = p->display_name,
-            .desc = p->default_url.empty()
-                    ? std::string(p->name) + " 协议"
-                    : p->default_url,
+            .desc = p->default_url.empty() ? std::string(p->name) + " 协议" : p->default_url,
             .is_custom = (p->name == kCustomProviderId),
         });
     }
@@ -173,7 +179,7 @@ void pop_utf8_back(std::string& s) {
 }  // namespace
 
 class ProviderManager : public ftxui::ComponentBase {
-public:
+   public:
     ProviderManager(ProviderManagerOptions&& opts, bool& open)
         : m_providers(opts.providers),
           m_active_id(opts.active_id),
@@ -186,11 +192,16 @@ public:
           m_suggest_all(build_suggestions()) {}
 
     bool OnEvent(Event event) override {
-        if (event == Event::Escape) { return on_escape(); }
+        if (event == Event::Escape) {
+            return on_escape();
+        }
 
         if (m_layer == Layer::Form) {
             if (handle_form_event(event)) return true;
-            if (event.is_character()) { handle_form_char(event.character()); return true; }
+            if (event.is_character()) {
+                handle_form_char(event.character());
+                return true;
+            }
             return false;
         }
         return handle_list_event(event);
@@ -213,18 +224,16 @@ public:
         const int panel_w = std::max(48, term_w * 62 / 100);
         auto panel = ftxui::vbox({
                          ftxui::text(" "),
-                         ftxui::hbox({ftxui::text("  "), content | ftxui::flex,
-                                      ftxui::text("  ")}),
+                         ftxui::hbox({ftxui::text("  "), content | ftxui::flex, ftxui::text("  ")}),
                          ftxui::text(" "),
-                     })
-                     | ftxui::size(ftxui::WIDTH, ftxui::EQUAL, panel_w)
-                     | ftxui::size(ftxui::HEIGHT, ftxui::LESS_THAN, 26)
-                     | ftxui::bgcolor(kPanel)
-                     | ftxui::border;
+                     }) |
+                     ftxui::size(ftxui::WIDTH, ftxui::EQUAL, panel_w) |
+                     ftxui::size(ftxui::HEIGHT, ftxui::LESS_THAN, 26) | ftxui::bgcolor(kPanel) |
+                     ftxui::border;
         return ftxui::clear_under(panel) | ftxui::reflect(m_box);
     }
 
-private:
+   private:
     enum class Layer { List, Form };
 
     // ---------------- 状态 ----------------
@@ -242,16 +251,16 @@ private:
     int m_suggest_sel = 0;
 
     Layer m_layer = Layer::List;
-    int m_sel = 0;            // 列表选中项（providers 下标）
+    int m_sel = 0;               // 列表选中项（providers 下标）
     bool m_confirm_del = false;  // 删除二次确认
-    std::string m_status;     // 状态提示行
+    std::string m_status;        // 状态提示行
 
     // 表单状态
     Field m_field = F_NAME;
-    bool m_dirty = false;        // 表单有未保存修改
-    bool m_editing_new = false;  // 表单是否处于新增流程
-    bool m_escape_armed = false; // Esc 双击确认放弃
-    bool m_context_auto = true;  // 上下文窗口是否由模型匹配自动填充
+    bool m_dirty = false;                   // 表单有未保存修改
+    bool m_editing_new = false;             // 表单是否处于新增流程
+    bool m_escape_armed = false;            // Esc 双击确认放弃
+    bool m_context_auto = true;             // 上下文窗口是否由模型匹配自动填充
     agent::ProviderConfigEntry m_snapshot;  // 进入表单前快照（Esc 放弃时还原）
 
     // 渲染交互命中
@@ -268,12 +277,22 @@ private:
         m_sel = 0;
         if (!m_providers.empty())
             for (size_t i = 0; i < m_providers.size(); ++i)
-                if (m_providers[i].id == m_active_id) { m_sel = static_cast<int>(i); break; }
+                if (m_providers[i].id == m_active_id) {
+                    m_sel = static_cast<int>(i);
+                    break;
+                }
     }
 
     bool on_escape() {
-        if (m_layer == Layer::Form) { discard_form(); return true; }
-        if (m_confirm_del) { m_confirm_del = false; m_status.clear(); return true; }
+        if (m_layer == Layer::Form) {
+            discard_form();
+            return true;
+        }
+        if (m_confirm_del) {
+            m_confirm_del = false;
+            m_status.clear();
+            return true;
+        }
         m_open = false;
         if (m_on_close) m_on_close();
         return true;
@@ -288,13 +307,22 @@ private:
     // ---------------- 列表层 ----------------
     bool handle_list_event(Event event) {
         // 空格/回车/Tab = 设为使用中
-        if (event == Event::Return || event == Event::Tab) { activate(m_sel); return true; }
+        if (event == Event::Return || event == Event::Tab) {
+            activate(m_sel);
+            return true;
+        }
         if (event.is_character() && event.character() == " ") {
             activate(m_sel);
             return true;
         }
-        if (event == Event::ArrowUp) { move_sel(-1); return true; }
-        if (event == Event::ArrowDown) { move_sel(+1); return true; }
+        if (event == Event::ArrowUp) {
+            move_sel(-1);
+            return true;
+        }
+        if (event == Event::ArrowDown) {
+            move_sel(+1);
+            return true;
+        }
         // a / Ctrl+N = 添加
         if (event == Event::CtrlN ||
             (event.is_character() && (event.character() == "a" || event.character() == "A"))) {
@@ -309,9 +337,13 @@ private:
         // d / Ctrl+D = 删除（二次确认）
         if (event == Event::CtrlD ||
             (event.is_character() && (event.character() == "d" || event.character() == "D"))) {
-            if (m_confirm_del) do_delete();
+            if (m_confirm_del)
+                do_delete();
             else {
-                if (m_providers.empty()) { m_status = "当前无供应商可删除"; return true; }
+                if (m_providers.empty()) {
+                    m_status = "当前无供应商可删除";
+                    return true;
+                }
                 m_confirm_del = true;
                 m_status = "确认删除「" + m_providers[static_cast<size_t>(m_sel)].name +
                            "」？再按 d / 点击删除执行，Esc 取消";
@@ -337,8 +369,14 @@ private:
                 if (m_box.Contain(m.x, m.y)) return true;  // 面板内空白：消费
                 return false;
             }
-            if (m.button == ftxui::Mouse::WheelUp) { move_sel(-1); return true; }
-            if (m.button == ftxui::Mouse::WheelDown) { move_sel(+1); return true; }
+            if (m.button == ftxui::Mouse::WheelUp) {
+                move_sel(-1);
+                return true;
+            }
+            if (m.button == ftxui::Mouse::WheelDown) {
+                move_sel(+1);
+                return true;
+            }
             return false;
         }
         return false;
@@ -356,12 +394,22 @@ private:
 
     void on_btn(Action a) {
         switch (a) {
-            case Action::Activate: activate(m_sel); break;
-            case Action::Edit:     begin_edit(); break;
-            case Action::Add:      begin_new(); break;
+            case Action::Activate:
+                activate(m_sel);
+                break;
+            case Action::Edit:
+                begin_edit();
+                break;
+            case Action::Add:
+                begin_new();
+                break;
             case Action::Delete:
-                if (m_providers.empty()) { m_status = "当前无供应商可删除"; break; }
-                if (m_confirm_del) do_delete();
+                if (m_providers.empty()) {
+                    m_status = "当前无供应商可删除";
+                    break;
+                }
+                if (m_confirm_del)
+                    do_delete();
                 else {
                     m_confirm_del = true;
                     m_status = "确认删除「" + m_providers[static_cast<size_t>(m_sel)].name +
@@ -372,10 +420,14 @@ private:
     }
 
     void do_delete() {
-        if (m_sel < 0 || m_sel >= static_cast<int>(m_providers.size())) { m_confirm_del = false; return; }
+        if (m_sel < 0 || m_sel >= static_cast<int>(m_providers.size())) {
+            m_confirm_del = false;
+            return;
+        }
         const std::string name = m_providers[static_cast<size_t>(m_sel)].name;
         m_providers.erase(m_providers.begin() + m_sel);
-        if (m_sel >= static_cast<int>(m_providers.size())) m_sel = static_cast<int>(m_providers.size()) - 1;
+        if (m_sel >= static_cast<int>(m_providers.size()))
+            m_sel = static_cast<int>(m_providers.size()) - 1;
         m_confirm_del = false;
         if (m_on_commit) m_on_commit();
         m_status = "已删除供应商 " + name;
@@ -386,7 +438,11 @@ private:
         for (int n = 1;; ++n) {
             std::string cand = base + std::to_string(n);
             bool taken = false;
-            for (const auto& e : m_providers) if (e.id == cand) { taken = true; break; }
+            for (const auto& e : m_providers)
+                if (e.id == cand) {
+                    taken = true;
+                    break;
+                }
             if (!taken) {
                 agent::ProviderConfigEntry ne;
                 ne.id = std::move(cand);
@@ -408,7 +464,10 @@ private:
     }
 
     void begin_edit() {
-        if (m_providers.empty()) { m_status = "当前无供应商可编辑"; return; }
+        if (m_providers.empty()) {
+            m_status = "当前无供应商可编辑";
+            return;
+        }
         m_snapshot = m_providers[static_cast<size_t>(m_sel)];
         m_field = F_NAME;
         m_dirty = false;
@@ -445,15 +504,28 @@ private:
         // 表单回车：建议填充 / 下一字段 / 最后字段保存
         if (event == Event::Return) return form_enter();
         // ↑↓：建议内移动，否则切字段
-        if (event == Event::ArrowUp) { form_move(-1); return true; }
-        if (event == Event::ArrowDown) { form_move(+1); return true; }
+        if (event == Event::ArrowUp) {
+            form_move(-1);
+            return true;
+        }
+        if (event == Event::ArrowDown) {
+            form_move(+1);
+            return true;
+        }
         // Tab：补全名称 / 切换下一字段
         if (event == Event::Tab) {
-            if (suggest_visible()) { fill_suggest(true); refresh_suggest(); return true; }
+            if (suggest_visible()) {
+                fill_suggest(true);
+                refresh_suggest();
+                return true;
+            }
             next_field();
             return true;
         }
-        if (event == Event::CtrlS) { save_form(); return true; }
+        if (event == Event::CtrlS) {
+            save_form();
+            return true;
+        }
         if (event == Event::Backspace || event == Event::Delete) {
             handle_backspace();
             return true;
@@ -471,7 +543,8 @@ private:
         if (m_field == F_CONTEXT) {
             if (ch.size() == 1 && std::isdigit(static_cast<unsigned char>(ch[0])))
                 append_ctx_digit(ch[0] - '0');
-            else m_status = "上下文窗口仅支持输入数字";
+            else
+                m_status = "上下文窗口仅支持输入数字";
             return;
         }
         agent::ProviderConfigEntry& cur = m_providers[static_cast<size_t>(m_sel)];
@@ -486,16 +559,23 @@ private:
     void after_field_edit(agent::ProviderConfigEntry& cur) {
         if (m_field == F_MODEL) {
             const int32_t auto_ctx = match_context_window(m_catalog.get(), cur.model);
-            if (auto_ctx > 0) { cur.context_length = auto_ctx; m_context_auto = true; }
-            else m_context_auto = false;
+            if (auto_ctx > 0) {
+                cur.context_length = auto_ctx;
+                m_context_auto = true;
+            } else
+                m_context_auto = false;
         } else if (m_field == F_NAME) {
             refresh_suggest();
         }
     }
 
     void append_ctx_digit(int d) {
-        const int64_t next = static_cast<int64_t>(m_providers[static_cast<size_t>(m_sel)].context_length) * 10 + d;
-        if (next > kMaxContext) { m_status = "上下文窗口已达上限 2000000"; return; }
+        const int64_t next =
+            static_cast<int64_t>(m_providers[static_cast<size_t>(m_sel)].context_length) * 10 + d;
+        if (next > kMaxContext) {
+            m_status = "上下文窗口已达上限 2000000";
+            return;
+        }
         if (m_providers[static_cast<size_t>(m_sel)].context_length == 0) m_context_auto = false;
         m_providers[static_cast<size_t>(m_sel)].context_length = static_cast<int32_t>(next);
         m_context_auto = false;
@@ -508,7 +588,10 @@ private:
             int32_t d = m_providers[static_cast<size_t>(m_sel)].context_length;
             d /= 10;
             m_providers[static_cast<size_t>(m_sel)].context_length = d;
-            if (d == 0) { m_context_auto = true; m_status.clear(); }
+            if (d == 0) {
+                m_context_auto = true;
+                m_status.clear();
+            }
             m_dirty = true;
             return;
         }
@@ -522,9 +605,7 @@ private:
         }
     }
 
-    bool suggest_visible() const {
-        return m_field == F_NAME && !m_suggest.empty();
-    }
+    bool suggest_visible() const { return m_field == F_NAME && !m_suggest.empty(); }
 
     void form_move(int delta) {
         if (suggest_visible()) {
@@ -549,7 +630,10 @@ private:
             fill_suggest(false);
             return true;
         }
-        if (m_field == F_KEY) { save_form(); return true; }
+        if (m_field == F_KEY) {
+            save_form();
+            return true;
+        }
         next_field();
         m_escape_armed = false;
         return true;
@@ -625,34 +709,32 @@ private:
         rows.push_back(ftxui::separatorEmpty());
 
         if (m_providers.empty()) {
-            rows.push_back(ftxui::text("  暂无供应商，按 a 或点击「添加」新增")
-                           | ftxui::color(kTextFaint));
+            rows.push_back(ftxui::text("  暂无供应商，按 a 或点击「添加」新增") |
+                           ftxui::color(kTextFaint));
         } else {
             const int n = static_cast<int>(m_providers.size());
             int start = std::min(m_sel, std::max(0, n - kMaxVisible));
             int count = std::min<int>(n - start, kMaxVisible);
             for (int v = 0; v < count; ++v) {
                 const int idx = start + v;
-                const agent::ProviderConfigEntry& e =
-                    m_providers[static_cast<size_t>(idx)];
+                const agent::ProviderConfigEntry& e = m_providers[static_cast<size_t>(idx)];
                 const bool active = (e.id == m_active_id);
                 const bool sel = (idx == m_sel);
                 std::string marker = active ? "  ● " : (sel ? "  ❯ " : "    ");
-                auto mark = ftxui::text(marker)
-                    | ftxui::color(active ? kGreen : (sel ? kAccent : ftxui::Color::Default));
+                auto mark = ftxui::text(marker) |
+                            ftxui::color(active ? kGreen : (sel ? kAccent : ftxui::Color::Default));
                 std::string name = e.name.empty() ? "(未命名)" : e.name;
                 std::string sub = e.base_url.empty() ? "" : e.base_url;
                 auto row = ftxui::hbox({
                     mark,
                     ftxui::text(name),
-                    e.model.empty()
-                        ? ftxui::emptyElement()
-                        : (ftxui::text("  " + input_type_glyphs(e.model))
-                           | ftxui::color(kTextFaint)),
+                    e.model.empty() ? ftxui::emptyElement()
+                                    : (ftxui::text("  " + input_type_glyphs(e.model)) |
+                                       ftxui::color(kTextFaint)),
                     ftxui::flex(ftxui::text("")),
                     active ? (ftxui::text("使用中") | ftxui::color(kGreen)) : ftxui::emptyElement(),
                     sub.empty() ? ftxui::emptyElement()
-                                 : (ftxui::text("  " + sub) | ftxui::color(kTextFaint)),
+                                : (ftxui::text("  " + sub) | ftxui::color(kTextFaint)),
                     ftxui::text("  "),
                 });
                 if (sel) row = row | ftxui::bgcolor(kSelBg) | ftxui::color(kText) | ftxui::bold;
@@ -671,8 +753,7 @@ private:
         // 底部操作按钮行
         auto add_btn = [&](const std::string& label, Action) {
             m_btn_boxes.emplace_back();
-            return ftxui::hbox({ftxui::text(" "), ftxui::text(" " + label)
-                                    | ftxui::color(kText),
+            return ftxui::hbox({ftxui::text(" "), ftxui::text(" " + label) | ftxui::color(kText),
                                 ftxui::text(" ")}) |
                    ftxui::reflect(m_btn_boxes.back());
         };
@@ -697,8 +778,9 @@ private:
         });
         rows.push_back(btns | ftxui::color(kAccent));
         rows.push_back(ftxui::separatorEmpty());
-        rows.push_back(ftxui::text("  ↑↓ 选择 · 回车 设为使用中 · e 编辑 · a/d 添加/删除 · Esc 关闭")
-                       | ftxui::color(kTextFaint));
+        rows.push_back(
+            ftxui::text("  ↑↓ 选择 · 回车 设为使用中 · e 编辑 · a/d 添加/删除 · Esc 关闭") |
+            ftxui::color(kTextFaint));
 
         return ftxui::vbox(std::move(rows));
     }
@@ -726,13 +808,13 @@ private:
         const std::string lbl_text = "  " + std::string(field_label(f));
         const int label_col = label_width() + 3;  // 左 2 空格 + 最长标签 + 右 1 空格
         const int gap = std::max(0, label_col - ftxui::string_width(lbl_text));
-        auto lbl = ftxui::text(lbl_text + std::string(gap, ' '))
-            | ftxui::color(focused ? kAccent : kTextFaint);
-        auto val = ftxui::text(focused ? std::string(" ") + value + " ▎" : " " + value)
-            | ftxui::color(kText) | (focused ? ftxui::bold : ftxui::nothing);
-        auto row = ftxui::hbox({lbl,
-                                ftxui::text("│") | ftxui::color(focused ? kAccent : kTextFaint),
-                                val | ftxui::flex});
+        auto lbl = ftxui::text(lbl_text + std::string(gap, ' ')) |
+                   ftxui::color(focused ? kAccent : kTextFaint);
+        auto val = ftxui::text(focused ? std::string(" ") + value + " ▎" : " " + value) |
+                   ftxui::color(kText) | (focused ? ftxui::bold : ftxui::nothing);
+        auto row =
+            ftxui::hbox({lbl, ftxui::text("│") | ftxui::color(focused ? kAccent : kTextFaint),
+                         val | ftxui::flex});
         if (focused) row = row | ftxui::bgcolor(kSelBg);
         return row | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, 1);
     }
@@ -741,26 +823,26 @@ private:
     std::string field_hint() const {
         switch (m_field) {
             case F_NAME:
-                return m_suggest.empty()
-                           ? std::string("输入名称，可参考下方建议")
-                           : (std::to_string(m_suggest.size()) + " 个匹配，↑↓ 选择");
-            case F_URL:     return "自定义供应商请输入完整 URL";
+                return m_suggest.empty() ? std::string("输入名称，可参考下方建议")
+                                         : (std::to_string(m_suggest.size()) + " 个匹配，↑↓ 选择");
+            case F_URL:
+                return "自定义供应商请输入完整 URL";
             case F_MODEL:
-                return model_field_hint(
-                    m_providers[static_cast<size_t>(m_sel)].model);
-            case F_CONTEXT: return "可直接输入数字覆盖";
-            case F_KEY:     return "粘贴 API Key 后按 Enter 保存";
-            default:        return "";
+                return model_field_hint(m_providers[static_cast<size_t>(m_sel)].model);
+            case F_CONTEXT:
+                return "可直接输入数字覆盖";
+            case F_KEY:
+                return "粘贴 API Key 后按 Enter 保存";
+            default:
+                return "";
         }
     }
 
     std::string ctx_display(const agent::ProviderConfigEntry& e) {
         const int32_t auto_ctx = match_context_window(m_catalog.get(), e.model);
-        if (m_context_auto && auto_ctx > 0)
-            return std::to_string(auto_ctx) + " (auto)";
+        if (m_context_auto && auto_ctx > 0) return std::to_string(auto_ctx) + " (auto)";
         if (e.context_length > 0)
-            return std::to_string(e.context_length) +
-                   (m_context_auto ? " (auto)" : " (manual)");
+            return std::to_string(e.context_length) + (m_context_auto ? " (auto)" : " (manual)");
         return "(未匹配，可直接输入数字)";
     }
 
@@ -778,8 +860,8 @@ private:
         rows.push_back(ftxui::hbox({
             ftxui::text("  " + m_title + " · " + head) | ftxui::color(kAccent) | ftxui::bold,
             ftxui::flex(ftxui::text("")),
-            ftxui::text(std::to_string(m_sel + 1) + "/" +
-                        std::to_string(m_providers.size())) | ftxui::color(kTextFaint),
+            ftxui::text(std::to_string(m_sel + 1) + "/" + std::to_string(m_providers.size())) |
+                ftxui::color(kTextFaint),
         }));
         rows.push_back(ftxui::separatorEmpty());
 
@@ -795,13 +877,13 @@ private:
         rows.push_back(ftxui::separatorEmpty());
         // 当前字段引导（与输入框同一起点，避免输入框随提示伸缩）
         const std::string hint = field_hint();
-        if (!hint.empty())
-            rows.push_back(ftxui::text("  " + hint) | ftxui::color(kTextFaint));
-        rows.push_back(ftxui::text("  " + m_status)
-                       | ftxui::color(m_status.empty() ? kText : kRed));
+        if (!hint.empty()) rows.push_back(ftxui::text("  " + hint) | ftxui::color(kTextFaint));
+        rows.push_back(ftxui::text("  " + m_status) |
+                       ftxui::color(m_status.empty() ? kText : kRed));
         rows.push_back(ftxui::separatorEmpty());
-        rows.push_back(ftxui::text("  Enter 下一字段 · ↑↓ 字段/提示 · Tab 补全 · Ctrl+S 保存 · Esc 返回")
-                       | ftxui::color(kTextFaint));
+        rows.push_back(
+            ftxui::text("  Enter 下一字段 · ↑↓ 字段/提示 · Tab 补全 · Ctrl+S 保存 · Esc 返回") |
+            ftxui::color(kTextFaint));
 
         return ftxui::vbox(std::move(rows));
     }
@@ -816,8 +898,7 @@ private:
             std::string line = marker + it.display;
             if (!it.desc.empty()) line += "  " + it.desc;
             if (it.is_custom) line += "  (自定义地址)";
-            auto row = ftxui::text("    " + line)
-                | ftxui::color(sel ? kAccent : kTextDim);
+            auto row = ftxui::text("    " + line) | ftxui::color(sel ? kAccent : kTextDim);
             if (sel) row = row | ftxui::bgcolor(kSelBg) | ftxui::bold;
             items.push_back(row);
         }

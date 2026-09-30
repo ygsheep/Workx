@@ -42,9 +42,7 @@ TEST_CASE("ThreadPool enqueue_with_result returns future", "[thread_pool][basic]
 TEST_CASE("ThreadPool enqueue_with_result propagates exception", "[thread_pool][exception]") {
     ThreadPool pool(1);
 
-    auto fut = pool.enqueue_with_result([]() -> int {
-        throw std::runtime_error("boom");
-    });
+    auto fut = pool.enqueue_with_result([]() -> int { throw std::runtime_error("boom"); });
 
     bool threw = false;
     try {
@@ -103,9 +101,7 @@ TEST_CASE("ThreadPool concurrent enqueue is thread-safe", "[thread_pool][concurr
     for (int p = 0; p < PRODUCERS; ++p) {
         producers.emplace_back([&]() {
             for (int i = 0; i < TASKS_PER_PRODUCER; ++i) {
-                pool.enqueue([&counter]() {
-                    counter.fetch_add(1, std::memory_order_relaxed);
-                });
+                pool.enqueue([&counter]() { counter.fetch_add(1, std::memory_order_relaxed); });
             }
         });
     }

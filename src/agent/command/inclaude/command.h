@@ -22,7 +22,7 @@ namespace agent::command {
 /// 命令基类 — 对应 CommandBase
 /// 所有命令类型的公共接口
 class CommandBase {
-public:
+   public:
     virtual ~CommandBase() = default;
 
     /// 命令名称（用户通过 /name 调用）
@@ -53,14 +53,10 @@ public:
     virtual bool is_user_invocable() const { return user_invocable_; }
 
     /// 是否禁止模型调用
-    virtual bool is_model_invocation_disabled() const {
-        return disable_model_invocation_;
-    }
+    virtual bool is_model_invocation_disabled() const { return disable_model_invocation_; }
 
     /// 获取参数提示
-    virtual const std::optional<std::string>& argument_hint() const {
-        return argument_hint_;
-    }
+    virtual const std::optional<std::string>& argument_hint() const { return argument_hint_; }
 
     /// 获取命令分类
     virtual const std::string& source() const { return source_; }
@@ -69,9 +65,7 @@ public:
     virtual LoadSource loaded_from() const { return loaded_from_; }
 
     /// 获取版本
-    virtual const std::optional<std::string>& version() const {
-        return version_;
-    }
+    virtual const std::optional<std::string>& version() const { return version_; }
 
     /// 是否立即执行（绕过队列）
     virtual bool is_immediate() const { return immediate_; }
@@ -80,34 +74,22 @@ public:
     virtual bool is_sensitive() const { return sensitive_; }
 
     /// 获取使用场景描述
-    virtual const std::optional<std::string>& when_to_use() const {
-        return when_to_use_;
-    }
+    virtual const std::optional<std::string>& when_to_use() const { return when_to_use_; }
 
     /// 获取适用上下文（skill frontmatter context 字段）
-    virtual const std::optional<std::string>& context() const {
-        return context_;
-    }
+    virtual const std::optional<std::string>& context() const { return context_; }
 
     /// 获取关联 agent 声明（空 = 不限 agent）
-    virtual const std::optional<std::string>& agent() const {
-        return agent_;
-    }
+    virtual const std::optional<std::string>& agent() const { return agent_; }
 
     /// 获取 PreActivate 钩子命令列表
-    virtual const std::vector<std::string>& hooks() const {
-        return hooks_;
-    }
+    virtual const std::vector<std::string>& hooks() const { return hooks_; }
 
     /// 获取对象式通用 Hook（JSON 字符串数组，Skill 激活时注册到 HookManager）
-    virtual const std::vector<std::string>& hooks_json() const {
-        return hooks_json_;
-    }
+    virtual const std::vector<std::string>& hooks_json() const { return hooks_json_; }
 
     /// 获取 conditional 触发路径 glob 列表
-    virtual const std::vector<std::string>& paths() const {
-        return paths_;
-    }
+    virtual const std::vector<std::string>& paths() const { return paths_; }
 
     /// 获取命令类型标识
     virtual const std::string& type() const = 0;
@@ -166,12 +148,12 @@ public:
         paths_ = std::move(v);
     }
 
-protected:
+   protected:
     CommandBase() = default;
     CommandBase(std::string name, std::string description)
         : name_(std::move(name)), description_(std::move(description)) {}
 
-    mutable std::mutex m_mutex;     ///< 保护跨线程修改的字段
+    mutable std::mutex m_mutex;  ///< 保护跨线程修改的字段
 
     std::string name_;
     std::string description_;
@@ -181,11 +163,11 @@ protected:
     std::optional<std::string> argument_hint_;
     std::optional<std::string> version_;
     std::optional<std::string> when_to_use_;
-    std::optional<std::string> context_;    ///< 适用上下文（skill frontmatter）
-    std::optional<std::string> agent_;      ///< 关联 agent（空 = 不限）
-    std::vector<std::string> hooks_;        ///< PreActivate 钩子命令
-    std::vector<std::string> hooks_json_;   ///< 对象式通用 Hook（JSON 字符串数组）
-    std::vector<std::string> paths_;      ///< conditional 触发路径 glob（空 = 非 conditional）
+    std::optional<std::string> context_;   ///< 适用上下文（skill frontmatter）
+    std::optional<std::string> agent_;     ///< 关联 agent（空 = 不限）
+    std::vector<std::string> hooks_;       ///< PreActivate 钩子命令
+    std::vector<std::string> hooks_json_;  ///< 对象式通用 Hook（JSON 字符串数组）
+    std::vector<std::string> paths_;  ///< conditional 触发路径 glob（空 = 非 conditional）
 
     std::function<bool()> is_enabled_;
     bool is_hidden_{false};
@@ -198,11 +180,9 @@ protected:
 /// 提示词命令 — 对应 PromptCommand
 /// 需要模型执行的技能命令
 class PromptCommand : public CommandBase {
-public:
-    using PromptGenerator = std::function<std::vector<PromptBlock>(
-        const std::string& args,
-        const CommandContext& ctx
-    )>;
+   public:
+    using PromptGenerator =
+        std::function<std::vector<PromptBlock>(const std::string& args, const CommandContext& ctx)>;
 
     PromptCommand(std::string name, std::string description)
         : CommandBase(std::move(name), std::move(description)) {}
@@ -218,7 +198,8 @@ public:
     }
 
     /// 生成提示词内容
-    std::vector<PromptBlock> generate_prompt(const std::string& args, const CommandContext& ctx) const {
+    std::vector<PromptBlock> generate_prompt(const std::string& args,
+                                             const CommandContext& ctx) const {
         PromptGenerator gen_copy;
         {
             std::lock_guard<std::mutex> lock(m_mutex);
@@ -228,18 +209,16 @@ public:
         return gen_copy(args, ctx);
     }
 
-private:
+   private:
     PromptGenerator prompt_generator_;
 };
 
 /// 本地命令 — 对应 LocalCommand
 /// 纯文本输出的本地命令，无 UI
 class LocalCommand : public CommandBase {
-public:
-    using CommandCall = std::function<CommandResult(
-        const std::string& args,
-        const CommandContext& ctx
-    )>;
+   public:
+    using CommandCall =
+        std::function<CommandResult(const std::string& args, const CommandContext& ctx)>;
 
     LocalCommand(std::string name, std::string description)
         : CommandBase(std::move(name), std::move(description)) {}
@@ -265,12 +244,13 @@ public:
         return call_copy(args, ctx);
     }
 
-private:
+   private:
     CommandCall call_;
 };
 
 /// 便捷函数：创建 PromptCommand
-inline std::shared_ptr<PromptCommand> make_prompt_command(std::string name, std::string description) {
+inline std::shared_ptr<PromptCommand> make_prompt_command(std::string name,
+                                                          std::string description) {
     return std::make_shared<PromptCommand>(std::move(name), std::move(description));
 }
 
@@ -279,4 +259,4 @@ inline std::shared_ptr<LocalCommand> make_local_command(std::string name, std::s
     return std::make_shared<LocalCommand>(std::move(name), std::move(description));
 }
 
-} // namespace agent::command
+}  // namespace agent::command

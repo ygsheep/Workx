@@ -49,4 +49,4 @@ IEventBus& ToolContext::event_bus() const {
     return *event_bus_ptr;
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

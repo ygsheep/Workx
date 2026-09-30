@@ -22,20 +22,18 @@ namespace agent {
 
 /// @brief 后端配置
 struct BackendConfig {
-    enum class Type {
-        Remote,
-        Local
-    };
+    enum class Type { Remote, Local };
 
     Type type = Type::Remote;
     ProviderType provider = ProviderType::OpenAI;  ///< API 协议类型
 
     // Remote 配置
-    std::string base_url;           ///< API 基础 URL
-    std::string api_key;            ///< API Key
-    std::string model_name;         ///< 模型名称
-    int timeout_ms = 30000;         ///< HTTP 超时（毫秒）
-    bool send_reasoning_content = false;  ///< DS_CACHE P2：是否往返 reasoning_content（DeepSeek-reasoner）
+    std::string base_url;    ///< API 基础 URL
+    std::string api_key;     ///< API Key
+    std::string model_name;  ///< 模型名称
+    int timeout_ms = 30000;  ///< HTTP 超时（毫秒）
+    bool send_reasoning_content =
+        false;  ///< DS_CACHE P2：是否往返 reasoning_content（DeepSeek-reasoner）
 
     // Local 配置（Phase 5）
     std::string model_path;
@@ -64,11 +62,12 @@ struct ModelInfo {
 ///          M-7 合并为单一枚举，原子读写保证状态一致性，消除非法组合。
 enum class BackendState {
     /// @brief 初始未初始化态（L-A：仅用于构造初始值；shutdown 后转 Shutdown 而非 Idle）
-    /// @details 状态转换图：Idle →(initialize)→ Ready →(submit)→ Generating →(完成)→ Ready →(shutdown)→ Shutdown
+    /// @details 状态转换图：Idle →(initialize)→ Ready →(submit)→ Generating →(完成)→ Ready
+    /// →(shutdown)→ Shutdown
     Idle,
-    Ready,        ///< 已初始化，可接受请求
-    Generating,   ///< 正在生成推理结果
-    Shutdown      ///< 已显式 shutdown，不可恢复（与 Idle 区别：Idle 可 initialize，Shutdown 不可）
+    Ready,       ///< 已初始化，可接受请求
+    Generating,  ///< 正在生成推理结果
+    Shutdown  ///< 已显式 shutdown，不可恢复（与 Idle 区别：Idle 可 initialize，Shutdown 不可）
 };
 
-} // namespace agent
+}  // namespace agent

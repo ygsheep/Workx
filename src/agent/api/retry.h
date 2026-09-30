@@ -26,16 +26,16 @@
 #include <string>
 #include <string_view>
 
-#include "core/utils/error.h"           // V2-2：基于 Error::code 的重载
+#include "core/utils/error.h"  // V2-2：基于 Error::code 的重载
 
 namespace agent {
 
 /// @brief HTTP 重试策略
 /// @details 不可变结构体，构造后即可被多线程共享读取
 struct HttpRetryPolicy {
-    int max_retries = 3;            ///< 最大重试次数（不含首次请求）
-    int base_delay_ms = 1000;       ///< 初始退避延迟（毫秒）
-    int max_delay_ms = 60000;       ///< 退避上限（毫秒，默认 60 秒）
+    int max_retries = 3;       ///< 最大重试次数（不含首次请求）
+    int base_delay_ms = 1000;  ///< 初始退避延迟（毫秒）
+    int max_delay_ms = 60000;  ///< 退避上限（毫秒，默认 60 秒）
 
     /// @brief 判断错误是否可重试
     /// @param http_status HTTP 状态码（0 表示无 HTTP 响应，如 curl 网络错误）
@@ -55,9 +55,9 @@ struct HttpRetryPolicy {
             return false;
         }
         // HTTP 状态码判断
-        if (http_status == 429) return true;                    // 限流
+        if (http_status == 429) return true;                        // 限流
         if (http_status >= 500 && http_status <= 599) return true;  // 服务器错误
-        if (http_status == 0 && !error_msg.empty()) return true;    // 网络错误（无 HTTP 响应）
+        if (http_status == 0 && !error_msg.empty()) return true;  // 网络错误（无 HTTP 响应）
         return false;
     }
 
@@ -65,9 +65,7 @@ struct HttpRetryPolicy {
     /// @details 直接委托 Error::is_retryable()，与 Error::Code 体系对齐
     ///          可重试：NetworkTimeout/NetworkDisconnected/NetworkUnreachable/
     ///                 HttpRateLimited/HttpServerDown/StreamError
-    static bool is_retryable(const Error& error) noexcept {
-        return error.is_retryable();
-    }
+    static bool is_retryable(const Error& error) noexcept { return error.is_retryable(); }
 
     /// @brief 计算第 N 次重试的延迟（指数退避 + 上限）
     /// @param attempt 重试次数（0 = 首次请求后的第一次重试）
@@ -87,9 +85,7 @@ struct HttpRetryPolicy {
     /// @brief 便捷方法：返回延迟的毫秒数
     /// @details C-3：不再标记 noexcept，因为 delay() 含分支判断逻辑复杂；
     ///               实际不会抛出，但移除 noexcept 避免契约误导
-    int delay_ms(int attempt) const {
-        return static_cast<int>(delay(attempt).count());
-    }
+    int delay_ms(int attempt) const { return static_cast<int>(delay(attempt).count()); }
 };
 
-} // namespace agent
+}  // namespace agent
