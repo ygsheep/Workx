@@ -14,6 +14,7 @@
 #include <thread>
 
 #include "agent/mcp/mcp_client_manager.h"
+#include "helpers/python_command.h"
 
 using namespace agent;
 using namespace agent::mcp;
@@ -36,8 +37,9 @@ std::filesystem::path make_project_config(const std::string& mode) {
     std::string script = fake_server_path();
     std::replace(script.begin(), script.end(), '\\', '/');
     std::ofstream ofs(dir / ".mcp.json");
-    ofs << R"({"mcpServers":{"fake":{"command":"python","args":[")" << script
-        << R"("],"env":{"FAKE_MCP_MODE":")" << mode << R"(","PYTHONHASHSEED":"0"}}}})";
+    ofs << R"({"mcpServers":{"fake":{"command":")" << agent::test::python_command()
+        << R"(","args":[")" << script << R"("],"env":{"FAKE_MCP_MODE":")" << mode
+        << R"(","PYTHONHASHSEED":"0"}}}})";
     return dir;
 }
 

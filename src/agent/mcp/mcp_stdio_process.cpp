@@ -35,9 +35,38 @@
 #include <fcntl.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#include <mutex>
 #endif
 
 namespace agent::mcp {
+
+#ifndef _WIN32
+namespace {
+
+/// @brief 忽略 SIGPIPE（POSIX，进程级，整个进程只做一次）。
+/// @details 子进程已退出/关闭读端时，向 stdin pipe 调 write() 会触发 SIGPIPE，
+///          其默认动作是**杀死当前进程** —— 表现为整个测试进程崩溃，而不是
+///          write 返回 -1（#104）。忽略后 write() 返回 -1/EPIPE，走 write_line
+///          既有的 NetworkDisconnected 错误处理。
+///
+///          放在**实际写入处**（write_line）而不是 start() 里：写在 start() 会让
+///          「进程是否忽略 SIGPIPE」依赖调用时序 —— 启动过 MCP stdio 子进程之前
+///          建立或使用的写路径仍会被 SIGPIPE 杀死。call_once 保证只设一次、
+///          且第一次写入前必然已生效。
+///
+///          副作用说明：disposition 是进程级的，会顺带影响本进程内其他
+///          socket/pipe 写入（同样改为返回 EPIPE 而非终止）。仓库内所有写路径
+///          都有错误分支，方向是有利的；且 SIG_IGN 会被 exec 继承，子进程也无需
+///          再处理 SIGPIPE。
+/// @note pipe fd 上无法用 send(MSG_NOSIGNAL)：那是 socket 专用，会返回 ENOTSOCK。
+void ensure_sigpipe_ignored() {
+    static std::once_flag flag;
+    std::call_once(flag, [] { std::signal(SIGPIPE, SIG_IGN); });
+}
+
+}  // namespace
+#endif
 
 namespace {
 
@@ -458,6 +487,8 @@ ResultV2<void> McpStdioProcess::write_line(const std::string& line) {
     }
     return ResultV2<void>::ok();
 #else
+    // 写之前确保 SIGPIPE 已忽略（幂等、进程级一次）—— 详见 ensure_sigpipe_ignored()
+    ensure_sigpipe_ignored();
     if (m_stdin_fd < 0) {
         return ResultV2<void>::err(Error::Code::NetworkDisconnected, "MCP stdio 管道已关闭",
                                    "McpStdioProcess::write_line");

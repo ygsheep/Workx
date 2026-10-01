@@ -16,6 +16,7 @@
 #include "agent/mcp/mcp_config.h"
 #include "agent/mcp/mcp_stdio_process.h"
 #include "agent/mcp/mcp_transport.h"
+#include "helpers/python_command.h"
 
 using namespace agent;
 using namespace agent::mcp;
@@ -34,7 +35,7 @@ std::string fake_http_server_path() {
 std::string start_fake_http_server(const std::string& mode,
                                    std::shared_ptr<McpStdioProcess>& proc_out) {
     auto proc = std::make_shared<McpStdioProcess>();
-    auto start = proc->start("python", {fake_http_server_path()},
+    auto start = proc->start(agent::test::python_command(), {fake_http_server_path()},
                              {{"FAKE_MCP_HTTP_MODE", mode}, {"PYTHONHASHSEED", "0"}});
     REQUIRE(start.is_ok());
 
@@ -65,7 +66,7 @@ McpServerConfig make_http_cfg(const std::string& name, const std::string& url) {
 TEST_CASE("create_transport 按配置路由 stdio/http", "[mcp_http][route]") {
     McpServerConfig stdio_cfg;
     stdio_cfg.name = "s";
-    stdio_cfg.command = "python";
+    stdio_cfg.command = agent::test::python_command();
     auto stdio_t = create_transport(stdio_cfg);
     REQUIRE(dynamic_cast<StdioMcpTransport*>(stdio_t.get()) != nullptr);
 
@@ -230,17 +231,20 @@ TEST_CASE("HttpMcpTransport 未启动时调用返回错误", "[mcp_http][error]"
 }
 
 // ============================================================================
-// 临时调试：最小复现（仅 server 启动 + 直接 HTTP 调用）
+// 端到端：假 server 启动 + 真实 HTTP 调用
+// （原名 "TEMP debug ..." 是排查期留下的临时入口。它验证的是「假 server 真能起来、
+//   且 transport 能跑通一次真实 HTTP 往返」——这是其余 HTTP 用例的隐含前提，
+//   有价值，故转正为正式用例并去掉 [temp] 标签，见 #109）
 // ============================================================================
 
-TEST_CASE("TEMP debug server spawn only", "[mcp_http][temp]") {
+TEST_CASE("HttpMcpTransport 假 server 启动并上报 PORT", "[mcp_http][spawn]") {
     std::shared_ptr<McpStdioProcess> proc;
     const std::string url = start_fake_http_server("discover", proc);
     REQUIRE_THAT(url, StartsWith("http://127.0.0.1:"));
     // 仅验证 server 启动 + PORT 读取，不做 HTTP 调用
 }
 
-TEST_CASE("TEMP debug direct transport call", "[mcp_http][temp]") {
+TEST_CASE("HttpMcpTransport 端到端 discover 调用", "[mcp_http][e2e]") {
     std::shared_ptr<McpStdioProcess> proc;
     const std::string url = start_fake_http_server("discover", proc);
 

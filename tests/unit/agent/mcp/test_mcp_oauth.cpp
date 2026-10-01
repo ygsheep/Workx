@@ -16,6 +16,7 @@
 
 #include "agent/mcp/mcp_oauth.h"
 #include "agent/mcp/mcp_stdio_process.h"
+#include "helpers/python_command.h"
 
 using namespace agent;
 using namespace agent::mcp;
@@ -32,7 +33,8 @@ std::string fake_oauth_server_path() {
 /// 启动假 OAuth server，返回 base URL（http://127.0.0.1:<port>）
 std::string start_fake_oauth(std::shared_ptr<McpStdioProcess>& proc_out) {
     auto proc = std::make_shared<McpStdioProcess>();
-    auto start = proc->start("python", {fake_oauth_server_path()}, {{"PYTHONHASHSEED", "0"}});
+    auto start = proc->start(agent::test::python_command(), {fake_oauth_server_path()},
+                             {{"PYTHONHASHSEED", "0"}});
     REQUIRE(start.is_ok());
 
     auto line = proc->read_line(10000);
@@ -209,7 +211,7 @@ TEST_CASE("McpOAuthClient exchange_code state 不匹配拒绝（CSRF）", "[mcp_
 TEST_CASE("McpOAuthClient refresh_token 自动刷新", "[mcp_oauth][refresh]") {
     // 短过期模式：expires_in=1，token 过期后 access_token() 走 refresh 流程
     auto proc = std::make_shared<McpStdioProcess>();
-    auto start = proc->start("python", {fake_oauth_server_path()},
+    auto start = proc->start(agent::test::python_command(), {fake_oauth_server_path()},
                              {{"FAKE_OAUTH_SHORT_EXPIRY", "1"}, {"PYTHONHASHSEED", "0"}});
     REQUIRE(start.is_ok());
     auto line = proc->read_line(10000);

@@ -7,7 +7,8 @@
  *   - 方案 D：基于真实 fake_mcp_server.py 进程，验证 inline 连接/工具预取、
  *             字符串引用复用、以及收尾 dispose 清理的生命周期闭环。
  *
- * 依赖：本机 python 可运行 fake_mcp_server.py（与单元测试相同的前提）。
+ * 依赖：本机 Python 可运行 fake_mcp_server.py（与单元测试相同的前提）。
+ *       解释器名走 agent::test::python_command()（Windows "python" / 其他 "python3"）。
  */
 
 #include <catch2/catch_test_macros.hpp>
@@ -28,6 +29,7 @@
 #include "agent/command/inclaude/registry.h"
 #include "agent/mcp/mcp_client_manager.h"
 #include "core/task/task_manager.h"
+#include "../unit/helpers/python_command.h"
 #include "core/events/event_bus.h"
 
 #include "helpers/mock_config_manager.h"
@@ -54,7 +56,7 @@ nlohmann::json inline_fake_server(const std::string& mode = "discover") {
     std::replace(script.begin(), script.end(), '\\', '/');
     return {
         {"name", "fake"},
-        {"command", "python"},
+        {"command", agent::test::python_command()},
         {"args", nlohmann::json::array({script})},
         {"env", {{"FAKE_MCP_MODE", mode}, {"PYTHONHASHSEED", "0"}}},
     };
@@ -68,8 +70,9 @@ std::filesystem::path make_project_config_with_fake(const std::string& mode) {
     std::string script = fake_mcp_server_path();
     std::replace(script.begin(), script.end(), '\\', '/');
     std::ofstream ofs(dir / ".mcp.json");
-    ofs << R"({"mcpServers":{"fake":{"command":"python","args":[")" << script
-        << R"("],"env":{"FAKE_MCP_MODE":")" << mode << R"(","PYTHONHASHSEED":"0"}}}})";
+    ofs << R"({"mcpServers":{"fake":{"command":")" << agent::test::python_command()
+        << R"(","args":[")" << script << R"("],"env":{"FAKE_MCP_MODE":")" << mode
+        << R"(","PYTHONHASHSEED":"0"}}}})";
     ofs.close();
     return dir;
 }

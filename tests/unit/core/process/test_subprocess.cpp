@@ -108,9 +108,22 @@ TEST_CASE("subprocess propagates non-zero exit code", "[subprocess][exit_code]")
 TEST_CASE("subprocess returns err when command not found", "[subprocess][error]") {
     ExecOptions opts;
     auto r = exec("this_command_does_not_exist_xyz_12345", opts);
+    // 两侧呈现方式确实不同（#109），但**按平台精确断言**，不用"两种都接受"：
+    // 一旦两边都放宽，将来 Windows 若退化成"进程起来了、退出码非零"这种真实回归
+    // 就测不出来了 —— 而 Linux 侧的表现已经证明那条路径真实存在，不是假想风险。
+    // 跨平台要的是**每边期望唯一**，不是两边都放宽。
+    //
+    //   · Windows：CreateProcessW 直接失败 → 启动即失败，映射为 ResourceNotFound
+    //   · POSIX：fork 成功、子进程 execvp 失败后 _exit(127)（subprocess.cpp:678）
+    //     → exec 返回 ok，但退出码 127 且 is_success() 为 false
+#ifdef _WIN32
     REQUIRE(r.is_err());
-    // 启动失败应映射到 ResourceNotFound
     REQUIRE(r.error().code == Error::Code::ResourceNotFound);
+#else
+    REQUIRE(r.is_ok());
+    REQUIRE_FALSE(r.value().is_success());
+    REQUIRE(r.value().exit_code == 127);
+#endif
 }
 
 // ============================================================
