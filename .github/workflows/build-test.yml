@@ -1,0 +1,201 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+# PR 反复推送时取消上一次未完成的运行，避免排队浪费 runner 配额。
+concurrency:
+  group: build-test-${{ github.ref }}
+  cancel-in-progress: true
+
+# =============================================================================
+# 设计说明（避免后人重新踩坑）
+#
+# 为什么需要这个 workflow：
+#   code-quality.yml 只有静态检查（复杂度/格式/tidy/cppcheck），release.yml
+#   只在打 tag 时 build 且 WORKX_BUILD_TESTS=OFF。也就是说在这之前，
+#   **仓库里 1300+ 个单测用例从未在任何自动化流程中执行过** ——
+#   用例写得再多，没人跑就等于没有。这个 workflow 补上"真的跑一次"。
+#
+# 为什么只跑单元测试（不跑 integration / benchmarks）：
+#   - tests/integration 默认 OFF（WORKX_BUILD_INTEGRATION_TESTS），依赖 LM Studio
+#     等外部服务，CI 上必然失败；其中 HttpClient 同步用例还有已知的环境性失败。
+#   - tests/benchmarks 默认 OFF，Catch2 BENCHMARK 耗时长且结果在共享 runner 上
+#     不可比，不适合做门禁。
+#
+# 为什么跳过 [slow]：
+#   core 的 [slow] 用例会触发 TaskManager::waitForAll() 的 30 秒兜底
+#   （src/core/task/task_manager.cpp:220），实测单用例 ~32s。留在门禁里只会
+#   让每轮 CI 白等，且它们覆盖的是超时兜底逻辑，回归价值由快速子集间接保障。
+#   需要时可用 `ctest -L slow` 单独跑。
+#
+# 为什么显式列 4 个测试目标而不 `cmake --build build`：
+#   后者会连带构建 workx 主程序（含 FTXUI 渲染栈）与 example_dynamic_island，
+#   与"验证测试"无关，纯属浪费 runner 时间。四个测试目标只依赖
+#   workx_core / workx_agent / workx_island 三个静态库。
+#
+# 为什么关掉 tree-sitter：
+#   WORKX_FETCH_GRAMMARS 默认 ON，会在 configure 阶段走 FetchContent 拉取
+#   runtime + 语法包（需要网络且耗时）。关闭后 tui 走"无高亮"分支，
+#   不影响单测的判定目标。
+#
+# 关于中文测试名与 locale：
+#   仓库里有约 1/4 的用例名含中文。测试名以 UTF-8 字节编进可执行文件，
+#   ctest 会把 -L/-R 过滤参数透传给测试进程。Windows 上因 argv 由 CRT 按
+#   GBK 解码导致字节不通约（见 cmake/CatchAddTests_utf8.cmake 的 chcp 补丁）。
+#   Linux 侧显式固定 C.UTF-8，确保用例名与过滤参数一致，避免"静默跳过"。
+#
+# ⚠️ 已知取舍：当前只在 ubuntu 上跑。
+#   Windows 是本项目的主目标平台，但有两个硬理由让 Linux 成为门禁平台：
+#     1. Windows 上 ctest 本身不可用 —— 中文测试名经 argv 传递被 GBK 破坏，
+#        导致 196/1319（≈15%，与"名字含中文的用例数"精确吻合）必然误报失败（#106）；
+#        Linux 上无此问题。
+#     2. windows runner 构建同等规模的耗时约为 Linux 的 2-3 倍。
+#   本 workflow 要解决的首要问题是"测试无人执行"，与平台无关；
+#   平台专属回归留在后续按需增加 matrix。
+# =============================================================================
+
+jobs:
+  unit-tests:
+    name: Build & unit tests (ubuntu)
+    runs-on: ubuntu-latest
+
+    # ⚠️ 硬门禁：job 失败即阻塞合并（2026-10-01 移除最后的 continue-on-error）。
+    # 历史背景：本 workflow 首次在 Linux 上跑全量单测时，1342 个用例中 23 个
+    # 因 Linux 平台缺陷失败 —— 这些缺陷此前从未被发现（CI 从未跑过测试，
+    # 且本机开发走 Windows，不会命中它们）。现已全部修复：
+    #   · 12 项 hang    → #105  IPC close() 改 shutdown+close，唤醒阻塞的 accept()/recv()
+    #   ·  4 项 SIGPIPE → #104  POSIX 侧 signal(SIGPIPE, SIG_IGN)；测试改用
+    #                           python_command() helper（Linux 只有 python3）
+    #   ·  5 项失败     → #107  CI 安装 ripgrep（GrepTool 无 rg 即返回 ResourceNotFound，
+    #                           没有 C++ 回退实现，故只能补环境）
+    #   ·  2 项失败     → #109  windows drive pattern 大小写 + subprocess 退出码断言；
+    #                           两个 "TEMP debug" 用例转正并去掉 [temp] 标签
+    # 若本 job 再度变红，说明有真实回归 —— 不要用 continue-on-error 掩盖，
+    # 也不要用 -LE 建「永久排除清单」，那会让门禁退化成摆设。
+
+    # 冷缓存首次需 vcpkg 编译 curl（含 openssl）等依赖，实测较久；命中缓存后主要是编译。
+    timeout-minutes: 90
+    env:
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 图标转换脚本（scripts/convert_icon.py）在 configure 阶段被调用，需要 Python。
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 同时缓存：
+      #   vcpkg            —— ports 仓库 + vcpkg 自举产物（含 baseline 所需的 git 历史）
+      #   build/vcpkg_installed —— manifest 模式下载/编译出的依赖库（curl/openssl 是大头）
+      # 只缓存前者会让每轮 CI 重新编译一遍依赖，反而比不缓存更慢。
+      - name: Restore vcpkg cache
+        uses: actions/cache@v4
+        id: vcpkg-cache
+        with:
+          path: |
+            vcpkg
+            build/vcpkg_installed
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
+      - name: Clone & bootstrap vcpkg
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git vcpkg
+          ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+
+      # ripgrep（#107）：GrepTool **没有 C++ 回退实现** —— 找不到 rg 就直接返回
+      # ResourceNotFound，5 项 [tool][grep][search] 用例必然失败。
+      # Windows 侧随仓库提供 vendor/ripgrep/windows/rg.exe，Linux 侧无 bundled 二进制，
+      # 但 ToolRegistry::resolve_ripgrep() 会回落到 PATH 查找 "rg"，故装到系统即可。
+      # 用发行版包而非 GitHub release：CI 上少一次外部下载失败点；
+      # GrepTool 调用时带 --no-config（忽略用户配置）且只用稳定的
+      # --line-number / --no-heading / --color never 输出格式，版本漂移风险可控。
+      - name: Install ripgrep
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ripgrep
+          rg --version
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -G Ninja -S . \
+            -DCMAKE_TOOLCHAIN_FILE="$PWD/vcpkg/scripts/buildsystems/vcpkg.cmake" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DWORKX_BUILD_TESTS=ON \
+            -DWORKX_BUILD_EXAMPLES=OFF \
+            -DWORKX_WITH_TREE_SITTER=OFF
+          # configure 阶段 vcpkg toolchain 会按 vcpkg.json 自动完成依赖安装
+          # （缓存命中时直接复用 build/vcpkg_installed）。
+          # 用 Release 而非 Debug：与 vcpkg x64-linux 预编译依赖库的构建配置一致，
+          # 避免"Debug 主程序链接 Release 依赖"的混用。
+
+      - name: Build unit test targets
+        run: |
+          cmake --build build --target \
+            core_unit_tests \
+            agent_unit_tests \
+            island_unit_tests \
+            tui_unit_tests \
+            -j "$(nproc)"
+
+      # 用例数下限守卫。仓库历史上出现过「约 1/4 的用例因中文测试名在 ctest 下
+      # 静默跳过」的问题（详见 docs/p0-test-plan.md），其失败方式是「用例变少但依然绿」。
+      # `--no-tests=error` 只能挡住 0 个用例的极端情况，要挡住「部分丢失」必须设下限。
+      # 实测基线（`ctest -N -LE slow`，2026-09-30）：1319 个用例；下限取 1200 留约 9% 余量。
+      - name: Verify test discovery
+        run: |
+          N=$(ctest --test-dir build -N -LE slow | grep -cE '^[[:space:]]*Test[[:space:]]+#[0-9]+')
+          echo "发现测试用例数：$N（基线 1319，下限 1200）"
+          if [ "$N" -lt 1200 ]; then
+            echo "::error::注册的测试数异常偏低（$N < 1200），疑似用例未被 ctest 发现"
+            exit 1
+          fi
+
+      # hang canary：island 子集先单独跑一遍。
+      # 历史教训（#105）：12 项 island 用例因 IPC close() 不唤醒阻塞的 accept() 而挂死，
+      # 而 hang 的失败方式是「不返回」——混在全量里会拖满 job 超时，并掩盖同批次里
+      # 的真实失败。island 只有几十个用例、秒级完成，重复执行的成本可忽略，
+      # 换来的却是「挂死在 1 分钟内暴露成明确的 Timeout 失败、并点名具体用例」。
+      - name: Run island tests (hang canary)
+        run: |
+          ctest --test-dir build \
+            --output-on-failure \
+            --no-tests=error \
+            --timeout 45 \
+            -L island \
+            -j "$(nproc)"
+
+      - name: Run unit tests
+        run: |
+          # --timeout 90：单个用例 90 秒硬上限。防止个别用例在 Linux 上
+          # 因阻塞等待（如 accept/recv 不被唤醒）而永久挂起，把整个 job 拖到
+          # 90 分钟超时。正常用例（已排除 [slow]）实测最慢数秒，90 秒留了充足余量，
+          # 同时又比 180 秒更早暴露 hang。（定位 hang 用 `ctest -L island -j1` 串行跑。）
+          ctest --test-dir build \
+            --output-on-failure \
+            --no-tests=error \
+            --timeout 90 \
+            -LE slow \
+            -j "$(nproc)"
+
+      # 即便上面的用例失败，也希望留下可读的统计（失败时 job 已红，这里只补充信息）。
+      - name: Test summary
+        if: always()
+        run: |
+          echo "### 单测执行统计" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          ctest --test-dir build -N -LE slow | tail -3 >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
