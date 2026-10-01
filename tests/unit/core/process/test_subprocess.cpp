@@ -108,18 +108,22 @@ TEST_CASE("subprocess propagates non-zero exit code", "[subprocess][exit_code]")
 TEST_CASE("subprocess returns err when command not found", "[subprocess][error]") {
     ExecOptions opts;
     auto r = exec("this_command_does_not_exist_xyz_12345", opts);
-    // 两种平台下"命令不存在"的呈现方式不同，都是正确行为，断言需同时容纳：
-    //   · 直接 exec 失败（Windows CreateProcess / POSIX execvp 直接返回 ENOENT）
-    //     → 启动即失败，映射为 ResourceNotFound
-    //   · 经 shell 转发（POSIX 侧走 sh -c 时 shell 本身启动成功）
-    //     → 进程起来了但退出码非零（sh 为 127），错误由 shell 报告而非 exec
-    // 只断言其中一种会让另一侧必然失败（#109）。
-    if (r.is_err()) {
-        REQUIRE(r.error().code == Error::Code::ResourceNotFound);
-    } else {
-        REQUIRE_FALSE(r.value().is_success());
-        REQUIRE(r.value().exit_code != 0);
-    }
+    // 两侧呈现方式确实不同（#109），但**按平台精确断言**，不用"两种都接受"：
+    // 一旦两边都放宽，将来 Windows 若退化成"进程起来了、退出码非零"这种真实回归
+    // 就测不出来了 —— 而 Linux 侧的表现已经证明那条路径真实存在，不是假想风险。
+    // 跨平台要的是**每边期望唯一**，不是两边都放宽。
+    //
+    //   · Windows：CreateProcessW 直接失败 → 启动即失败，映射为 ResourceNotFound
+    //   · POSIX：fork 成功、子进程 execvp 失败后 _exit(127)（subprocess.cpp:678）
+    //     → exec 返回 ok，但退出码 127 且 is_success() 为 false
+#ifdef _WIN32
+    REQUIRE(r.is_err());
+    REQUIRE(r.error().code == Error::Code::ResourceNotFound);
+#else
+    REQUIRE(r.is_ok());
+    REQUIRE_FALSE(r.value().is_success());
+    REQUIRE(r.value().exit_code == 127);
+#endif
 }
 
 // ============================================================
