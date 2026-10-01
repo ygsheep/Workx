@@ -108,9 +108,18 @@ TEST_CASE("subprocess propagates non-zero exit code", "[subprocess][exit_code]")
 TEST_CASE("subprocess returns err when command not found", "[subprocess][error]") {
     ExecOptions opts;
     auto r = exec("this_command_does_not_exist_xyz_12345", opts);
-    REQUIRE(r.is_err());
-    // 启动失败应映射到 ResourceNotFound
-    REQUIRE(r.error().code == Error::Code::ResourceNotFound);
+    // 两种平台下"命令不存在"的呈现方式不同，都是正确行为，断言需同时容纳：
+    //   · 直接 exec 失败（Windows CreateProcess / POSIX execvp 直接返回 ENOENT）
+    //     → 启动即失败，映射为 ResourceNotFound
+    //   · 经 shell 转发（POSIX 侧走 sh -c 时 shell 本身启动成功）
+    //     → 进程起来了但退出码非零（sh 为 127），错误由 shell 报告而非 exec
+    // 只断言其中一种会让另一侧必然失败（#109）。
+    if (r.is_err()) {
+        REQUIRE(r.error().code == Error::Code::ResourceNotFound);
+    } else {
+        REQUIRE_FALSE(r.value().is_success());
+        REQUIRE(r.value().exit_code != 0);
+    }
 }
 
 // ============================================================

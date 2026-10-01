@@ -300,6 +300,16 @@ ResultV2<void> McpStdioProcess::start(const std::string& cmd, const std::vector<
     return ResultV2<void>::ok();
 #else
     // POSIX
+    // 忽略 SIGPIPE（进程级）：子进程已退出/关闭读端时，向 stdin pipe 调用 write() 会
+    // 触发 SIGPIPE，其默认动作是**杀死当前进程** —— 表现为整个测试进程崩溃，
+    // 而非 write 返回 -1（#104）。忽略后 write() 返回 -1/EPIPE，走 write_line 里
+    // 既有的 NetworkDisconnected 错误处理，调用方拿到可读错误而不是被信号带走。
+    // 副作用说明：disposition 是进程级的，会顺带影响本进程内其他 socket/pipe 写入
+    // （同样改为返回 EPIPE 而非终止）。仓库内所有写路径都有错误分支，方向是有利的；
+    // 且 SIG_IGN 会被 exec 继承，子进程也无需再处理 SIGPIPE。
+    // 注：pipe fd 上无法用 send(MSG_NOSIGNAL)（那是 socket 专用，会返回 ENOTSOCK）。
+    signal(SIGPIPE, SIG_IGN);
+
     int stdin_pipe[2] = {-1, -1};
     int stdout_pipe[2] = {-1, -1};
     if (pipe(stdin_pipe) < 0 || pipe(stdout_pipe) < 0) {

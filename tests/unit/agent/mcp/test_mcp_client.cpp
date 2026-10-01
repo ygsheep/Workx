@@ -13,6 +13,7 @@
 
 #include "agent/mcp/mcp_client.h"
 #include "agent/mcp/mcp_config.h"
+#include "helpers/python_command.h"
 
 using namespace agent;
 using namespace agent::mcp;
@@ -30,7 +31,7 @@ std::string fake_server_path() {
 McpServerConfig make_stdio_cfg(const std::string& name, const std::string& mode) {
     McpServerConfig cfg;
     cfg.name = name;
-    cfg.command = "python";
+    cfg.command = agent::test::python_command();
     cfg.args = {fake_server_path()};
     // PYTHONHASHSEED=0：Windows 下子进程熵初始化失败的已知规避
     cfg.env["FAKE_MCP_MODE"] = mode;
