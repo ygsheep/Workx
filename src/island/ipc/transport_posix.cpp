@@ -20,6 +20,9 @@
 #include <cstring>
 #include <string>
 
+#include <chrono>
+#include <thread>
+
 #include "island/ipc/itransport.h"
 
 namespace island::ipc {
@@ -39,6 +42,11 @@ namespace {
 ///              （POSIX 通用正解，见 #105 后续项）。CI 当前只覆盖 Linux。
 /// @note 先把成员置 -1 再关 fd：若与 accept() 线程并发，可避免 double-close
 ///       （fd 号被复用后二次 close 会误关他人描述符，属难复现的隐蔽故障）。
+/// @brief connect() 重试次数（覆盖服务端重 listen 的窗口，见 connect() 注释）
+constexpr int kConnectAttempts = 6;
+/// @brief connect() 重试间隔（总窗口 ≈ 6 × 100ms = 600ms，与 Windows 侧 3 × 100ms 同量级）
+constexpr int kConnectRetryDelayMs = 100;
+
 void close_and_wake(int& fd) {
     if (fd < 0) return;
     const int raw = fd;
@@ -91,23 +99,38 @@ class UnixSocketTransport final : public ITransport {
 
     bool connect(const std::string& endpoint) override {
         close();
-        const int fd = socket(AF_UNIX, SOCK_STREAM, 0);
-        if (fd < 0) return false;
+        // 与 Windows 侧（transport_win32.cpp）对称的重试：服务端 accept_loop 在
+        // 「上一条连接断开 → 重新 listen」之间存在窗口 —— socket 文件还在但**没有
+        // 监听者**，此时 connect 返回 ECONNREFUSED；若正赶上 listen() 先 unlink 了
+        // 旧文件、尚未 bind 新文件，则返回 ENOENT。
+        // 断线重连的客户端几乎必然撞进这个窗口（server 要被内核唤醒、读 EOF、
+        // 退出 handle_connection 再 listen），POSIX 侧此前没有重试 → Linux 上
+        // 重连必失败（#105 的 hang 修完后才暴露出来）。
+        for (int attempt = 0; attempt < kConnectAttempts; ++attempt) {
+            const int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+            if (fd < 0) return false;
 
-        sockaddr_un addr{};
-        addr.sun_family = AF_UNIX;
-        if (endpoint.size() >= sizeof(addr.sun_path)) {
-            ::close(fd);
-            return false;
-        }
-        std::strncpy(addr.sun_path, endpoint.c_str(), sizeof(addr.sun_path) - 1);
+            sockaddr_un addr{};
+            addr.sun_family = AF_UNIX;
+            if (endpoint.size() >= sizeof(addr.sun_path)) {
+                ::close(fd);
+                return false;
+            }
+            std::strncpy(addr.sun_path, endpoint.c_str(), sizeof(addr.sun_path) - 1);
 
-        if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+            if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0) {
+                m_conn_fd = fd;
+                return true;
+            }
+            const int err = errno;
             ::close(fd);
-            return false;
+            // 只重试"服务端还没准备好"这一类；其余（权限、路径过长等）立即失败
+            if (err != ECONNREFUSED && err != ENOENT) return false;
+            if (attempt + 1 < kConnectAttempts) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(kConnectRetryDelayMs));
+            }
         }
-        m_conn_fd = fd;
-        return true;
+        return false;
     }
 
     ssize_t read(std::span<std::byte> buf) override {
