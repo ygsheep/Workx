@@ -3,8 +3,9 @@
  * @brief POSIX AF_UNIX socket 传输实现（macOS / Linux）
  * @details 端点：$XDG_RUNTIME_DIR（Linux）或 $TMPDIR（macOS）或 /tmp，
  *          文件名 workx-island-<uid>-<pid>.sock。
- *          stop() 时 shutdown+close 使阻塞的 accept/recv 返回。
- * @version 1.0.0
+ *          stop() 时 shutdown+close 使阻塞的 accept/recv 返回
+ *          （Linux 已验证；macOS 见 close_and_wake 注释中的平台差异）。
+ * @version 1.0.1
  * @date 2026-08
  */
 
@@ -24,6 +25,27 @@
 namespace island::ipc {
 
 namespace {
+
+/// @brief 关闭 fd 并**唤醒**阻塞在该 fd 上的 accept()/recv()。
+/// @details POSIX 语义陷阱：::close() 只递减描述符引用计数，并**不会**唤醒另一线程中
+///          已阻塞在 accept()/recv() 上的系统调用。也就是说"stop() 时 close 掉句柄，
+///          阻塞调用自然会返回"这个直觉在 Linux 上不成立 —— 实际结果是服务端线程
+///          永久挂起（#105：island 12 项用例在 CI 上全部 ctest Timeout）。
+///          因此关闭前必须先 shutdown(fd, SHUT_RDWR)：
+///            · Linux：监听 socket 上阻塞的 accept() 立即返回 -1/EINVAL，
+///              连接 socket 上阻塞的 recv() 返回 0（EOF），线程得以退出、join 得以返回。
+///            · macOS：对**监听** socket 调用 shutdown() 可能返回 ENOTCONN 且不唤醒
+///              accept()。届时仍需把阻塞调用改成 poll() + 超时循环或 self-pipe
+///              （POSIX 通用正解，见 #105 后续项）。CI 当前只覆盖 Linux。
+/// @note 先把成员置 -1 再关 fd：若与 accept() 线程并发，可避免 double-close
+///       （fd 号被复用后二次 close 会误关他人描述符，属难复现的隐蔽故障）。
+void close_and_wake(int& fd) {
+    if (fd < 0) return;
+    const int raw = fd;
+    fd = -1;
+    ::shutdown(raw, SHUT_RDWR);  // 返回值无意义：未连接/已关闭时失败亦无副作用
+    ::close(raw);
+}
 
 class UnixSocketTransport final : public ITransport {
    public:
@@ -62,8 +84,7 @@ class UnixSocketTransport final : public ITransport {
         if (fd < 0) return false;
         // 关闭 listener（连接期间不再接受新客户端），但保留 socket 文件
         // （GUI 断线重连需要端点路径可 connect，文件在 close() 清理）
-        ::close(m_listen_fd);
-        m_listen_fd = -1;
+        close_and_wake(m_listen_fd);
         m_conn_fd = fd;
         return true;
     }
@@ -95,12 +116,19 @@ class UnixSocketTransport final : public ITransport {
         return n;  // 0 = 对端关闭（EOF），<0 = 错误
     }
 
+    // 对端已关闭时 send() 触发 SIGPIPE，默认动作是杀死进程。
+    // Linux 用 MSG_NOSIGNAL 改为返回 -1/EPIPE（macOS 需 SO_NOSIGPIPE）。
     ssize_t write(std::span<const std::byte> data) override {
         if (m_conn_fd < 0) return -1;
+#ifdef MSG_NOSIGNAL
+        constexpr int kSendFlags = MSG_NOSIGNAL;
+#else
+        constexpr int kSendFlags = 0;
+#endif
         const char* p = reinterpret_cast<const char*>(data.data());
         size_t remaining = data.size();
         while (remaining > 0) {
-            const ssize_t n = ::send(m_conn_fd, p, remaining, 0);
+            const ssize_t n = ::send(m_conn_fd, p, remaining, kSendFlags);
             if (n <= 0) return -1;
             p += n;
             remaining -= static_cast<size_t>(n);
@@ -109,14 +137,10 @@ class UnixSocketTransport final : public ITransport {
     }
 
     void close() override {
-        if (m_conn_fd >= 0) {
-            ::close(m_conn_fd);
-            m_conn_fd = -1;
-        }
-        if (m_listen_fd >= 0) {
-            ::close(m_listen_fd);
-            m_listen_fd = -1;
-        }
+        // 必须走 close_and_wake：只 ::close() 不会唤醒阻塞在 accept()/recv() 上的
+        // 服务端线程，stop() 的 join() 会永久挂起（#105）。
+        close_and_wake(m_conn_fd);
+        close_and_wake(m_listen_fd);
         if (!m_endpoint.empty()) {
             unlink(m_endpoint.c_str());  // 清理 socket 文件
             m_endpoint.clear();
