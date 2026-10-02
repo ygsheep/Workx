@@ -229,11 +229,28 @@ workx -p "<task>" --permission-mode accept-edits   # 无人值守档
 
 ```
 agents/workx/
-  install.sh     # 拷贝 workx 二进制 + vendor 工具
-  run.sh         # 调用 workx -p "$TASK" --output-format json
+  __init__.py    # WorkxAgent(BaseInstalledAgent)：install() + @with_prompt_template run()
+  README.md      # 跑分步骤 / 配置项 / 已知阻塞
+scripts/harness/
+  collect_metrics.py   # Step 2b 五项指标采集器（含 --self-test）
 ```
+
+> ✅ **已落地（2026-10-03）**：适配器与采集器已写出，采集器 `--self-test` 5/5 通过，
+> 并用真实 `workx -p ... --output-format stream-json` 输出验证过解析链路。
+> ⚠️ **尚未实跑容器**：本机 Docker 守护进程未运行 + WSL 被安全策略拉黑，
+> `install()` / `run()` 的容器内行为**未验证**，首次使用须先 smoke 单题。
+>
+> 🔴 **接口更正**：原计划的 `install.sh` / `run.sh` 两件套**已被 Harbor 废弃** ——
+> Harbor 于 **2026-03-24** 做了破坏性重构，移除 `_install_agent_template_path` /
+> `create_run_agent_commands` / `ExecInput` 与全部 `install-*.sh.j2` 模板，
+> 现行契约是 `install(environment)` + `run(instruction, environment, context)`。
+> 适配器按**现行**契约编写，老版本 Harbor 需按 CHANGELOG 反向迁移。
+
 先跑 `terminal-bench@2.0` 的 **30 题随机子集 × 3 次**（对齐 HarnessTax 口径：任务平均后 bootstrap 10k 次取 95% CI），再逐步扩到全量 89 题。
 模型选择上注意：Workx 主打 DeepSeek/GLM/Kimi，跑 SWE-bench 这类英文 Python 题会吃亏，建议**同时报一个 Claude/GPT 对照组**，才能把"harness 贡献"和"模型贡献"分开。
+
+> ⚠️ **采集口径更正**：命令执行工具的真名是 **`Bash`**（`BashTool::name()`，Windows 另有 `PowerShell`），
+> 不是本文早先假设的 `execute_command`。采集器按真名匹配，勿照旧口径写正则。
 
 #### Step 2b — 一并验证 #78 的原始验收口径（行为统计，追踪 issue **#117**）
 
@@ -245,13 +262,23 @@ agents/workx/
 
 | 采集项 | 口径 | 数据来源 |
 | --- | --- | --- |
-| **验证命令执行率** | 30 题中，agent 结束前执行过测试/构建命令的题数占比（≥90% 达标） | run manifest 的 tool_call 序列，匹配 `execute_command` 且命令命中探测到的测试/构建命令 |
-| **门禁触发率** | 其中**由门禁回灌驱动**（而非模型自选）的占比 | 日志中 `#78 verification not passed` → 后续 tool_call 的配对 |
+| **验证命令执行率** | 30 题中，agent 结束前执行过测试/构建命令的题数占比（≥90% 达标） | stream-json 的 step 序列，匹配 `tool_name == "Bash"`（Windows 另有 `PowerShell`）且命令命中测试/构建工具表 |
+| **门禁触发率** | 其中**由门禁回灌驱动**（而非模型自选）的占比 | 日志文件中 `#78 verification not passed` → 后续 tool_call 的配对 ⚠️ **需先修 headless 日志初始化** |
 | **降级率** | 达 `verify_max_attempts` 后带警告终止的题数 | `goal_status == Failed` 的题 |
-| **误报率** | `unavailable` 直接放行的题数（推断不出命令） | `Verdict.unavailable` 计数 |
+| **误报率** | `unavailable` 直接放行的题数（推断不出命令） | 日志中 `#78 verification skipped (no command detected)` ⚠️ **需先修 headless 日志初始化** |
 | **成本增幅** | 门禁默认开启后的平均 turns / token 增量 | 与关掉门禁的同题对照跑 |
 
-> ⚠️ **前提**：Step 2 的 run manifest 必须记录完整的 tool_call 序列（含命令原文）。当前审计日志有骨架但未导出该字段，**这是 Step 2 落地时要一并补的**，否则 Step 2b 采不到数。
+> ✅ **原前提已消解（2026-10-03 核实）**：`headless.cpp` 的 `step_json()` 在 `Action` 分支
+> 已输出 `tool_name` + `tool_input`（含命令原文），`--output-format stream-json` 逐 step 落 NDJSON。
+> **采集不需要改 workx 代码** —— 早先「审计日志未导出该字段，要一并补」的判断不成立。
+>
+> 🔴 **但换来了新前提（同日实测发现）**：门禁的 `#78 verification ...` 标记由 `LOG_WARN` 写出，
+> **只落在日志文件里**；而 `src/tui/main.cpp` 的日志初始化块（第 180-221 行）位于 headless
+> 提前 return（第 167-170 行）**之后** —— headless 模式**根本没初始化文件日志与审计日志**，
+> `WORKX_LOG_FILE` 被静默忽略、stderr 实测 **0 字节**、`~/.workx/logs/workx.log` 无新增。
+> → 「验证命令执行率 / 降级率」走 stream-json，**不受影响**；
+> 「门禁触发率 / 误报率」**修复前采不到**，采集器会缩小分母并显式告警，**不会伪造 0**。
+> → 已开 issue **#121**（P1 · bug）。
 >
 > **判定规则**：首轮跑分后若验证命令执行率 **< 90%**，按实测结果**另开针对性 issue**（届时才有真实数据定位是「门禁未触发」「探测不到命令」还是「模型绕过」），不在本报告预先推测。验收追踪 issue：**#117**。
 

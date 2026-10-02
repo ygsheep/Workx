@@ -100,3 +100,7 @@ imgui.ini
 
 # nix build output symlink
 /result
+
+# 采集器自检样例：scripts/harness/fixtures/ 下的 .log 是手工构造的样例（非真实日志），
+# 必须入库，否则 --self-test 在干净 clone 上会缺日志证据而失真（上面 *.log 规则的取反）
+!scripts/harness/fixtures/*.log
