@@ -24,6 +24,7 @@ namespace {
 
 using agent::harden_private_dir;
 using agent::harden_private_file;
+using agent::is_private_file;
 
 /// 独占临时目录（析构时清理），避免污染用户真实配置目录
 class TempDir {
@@ -94,6 +95,45 @@ DaclInfo inspect_dacl(const std::filesystem::path& path) {
     }
     LocalFree(sd);
     return info;
+}
+
+/// 置空 DACL：Windows 语义为「everyone 全权」，比任何显性授权都更开放
+bool null_out_dacl(const std::filesystem::path& path) {
+    return SetNamedSecurityInfoW(const_cast<LPWSTR>(path.c_str()), SE_FILE_OBJECT,
+                                 DACL_SECURITY_INFORMATION, nullptr, nullptr, nullptr,
+                                 nullptr) == ERROR_SUCCESS;
+}
+
+/// 在已有 DACL 上追加一条 Everyone 只读 ALLOW ACE
+/// @details 这才是真实场景的形态：老配置文件继承自父目录，于是多出一条
+///          针对非属主的 ACE。只测 NULL DACL 会短路掉 ACE 扫描循环的判定分支。
+bool grant_world_read(const std::filesystem::path& path) {
+    BYTE world_buf[SECURITY_MAX_SID_SIZE];
+    DWORD world_len = sizeof(world_buf);
+    if (!CreateWellKnownSid(WinWorldSid, nullptr, world_buf, &world_len)) return false;
+
+    EXPLICIT_ACCESS_W ea{};
+    ea.grfAccessPermissions = FILE_GENERIC_READ;
+    ea.grfAccessMode = SET_ACCESS;
+    ea.grfInheritance = NO_INHERITANCE;
+    ea.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+    ea.Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
+    ea.Trustee.ptstrName = reinterpret_cast<LPWSTR>(world_buf);
+
+    PACL old_dacl = nullptr;
+    PSECURITY_DESCRIPTOR sd = nullptr;
+    if (GetNamedSecurityInfoW(path.c_str(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, nullptr,
+                              nullptr, &old_dacl, nullptr, &sd) != ERROR_SUCCESS) {
+        return false;
+    }
+    PACL merged = nullptr;
+    const bool ok = SetEntriesInAclW(1, &ea, old_dacl, &merged) == ERROR_SUCCESS &&
+                    SetNamedSecurityInfoW(const_cast<LPWSTR>(path.c_str()), SE_FILE_OBJECT,
+                                          DACL_SECURITY_INFORMATION, nullptr, nullptr, merged,
+                                          nullptr) == ERROR_SUCCESS;
+    LocalFree(merged);
+    LocalFree(sd);
+    return ok;
 }
 
 /// DACL 中是否存在「宽授权」ACE（Everyone / BUILTIN\Users / Authenticated Users）
@@ -201,6 +241,57 @@ TEST_CASE("file_permissions: 目录收紧为仅属主可访问", "[file_permissi
     CHECK_FALSE(has_broad_ace(sub));
 #else
     CHECK(mode_bits(sub) == kDirPrivate);
+#endif
+}
+
+TEST_CASE("file_permissions: 加固后的文件被判为已收紧", "[file_permissions][issue88]") {
+    TempDir dir("inspect_tight");
+    const auto file = dir.path / "config.json";
+    make_file(file);
+    REQUIRE(harden_private_file(file).is_ok());
+
+    // 不变式：harden 的产出必须被 is_private_file 判定为收紧，
+    // 否则「启动告警」会对已经合规的用户误报。
+    const auto privacy = is_private_file(file);
+    REQUIRE(privacy.is_ok());
+    CHECK(privacy.value());
+}
+
+TEST_CASE("file_permissions: 过宽文件被判为未收紧", "[file_permissions][issue88]") {
+    TempDir dir("inspect_loose");
+    const auto file = dir.path / "config.json";
+    make_file(file);
+
+#if defined(_WIN32)
+    REQUIRE(harden_private_file(file).is_ok());
+    REQUIRE(grant_world_read(file));
+    CHECK(has_broad_ace(file));  // 前置确认：Everyone ACE 确实加上了
+#else
+    std::filesystem::permissions(
+        file, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write |
+                  std::filesystem::perms::group_read | std::filesystem::perms::others_read);
+    REQUIRE(mode_bits(file) == 0644);
+#endif
+
+    const auto privacy = is_private_file(file);
+    REQUIRE(privacy.is_ok());
+    CHECK_FALSE(privacy.value());
+}
+
+TEST_CASE("file_permissions: 空 DACL 视为 everyone 全权", "[file_permissions][issue88]") {
+#if !defined(_WIN32)
+    SKIP("空 DACL 是 Windows 独有语义，POSIX 侧由上一条用例覆盖");
+#else
+    TempDir dir("null_dacl");
+    const auto file = dir.path / "config.json";
+    make_file(file);
+
+    // 比任何显性授权都更开放：pDacl 为 nullptr 意味着 everyone 全权
+    REQUIRE(null_out_dacl(file));
+
+    const auto privacy = is_private_file(file);
+    REQUIRE(privacy.is_ok());
+    CHECK_FALSE(privacy.value());
 #endif
 }
 
