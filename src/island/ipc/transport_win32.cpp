@@ -1,9 +1,12 @@
 /**
  * @file transport_win32.cpp
  * @brief Windows named pipe 传输实现（CreateNamedPipe / ConnectNamedPipe）
- * @details 单客户端实例（PIPE_NUM_INSTANCES=1）：一个 GUI 连一个 TUI。
+ * @details 监听与连接是两个实例：accept_connection() 返回独立的连接实例，
+ *          本实例随即另建监听实例，使端点在服务期间**保持可接入**（#118 的
+ *          POSIX 对称实现）。实例上限 2 = 一个服务当前连接 + 一个等待接入。
+ *          同一时刻仍只有一个 GUI 被服务（服务端串行 accept）。
  *          stop() 关闭句柄使阻塞的 ConnectNamedPipe/ReadFile 返回错误。
- * @version 1.0.1
+ * @version 1.1.0
  * @date 2026-08
  */
 
@@ -28,51 +31,55 @@ namespace {
 
 class NamedPipeTransport final : public ITransport {
    public:
+    /// @brief 监听角色：无句柄，等 listen() 创建
+    NamedPipeTransport() = default;
+
+    /// @brief 连接角色：接管一个已建立连接的管道句柄（accept_connection() 的返回值）
+    explicit NamedPipeTransport(HANDLE conn) : m_handle(conn) {}
+
     ~NamedPipeTransport() override { close(); }
 
-    bool listen(const std::string& endpoint) override {
-        close();  // 支持重 listen（断连后重新创建实例）
-        const HANDLE h =
-            CreateNamedPipeA(endpoint.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
-                             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-                             1,  // 单客户端实例
-                             65536, 65536, 0, nullptr);
-        {
-            std::lock_guard<std::mutex> lock(m_handle_mutex);
-            m_endpoint = endpoint;
-            m_handle = h;
-        }
-        return h != INVALID_HANDLE_VALUE;
-    }
+    bool listen(const std::string& endpoint) override { return open_listen_instance(endpoint); }
 
-    bool accept() override {
+    std::unique_ptr<ITransport> accept_connection() override {
         HANDLE h;
         {
             std::lock_guard<std::mutex> lock(m_handle_mutex);
             h = m_handle;  // 快照：阻塞调用期间 close() 可并发关闭句柄
         }
-        if (h == INVALID_HANDLE_VALUE) return false;
+        if (h == INVALID_HANDLE_VALUE) return nullptr;
         // OVERLAPPED 模式：使阻塞的 accept 可被另一线程 CancelIoEx 取消（stop() 场景）
         OVERLAPPED ov{};
         ov.hEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr);
+        if (!ov.hEvent) return nullptr;
+        bool connected = false;
         const BOOL ok = ConnectNamedPipe(h, &ov);
         if (ok) {
-            CloseHandle(ov.hEvent);
-            return true;
+            connected = true;
+        } else {
+            const DWORD err = GetLastError();
+            if (err == ERROR_PIPE_CONNECTED) {
+                connected = true;  // 客户端在等待间隙抢先连接
+            } else if (err == ERROR_IO_PENDING) {
+                DWORD unused = 0;
+                connected = GetOverlappedResult(h, &ov, &unused, TRUE) != FALSE;
+                // 被 CancelIoEx 取消（stop）或出错 → connected 为 false
+            }
         }
-        const DWORD err = GetLastError();
-        if (err == ERROR_PIPE_CONNECTED) {
-            CloseHandle(ov.hEvent);
-            return true;  // 客户端在等待间隙抢先连接
-        }
-        if (err != ERROR_IO_PENDING) {
-            CloseHandle(ov.hEvent);
-            return false;
-        }
-        DWORD unused = 0;
-        const BOOL done = GetOverlappedResult(h, &ov, &unused, TRUE);
         CloseHandle(ov.hEvent);
-        return done;  // 被 CancelIoEx 取消（stop）或出错
+        if (!connected) return nullptr;
+
+        // #118 对称实现：该句柄现在是连接，摘出去交给独立实例；本实例随即另建
+        // 监听实例，使端点在**服务当前连接期间**仍可接入 —— 新客户端在管道上
+        // 等待 ConnectNamedPipe，而不是拿到 ERROR_FILE_NOT_FOUND 去忙等。
+        std::string endpoint;
+        {
+            std::lock_guard<std::mutex> lock(m_handle_mutex);
+            if (m_handle == h) m_handle = INVALID_HANDLE_VALUE;  // 摘出，避免被 close() 关掉
+            endpoint = m_endpoint;
+        }
+        open_listen_instance(endpoint);
+        return std::make_unique<NamedPipeTransport>(h);
     }
 
     bool connect(const std::string& endpoint) override {
@@ -181,6 +188,26 @@ class NamedPipeTransport final : public ITransport {
     }
 
    private:
+    /// @brief 创建监听实例并接管到 m_handle（先关掉旧句柄）
+    bool open_listen_instance(const std::string& endpoint) {
+        close();  // 支持重建（旧句柄随进程/本实例回收）
+        // kMaxInstances = 2：一个实例正服务当前连接，另一个等待下一个客户端接入。
+        // 上限不能再低 —— 否则服务期间无法保有监听实例，#118 的窗口会重现。
+        const HANDLE h =
+            CreateNamedPipeA(endpoint.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+                             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, kMaxInstances, 65536,
+                             65536, 0, nullptr);
+        {
+            std::lock_guard<std::mutex> lock(m_handle_mutex);
+            m_endpoint = endpoint;
+            m_handle = h;
+        }
+        return h != INVALID_HANDLE_VALUE;
+    }
+
+    /// @brief 实例上限：1 个服务中 + 1 个待接入（见 open_listen_instance 注释）
+    static constexpr DWORD kMaxInstances = 2;
+
     mutable std::mutex m_handle_mutex;
     HANDLE m_handle = INVALID_HANDLE_VALUE;
     std::string m_endpoint;
