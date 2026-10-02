@@ -46,6 +46,7 @@ class TestClient {
     }
 
     /// @brief 阻塞读满一行（容忍粘包：缓冲剩余数据供下次读取）
+    /// @note 读失败（n <= 0，对端关闭/出错）时置 m_dead，供 read_until 提前退出
     [[nodiscard]] std::optional<Envelope> read_line(
         std::chrono::milliseconds timeout = std::chrono::seconds(2)) {
         const auto deadline = std::chrono::steady_clock::now() + timeout;
@@ -58,7 +59,10 @@ class TestClient {
             }
             std::vector<std::byte> buf(65536);
             const auto n = m_conn->read(buf);
-            if (n <= 0) return std::nullopt;
+            if (n <= 0) {
+                m_dead = true;
+                return std::nullopt;
+            }
             m_buf.append(reinterpret_cast<const char*>(buf.data()), static_cast<size_t>(n));
         }
         return std::nullopt;
@@ -71,6 +75,9 @@ class TestClient {
         while (std::chrono::steady_clock::now() < deadline) {
             auto env = read_line(std::chrono::milliseconds(300));
             if (env && pred(*env)) return env;
+            // #118：连接已断（read 立即失败）时不再空转满 3 秒 —— 那会把
+            // 「连接失败」包装成「看起来像超时」，掩盖真实原因、拖慢失败反馈。
+            if (m_dead) break;
         }
         return std::nullopt;
     }
@@ -78,6 +85,7 @@ class TestClient {
     std::unique_ptr<island::ipc::ITransport> m_conn;
     std::string m_buf;  ///< 粘包缓冲（跨 read 保留未解析字节）
     uint64_t m_counter = 0;
+    bool m_dead = false;  ///< read 已失败（对端关闭/出错）
 
    public:
     [[nodiscard]] const std::string& debug_buf() const { return m_buf; }
@@ -251,6 +259,29 @@ TEST_CASE("server: custom request handler and unsupported fallback", "[island][s
     REQUIRE(unk.has_value());
     REQUIRE_FALSE(unk->ok);
     REQUIRE(unk->data["error"] == "unsupported request: bogus_request");
+
+    server.stop();
+}
+
+TEST_CASE("server: rapid consecutive reconnects never hit a no-listener window",
+          "[island][server][issue118]") {
+    const auto ep = unique_endpoint();
+    IslandServerConfig cfg;
+    cfg.endpoint = ep;
+    cfg.pid = 0;
+    cfg.ring_capacity = 64;
+    IslandServer server(std::move(cfg));
+    server.start();
+
+    // #118 回归点：连续重连 6 次，每次都必须立刻完成 hello 握手。
+    // 旧实现在「上一条连接断开 → 重新 listen」之间存在**无监听者窗口**，重连
+    // 客户端撞进去只能靠 connect() 的固定重试硬扛（POSIX 侧总窗口 600ms），
+    // 共享 runner 调度抖动一超即失败 —— CI 上实测同一条重连用例 8 次里红 3 次。
+    // 现在监听端点全程开放，新连接进 backlog 排队，不存在该窗口。
+    for (int i = 0; i < 6; ++i) {
+        auto client = std::make_unique<TestClient>(ep);
+        REQUIRE(client->request("hello", {{"last_seq", 0}}).has_value());
+    }  // 每次迭代末尾 client 析构 → 断开，下一轮重连
 
     server.stop();
 }

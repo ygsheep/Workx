@@ -55,13 +55,13 @@ TEST_CASE("ipc: listener/connector echo round trip", "[island][ipc]") {
 
     std::string server_msg;
     std::thread server_thread([&] {
-        REQUIRE(listener->accept());
+        auto conn = listener->accept_connection();
+        REQUIRE(conn != nullptr);
         std::vector<std::byte> buf(64);
-        const auto n = listener->read(buf);
+        const auto n = conn->read(buf);
         REQUIRE(n > 0);
         server_msg = as_string(std::span(buf).first(static_cast<size_t>(n)));
-        REQUIRE(listener->write(std::span(buf).first(static_cast<size_t>(n))) >
-                0);  // echo 回客户端
+        REQUIRE(conn->write(std::span(buf).first(static_cast<size_t>(n))) > 0);  // echo 回客户端
     });
 
     auto connector = island::ipc::create_connector();
@@ -89,13 +89,41 @@ TEST_CASE("ipc: close unblocks accept", "[island][ipc]") {
 
     std::atomic<bool> accept_returned{false};
     std::thread server_thread([&] {
-        listener->accept();  // 阻塞等待客户端
+        listener->accept_connection();  // 阻塞等待客户端
         accept_returned.store(true);
     });
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     listener->close();
     server_thread.join();
     REQUIRE(accept_returned.load());
+}
+
+TEST_CASE("ipc: endpoint keeps a listening instance while a connection is served",
+          "[island][ipc][issue118]") {
+    auto listener = island::ipc::create_listener();
+    REQUIRE(listener != nullptr);
+    const std::string ep = unique_endpoint();
+    REQUIRE(listener->listen(ep));
+
+    // 服务端线程连续接两条连接：第一条被服务期间，端点必须**仍然有监听实例**，
+    // 否则第二个客户端会撞进「无监听者窗口」（#118）。
+    std::atomic<int> accepted{0};
+    std::thread server_thread([&] {
+        auto c1 = listener->accept_connection();
+        if (c1) accepted.fetch_add(1);
+        auto c2 = listener->accept_connection();
+        if (c2) accepted.fetch_add(1);
+    });
+
+    auto first = island::ipc::create_connector();
+    REQUIRE(first->connect(ep));
+    auto second = island::ipc::create_connector();
+    REQUIRE(second->connect(ep));  // #118 回归点：服务第一条期间端点仍可接入
+
+    server_thread.join();
+    REQUIRE(accepted.load() == 2);
+    first->close();
+    second->close();
 }
 
 TEST_CASE("ipc: connect to nonexistent endpoint fails", "[island][ipc]") {

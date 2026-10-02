@@ -3,9 +3,11 @@
  * @brief POSIX AF_UNIX socket 传输实现（macOS / Linux）
  * @details 端点：$XDG_RUNTIME_DIR（Linux）或 $TMPDIR（macOS）或 /tmp，
  *          文件名 workx-island-<uid>-<pid>.sock。
- *          stop() 时 shutdown+close 使阻塞的 accept/recv 返回
+ *          监听与连接是两个实例：accept_connection() 返回独立的连接实例，
+ *          监听 fd 保持开放直至 close()，服务期间的新客户端进 backlog 排队
+ *          （#118）。stop() 时 shutdown+close 使阻塞的 accept/recv 返回
  *          （Linux 已验证；macOS 见 close_and_wake 注释中的平台差异）。
- * @version 1.0.1
+ * @version 1.1.0
  * @date 2026-08
  */
 
@@ -29,10 +31,13 @@ namespace island::ipc {
 
 namespace {
 
-// connect() 重试次数（覆盖服务端重 listen 的窗口，见 connect() 注释）
+// connect() 重试次数（覆盖服务端尚未 listen 的启动窗口，见 connect() 注释）
 constexpr int kConnectAttempts = 6;
 // connect() 重试间隔（总窗口 ≈ 6 × 100ms = 600ms，与 Windows 侧 3 × 100ms 同量级）
 constexpr int kConnectRetryDelayMs = 100;
+// listen() 的 backlog：连接期间监听 fd 保持开放，重连客户端在此排队（#118）。
+// 取 4 而非 1：即便服务端偶发调度抖动，多个排队客户端也不会被内核丢弃。
+constexpr int kListenBacklog = 4;
 
 /// @brief 关闭 fd 并**唤醒**阻塞在该 fd 上的 accept()/recv()。
 /// @details POSIX 语义陷阱：::close() 只递减描述符引用计数，并**不会**唤醒另一线程中
@@ -73,6 +78,14 @@ void disable_sigpipe(int fd) {
 
 class UnixSocketTransport final : public ITransport {
    public:
+    /// @brief 监听角色：无 fd，等 listen() 创建
+    UnixSocketTransport() = default;
+
+    /// @brief 连接角色：接管一个已建立的连接 fd（accept_connection() 的返回值）
+    /// @note 该实例**不持有监听 fd、也不知道端点路径**，故析构只关连接、
+    ///       不会 unlink 端点文件 —— 监听端点由创建它的实例负责。
+    explicit UnixSocketTransport(int conn_fd) : m_conn_fd(conn_fd) {}
+
     ~UnixSocketTransport() override { close(); }
 
     bool listen(const std::string& endpoint) override {
@@ -95,33 +108,31 @@ class UnixSocketTransport final : public ITransport {
             close();
             return false;
         }
-        if (::listen(m_listen_fd, 1) != 0) {
+        if (::listen(m_listen_fd, kListenBacklog) != 0) {
             close();
             return false;
         }
         return true;
     }
 
-    bool accept() override {
-        if (m_listen_fd < 0) return false;
+    std::unique_ptr<ITransport> accept_connection() override {
+        if (m_listen_fd < 0) return nullptr;
         const int fd = ::accept(m_listen_fd, nullptr, nullptr);
-        if (fd < 0) return false;
-        // 关闭 listener（连接期间不再接受新客户端），但保留 socket 文件
-        // （GUI 断线重连需要端点路径可 connect，文件在 close() 清理）
-        close_and_wake(m_listen_fd);
+        if (fd < 0) return nullptr;
         disable_sigpipe(fd);
-        m_conn_fd = fd;
-        return true;
+        // 关键（#118）：**不关闭** m_listen_fd。监听 fd 保持开放，服务当前连接
+        // 期间到来的客户端进 backlog 排队；连接实例只持有连接 fd，其析构不会
+        // 关闭监听 fd，也不会 unlink 端点文件。
+        return std::make_unique<UnixSocketTransport>(fd);
     }
 
     bool connect(const std::string& endpoint) override {
         close();
-        // 与 Windows 侧（transport_win32.cpp）对称的重试：服务端 accept_loop 在
-        // 「上一条连接断开 → 重新 listen」之间存在窗口 —— socket 文件还在但**没有
-        // 监听者**，此时 connect 返回 ECONNREFUSED。
-        // 断线重连的客户端几乎必然撞进这个窗口（server 要被内核唤醒、读 EOF、
-        // 退出 handle_connection 再 listen），POSIX 侧此前没有重试 → Linux 上
-        // 重连必失败（#105 的 hang 修完后才暴露出来）。
+        // 与 Windows 侧（transport_win32.cpp）对称的重试：覆盖服务端**尚未
+        // listen** 的启动窗口 —— socket 文件已建但还没有监听者时 connect
+        // 返回 ECONNREFUSED。
+        // 注：#118 之后监听 fd 全程开放，「上一条连接断开 → 重建监听」那个窗口
+        // 已不存在，这里的重试只剩启动竞态这一处用途（客户端抢在 listen 前连）。
         //
         // 只对 ECONNREFUSED 重试：**不重试 ENOENT**。ENOENT 意为"端点路径不存在"，
         // 对「从未存在的端点」（test_ipc_transport.cpp 有用例专门测这个）而言重试
@@ -149,6 +160,7 @@ class UnixSocketTransport final : public ITransport {
             const int err = errno;
             ::close(fd);
             // 只重试"服务端还没准备好"这一类；其余（端点不存在、权限、路径过长）立即失败
+            // 注：端点存在且有监听者时 connect 会成功并进 backlog，不会走到这里
             if (err != ECONNREFUSED) return false;
             if (attempt + 1 < kConnectAttempts) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(kConnectRetryDelayMs));
