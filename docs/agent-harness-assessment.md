@@ -263,22 +263,22 @@ scripts/harness/
 | 采集项 | 口径 | 数据来源 |
 | --- | --- | --- |
 | **验证命令执行率** | 30 题中，agent 结束前执行过测试/构建命令的题数占比（≥90% 达标） | stream-json 的 step 序列，匹配 `tool_name == "Bash"`（Windows 另有 `PowerShell`）且命令命中测试/构建工具表 |
-| **门禁触发率** | 其中**由门禁回灌驱动**（而非模型自选）的占比 | 日志文件中 `#78 verification not passed` → 后续 tool_call 的配对 ⚠️ **需先修 headless 日志初始化** |
+| **门禁触发率** | 其中**由门禁回灌驱动**（而非模型自选）的占比 | 日志中 `#78 verification not passed` → 后续 tool_call 的配对 |
 | **降级率** | 达 `verify_max_attempts` 后带警告终止的题数 | `goal_status == Failed` 的题 |
-| **误报率** | `unavailable` 直接放行的题数（推断不出命令） | 日志中 `#78 verification skipped (no command detected)` ⚠️ **需先修 headless 日志初始化** |
+| **误报率** | `unavailable` 直接放行的题数（推断不出命令） | 日志中 `#78 verification skipped (no command detected)` |
 | **成本增幅** | 门禁默认开启后的平均 turns / token 增量 | 与关掉门禁的同题对照跑 |
 
-> ✅ **原前提已消解（2026-10-03 核实）**：`headless.cpp` 的 `step_json()` 在 `Action` 分支
-> 已输出 `tool_name` + `tool_input`（含命令原文），`--output-format stream-json` 逐 step 落 NDJSON。
-> **采集不需要改 workx 代码** —— 早先「审计日志未导出该字段，要一并补」的判断不成立。
+> ✅ **前提已消解（2026-10-03 核实）**：`headless.cpp` 的 `step_json()` 在 `Action` 分支
+> 已输出 `tool_name` + `tool_input`（含命令原文），`--output-format stream-json` 逐 step 落 NDJSON
+> —— **采集不需要改 workx 代码**，早先「审计日志未导出该字段，要一并补」的判断不成立。
 >
-> 🔴 **但换来了新前提（同日实测发现）**：门禁的 `#78 verification ...` 标记由 `LOG_WARN` 写出，
-> **只落在日志文件里**；而 `src/tui/main.cpp` 的日志初始化块（第 180-221 行）位于 headless
-> 提前 return（第 167-170 行）**之后** —— headless 模式**根本没初始化文件日志与审计日志**，
-> `WORKX_LOG_FILE` 被静默忽略、stderr 实测 **0 字节**、`~/.workx/logs/workx.log` 无新增。
-> → 「验证命令执行率 / 降级率」走 stream-json，**不受影响**；
-> 「门禁触发率 / 误报率」**修复前采不到**，采集器会缩小分母并显式告警，**不会伪造 0**。
-> → 已开 issue **#121**（P1 · bug）。
+> ✅ **门禁日志已可用（#121 已修，PR #123 已合并）**：此前 headless **不初始化日志与审计** ——
+> `src/tui/main.cpp` 的初始化块位于 headless 提前 return 之后，`WORKX_LOG_FILE` 被静默忽略、
+> stderr 实测 0 字节，导致「门禁触发率 / 误报率」两项采不到。现把初始化提为
+> `init_logging_and_audit(allow_default_file)`，headless 与交互式两条路径都显式调用；
+> headless 侧**仅在显式指定路径时落盘**（不回落 `~/.workx/logs`，避免评测并发跑题互相覆盖）。
+> 同时为 `audit.enabled` / `audit.file` 补上 `WORKX_AUDIT_ENABLED` / `WORKX_AUDIT_FILE`
+> 环境变量绑定 —— 原先 `WORKX_AUDIT_FILE` **根本没有绑定**，设了也不生效。
 >
 > **判定规则**：首轮跑分后若验证命令执行率 **< 90%**，按实测结果**另开针对性 issue**（届时才有真实数据定位是「门禁未触发」「探测不到命令」还是「模型绕过」），不在本报告预先推测。验收追踪 issue：**#117**。
 

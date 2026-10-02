@@ -275,14 +275,18 @@ void register_config_defaults(ConfigManager& cfg) {
          .int_range = std::make_pair<int64_t, int64_t>(1, 100)});
 
     // === Audit（#37 审计日志：大小轮转 + 天数清理）===
+    // #121：补 env 绑定 —— headless（评测入口）没有配置文件，容器里只能靠环境变量指定审计路径；
+    //       缺了这两条，`WORKX_AUDIT_FILE` 会被静默忽略，与 logging.* 的能力不对等。
     cfg.register_schema({.key = keys::AUDIT_ENABLED,
                          .description = "Enable audit logging (tool invoke / security events)",
                          .default_value = true,
-                         .type = ConfigSchema::Type::Bool});
+                         .type = ConfigSchema::Type::Bool,
+                         .env_var = "WORKX_AUDIT_ENABLED"});
     cfg.register_schema({.key = keys::AUDIT_FILE,
                          .description = "Audit log file path (empty = logs/audit.jsonl)",
                          .default_value = std::string(""),
-                         .type = ConfigSchema::Type::String});
+                         .type = ConfigSchema::Type::String,
+                         .env_var = "WORKX_AUDIT_FILE"});
     cfg.register_schema({.key = keys::AUDIT_MAX_SIZE_MB,
                          .description = "Audit log rotation size in MB",
                          .default_value = 10,
@@ -358,6 +362,7 @@ void load_from_env(ConfigManager& cfg) {
     // 1. 由 ConfigManager 统一加载已绑定到 Schema 的环境变量
     //    覆盖：WORKX_API_KEY / WORKX_BASE_URL / WORKX_MODEL / WORKX_TIMEOUT
     //          / WORKX_LOG_LEVEL / WORKX_LOG_FILE
+    //          / WORKX_AUDIT_ENABLED / WORKX_AUDIT_FILE（#121 补）
     cfg.load_from_env();
 
     // 2. WORKX_NO_COLOR 采用 presence-only 语义（兼容 https://no-color.org 规范）：
