@@ -86,6 +86,9 @@ target_sources(workx_agent PRIVATE
     # factory（宿主无关会话装配，B1：workx 与 codex 双端复用）
     factory.cpp
 
+    # prompt: 系统提示素材（memory.h / system_prompt.h 为纯头，仅 #82 有 cpp）
+    prompt/environment_probe.cpp
+
     # api
     api/sse_parser.cpp
     api/backend_factory.cpp

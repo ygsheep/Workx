@@ -31,7 +31,8 @@
 #include "agent/core/chat_session.h"
 #include "agent/mcp/mcp_client_manager.h"
 #include "agent/model/provider_preset.h"
-#include "agent/prompt/memory.h"          // 项目记忆加载（CLAUDE.md / AGENT.md）
+#include "agent/prompt/environment_probe.h"  // #82：环境探测（目录骨架 / 工具链 / 项目命令）
+#include "agent/prompt/memory.h"             // 项目记忆加载（CLAUDE.md / AGENT.md）
 #include "agent/session/session_store.h"  // 项目会话恢复
 #include "agent/tool/AgentTool/agent_tool.h"
 #include "agent/tool/BashTool/bash_tool.h"
@@ -448,6 +449,20 @@ bool is_git_repo() {
     return false;
 }
 
+/// @brief 构建 #82 环境探测段（项目骨架 / 工具链 / 构建与测试命令）
+/// @details 省掉 agent 前若干轮用 Bash+Glob 摸索环境的开销，也让 #78 验证门禁有可
+///          引用的命令来源。探测只读且只在启动时做一次；推导不出内容时返回空串，
+///          调用方据此不注入，避免给模型塞一段无意义的空标题。
+std::string build_project_probe_section() {
+    namespace fs = std::filesystem;
+    const prompt::EnvironmentProbe probe{
+        .dir_entries = prompt::probe_directory_skeleton(fs::current_path()),
+        .toolchains = prompt::probe_toolchain(),
+        .commands = prompt::probe_project_commands(fs::current_path()),
+    };
+    return prompt::format_environment_probe(probe);
+}
+
 /// @brief 构建环境上下文段（对齐 cc computeEnvInfo 的 <env> 块）
 std::string build_environment_context() {
     namespace fs = std::filesystem;
@@ -487,6 +502,12 @@ std::string build_environment_context() {
             "ls/cat/cp/mv/rm. Prefer PowerShell for Unix-style commands on Windows.\n";
     }
 #endif
+
+    const std::string probe_text = build_project_probe_section();
+    if (!probe_text.empty()) {
+        env_block += "\n";
+        env_block += probe_text;
+    }
     return env_block;
 }
 
