@@ -32,6 +32,14 @@
 namespace agent::process {
 
 /// @brief exec() 调用选项
+/// @brief 子进程标准输入的处理方式（#78 VF-08）
+/// @details 自动执行的命令（headless 评测、FinalAnswer 前的验证门禁）绝不能
+///          继承父进程 stdin：命令一旦读 stdin，无人值守下会挂到超时。
+enum class StdinMode {
+    Inherit,  ///< 继承父进程 stdin（默认，保持既有行为）
+    Null,     ///< 接到空设备（POSIX /dev/null、Windows NUL）—— 读 stdin 立即 EOF
+};
+
 struct ExecOptions {
     std::string cwd;                ///< 工作目录（空表示继承父进程）
     std::vector<std::string> args;  ///< 命令行参数（不含命令本身）
@@ -50,6 +58,12 @@ struct ExecOptions {
     ///            （setpgid + kill(-pid)）覆盖，无重复施加的必要
     ///          nullopt 表示不要求任何进程级约束。
     std::optional<ProcessIsolationSpec> isolation;
+
+    /// @brief 子进程 stdin 的处理方式（#78 VF-08）
+    /// @details 默认 Inherit 保持不变；**无人值守路径必须显式设 Null** ——
+    ///          验证门禁、headless 评测这类自动命令，一旦读到 stdin 就会挂到
+    ///          超时（POSIX 继承父 stdin；Windows 则拿到 STARTF 的空句柄）。
+    StdinMode stdin_mode = StdinMode::Inherit;
 };
 
 /// @brief 同步执行外部命令，捕获输出

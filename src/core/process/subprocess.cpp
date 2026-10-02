@@ -422,12 +422,29 @@ ResultV2<ExecOutput> exec_windows(const std::string& cmd, const ExecOptions& opt
         creation_flags |= CREATE_SUSPENDED;
     }
 
+    // #78 VF-08：stdin=Null 时把子进程标准输入接到 NUL（可继承句柄）。
+    //            不设的话 STARTF_USESTDHANDLES 会让它拿到空句柄——虽也不阻塞，
+    //            但语义含糊；显式接 NUL 后「读 stdin 立即 EOF」两平台一致。
+    HANDLE stdin_handle = INVALID_HANDLE_VALUE;
+    if (opts.stdin_mode == StdinMode::Null) {
+        SECURITY_ATTRIBUTES sa{};
+        sa.nLength = sizeof(sa);
+        sa.bInheritHandle = TRUE;
+        stdin_handle = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
+                                   OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (stdin_handle == INVALID_HANDLE_VALUE) {
+            return ResultV2<ExecOutput>::err(Error::Code::InternalError, "CreateFileW(NUL) failed",
+                                             "subprocess::exec");
+        }
+    }
+    HandleGuard g_stdin_null(stdin_handle);
+
     STARTUPINFOW si{};
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESTDHANDLES;
     si.hStdOutput = stdout_write;
     si.hStdError = stderr_write;
-    si.hStdInput = nullptr;
+    si.hStdInput = (opts.stdin_mode == StdinMode::Null) ? stdin_handle : nullptr;
     PROCESS_INFORMATION pi{};
 
     if (!CreateProcessW(nullptr,          // lpApplicationName（nullptr 表示从 cmdline 解析）
@@ -647,6 +664,17 @@ ResultV2<ExecOutput> exec_posix(const std::string& cmd, const ExecOptions& opts)
         close(stdout_pipe[1]);
         close(stderr_pipe[0]);
         close(stderr_pipe[1]);
+
+        // #78 VF-08：stdin=Null → 接到 /dev/null，读 stdin 立即 EOF。
+        //            默认（Inherit）下子进程继承父 stdin —— 无人值守时父 stdin
+        //            可能是永不关闭的管道，验证命令一读就挂到超时。
+        if (opts.stdin_mode == StdinMode::Null) {
+            const int devnull = open("/dev/null", O_RDONLY);
+            if (devnull >= 0) {
+                dup2(devnull, STDIN_FILENO);
+                close(devnull);
+            }
+        }
 
         // 切换工作目录
         if (!opts.cwd.empty()) {

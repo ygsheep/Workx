@@ -17,6 +17,7 @@
 #include <fstream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "agent/core/agent_type.h"
 #include "agent/core/goal_verdict.h"
@@ -359,6 +360,111 @@ TEST_CASE("VF-07: 可声明的目标类型与 checker 覆盖一一对应", "[age
     REQUIRE_FALSE(has_checker(AgentGoal::Script));
     REQUIRE_FALSE(has_checker(AgentGoal::Batch));
     REQUIRE_FALSE(has_checker(AgentGoal::Watch));
+}
+
+// ============================================================
+// VF-10（Issue #78 P4）：验证命令自适应探测
+// ============================================================
+// 失真背景：MVP 阶段 checker_tests 无条件跑硬编码 `ctest --output-on-failure`，
+//          checker_lint 跑 `echo 'no lint config'`（恒定退出 0）。前者把非 CMake
+//          项目判成「测试失败」，后者把「没有 lint」判成「通过」——
+//          方向相反，但同样污染闭环结论。本组锁住探测与「不可用」。
+
+namespace {
+
+/// @brief 建一个只含指定线索文件的临时项目（返回其目录）
+std::string make_project(const std::vector<std::string>& files) {
+    const std::string dir = test_dir();
+    fs::create_directories(dir);
+    for (const auto& rel : files) {
+        const fs::path p = fs::path(dir) / rel;
+        fs::create_directories(p.parent_path());
+        std::ofstream(p) << "{}\n";
+    }
+    return dir;
+}
+
+void drop(const std::string& dir) {
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
+}  // namespace
+
+TEST_CASE("VF-10: 空项目探测不到验证命令 → 不可用而非失败", "[agent][verify][issue78]") {
+    const std::string dir = make_project({});
+    AgentGoal goal;
+    goal.type = AgentGoal::TestsPass;
+
+    const Verdict v = check_goal(goal, dir);
+    REQUIRE(v.unavailable);
+    REQUIRE(v.status == GoalStatus::Unknown);  // 不是 Failed：没跑过就没有结论
+    REQUIRE(v.detail.find("no test command") != std::string::npos);
+    drop(dir);
+}
+
+TEST_CASE("VF-10: CMake 项目须真的生成过 CTest 入口才算有测试",
+          "[agent][verify][issue78]") {
+    // 只有 CMakeLists.txt 而未 configure → 跑 ctest 必报错，属「无法验证」
+    const std::string bare = make_project({"CMakeLists.txt"});
+    REQUIRE(detect_goal_command(AgentGoal::TestsPass, bare).empty());
+    drop(bare);
+
+    // 已生成 CTestTestfile（顶层或 build 子目录）→ 可用
+    const std::string ready = make_project({"CMakeLists.txt", "build/CTestTestfile.cmake"});
+    REQUIRE(detect_goal_command(AgentGoal::TestsPass, ready) == "ctest --output-on-failure");
+    drop(ready);
+}
+
+TEST_CASE("VF-10: 各技术栈探测出对应的测试/构建命令", "[agent][verify][issue78]") {
+    struct Case {
+        const char* marker;
+        AgentGoal::Type type;
+        const char* expect;
+    };
+    const Case cases[] = {
+        {"Cargo.toml", AgentGoal::TestsPass, "cargo test"},
+        {"go.mod", AgentGoal::TestsPass, "go test ./..."},
+        {"pytest.ini", AgentGoal::TestsPass, "pytest"},
+        {"Cargo.toml", AgentGoal::BuildClean, "cargo build"},
+        {"go.mod", AgentGoal::BuildClean, "go build ./..."},
+        {"Makefile", AgentGoal::BuildClean, "make"},
+    };
+    for (const auto& c : cases) {
+        const std::string dir = make_project({c.marker});
+        REQUIRE(detect_goal_command(c.type, dir) == c.expect);
+        drop(dir);
+    }
+}
+
+TEST_CASE("VF-10: npm 只在显式声明 script 时才探测得出", "[agent][verify][issue78]") {
+    const std::string dir = test_dir();
+    fs::create_directories(dir);
+    // 无 test script
+    std::ofstream(fs::path(dir) / "package.json") << R"({"name":"x"})";
+    REQUIRE(detect_goal_command(AgentGoal::TestsPass, dir).empty());
+    // 有 test script
+    std::ofstream(fs::path(dir) / "package.json") << R"({"scripts":{"test":"jest"}})";
+    REQUIRE(detect_goal_command(AgentGoal::TestsPass, dir) == "npm test");
+    drop(dir);
+}
+
+TEST_CASE("VF-10: lint 无配置时不再用 echo 假装通过", "[agent][verify][issue78]") {
+    // 回归锁定：旧实现默认命令是 `echo 'no lint config'`，恒定退出 0 →
+    // 等于「没有任何 lint 配置也永远判定 lint 通过」，是假绿。
+    const std::string dir = make_project({});
+    AgentGoal goal;
+    goal.type = AgentGoal::LintZero;
+
+    const Verdict v = check_goal(goal, dir);
+    REQUIRE(v.unavailable);
+    REQUIRE(v.status != GoalStatus::Achieved);  // 绝不能判成「lint 通过」
+    drop(dir);
+
+    // 有 eslint 配置时探测得出可跑命令
+    const std::string eslint = make_project({".eslintrc.json"});
+    REQUIRE(detect_goal_command(AgentGoal::LintZero, eslint) == "npx eslint .");
+    drop(eslint);
 }
 
 TEST_CASE("P2-3: file_exists 路径保留原始大小写", "[agent][goal][verify]") {

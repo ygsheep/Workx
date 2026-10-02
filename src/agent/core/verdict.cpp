@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -209,17 +210,21 @@ int run_exit_code(const std::string& cmd, const std::string& cwd) {
     using namespace agent::process;
     // exec() 的 cmd 必须是纯可执行名、参数走 args；命令字符串需经 shell 包装
     // （cmd：cmd.exe /d /s /c；POSIX：sh -c），对齐 skill hooks.cpp 的既有用法
+    // #78 VF-08：验证是自动执行的，stdin 必须接空设备 —— 否则继承父进程
+    //            stdin，命令一旦读输入就会挂到 60s 超时才返回。
 #if defined(_WIN32)
     auto res = exec("cmd.exe", ExecOptions{
                                    .cwd = cwd,
                                    .args = {"/d", "/s", "/c", cmd},
                                    .timeout = std::chrono::milliseconds(60000),
+                                   .stdin_mode = StdinMode::Null,
                                });
 #else
     auto res = exec("sh", ExecOptions{
                               .cwd = cwd,
                               .args = {"-c", cmd},
                               .timeout = std::chrono::milliseconds(60000),
+                              .stdin_mode = StdinMode::Null,
                           });
 #endif
     if (res.is_err()) {
@@ -254,12 +259,122 @@ std::string guard_command(const std::string& cmd) {
     return {};
 }
 
+// ============================================================
+// #78 P4：验证命令自适应探测
+// ============================================================
+
+namespace {
+
+/// @brief 读取文件前若干字节；读不到返回空串
+/// @details 仅用于探测项目线索，不做严格错误处理。
+std::string read_text_head(const fs::path& p, size_t max_bytes = 256 * 1024) {
+    std::ifstream in(p, std::ios::binary);
+    if (!in) {
+        return {};
+    }
+    std::string out(max_bytes, '\0');
+    in.read(out.data(), static_cast<std::streamsize>(max_bytes));
+    out.resize(static_cast<size_t>(in.gcount()));
+    return out;
+}
+
+}  // namespace
+
+std::string detect_goal_command(AgentGoal::Type type, const std::string& cwd) {
+    std::error_code ec;
+    const fs::path base = cwd.empty() ? fs::current_path() : fs::path(cwd);
+    if (!fs::is_directory(base, ec)) {
+        return {};
+    }
+    const auto has = [&](std::string_view rel) { return fs::exists(base / rel, ec); };
+    const auto text_of = [&](std::string_view rel) { return read_text_head(base / rel); };
+
+    switch (type) {
+        case AgentGoal::TestsPass:
+            // CMake：必须真的生成过 CTest 入口才算「有测试」——
+            // 只有 CMakeLists.txt 而没有 CTestTestfile，说明尚未 configure，
+            // 跑 ctest 必然报错，属于「无法验证」，不该当成「测试失败」。
+            if (has("CMakeLists.txt") &&
+                (has("CTestTestfile.cmake") || has("build/CTestTestfile.cmake"))) {
+                return kTestCmd;
+            }
+            if (has("Cargo.toml")) {
+                return "cargo test";
+            }
+            if (has("go.mod")) {
+                return "go test ./...";
+            }
+            if (has("package.json") &&
+                text_of("package.json").find("\"test\"") != std::string::npos) {
+                return "npm test";
+            }
+            if (has("Makefile") && text_of("Makefile").find("\ntest:") != std::string::npos) {
+                return "make test";
+            }
+            if (has("pytest.ini") || has("setup.py") || has("pyproject.toml") || has("tests")) {
+                return "pytest";
+            }
+            return {};
+
+        case AgentGoal::BuildClean:
+            if (has("CMakeLists.txt")) {
+                return kBuildCmd;
+            }
+            if (has("Cargo.toml")) {
+                return "cargo build";
+            }
+            if (has("go.mod")) {
+                return "go build ./...";
+            }
+            if (has("Makefile")) {
+                return "make";
+            }
+            if (has("package.json") &&
+                text_of("package.json").find("\"build\"") != std::string::npos) {
+                return "npm run build";
+            }
+            return {};
+
+        case AgentGoal::LintZero:
+            // 只覆盖能给出完整可跑命令的 lint 栈。.clang-tidy 单独跑无参数
+            // 会 usage error，给出它反而制造假失败，故不探测。
+            if (has(".eslintrc") || has(".eslintrc.json") || has(".eslintrc.js") ||
+                has("eslint.config.js")) {
+                return "npx eslint .";
+            }
+            return {};
+
+        default:
+            // None / FileExists / CustomScript：命令由 goal 自身给定，无探测必要
+            return {};
+    }
+}
+
+AgentGoal detect_default_goal(const std::string& cwd) {
+    AgentGoal goal;
+    if (!detect_goal_command(AgentGoal::TestsPass, cwd).empty()) {
+        goal.type = AgentGoal::TestsPass;
+        return goal;
+    }
+    if (!detect_goal_command(AgentGoal::BuildClean, cwd).empty()) {
+        goal.type = AgentGoal::BuildClean;
+        return goal;
+    }
+    return goal;  // None：项目里没有可验证的东西，门禁放行
+}
+
 Verdict checker_tests(const AgentGoal& goal, const std::string& cwd) {
-    const std::string cmd = guard_command(goal.command.empty() ? kTestCmd : goal.command);
+    // #78 P4：未指定命令时先探测；探测不到则报「不可用」由门禁放行。
+    const std::string cmd =
+        goal.command.empty() ? detect_goal_command(AgentGoal::TestsPass, cwd) : goal.command;
     if (cmd.empty()) {
+        return {GoalStatus::Unknown, "no test command detected in this project", true};
+    }
+    const std::string guarded = guard_command(cmd);
+    if (guarded.empty()) {
         return {GoalStatus::Failed, "test command rejected (not in allowlist)"};
     }
-    const int code = run_exit_code(cmd, cwd);
+    const int code = run_exit_code(guarded, cwd);
     if (code < 0) {
         return {GoalStatus::Failed, "test command failed to start"};
     }
@@ -270,7 +385,13 @@ Verdict checker_tests(const AgentGoal& goal, const std::string& cwd) {
 }
 
 Verdict checker_build(const AgentGoal& goal, const std::string& cwd) {
-    const std::string cmd = guard_command(goal.command.empty() ? kBuildCmd : goal.command);
+    // 同 checker_tests：未显式指定命令时先探测。
+    const std::string raw =
+        goal.command.empty() ? detect_goal_command(AgentGoal::BuildClean, cwd) : goal.command;
+    if (raw.empty()) {
+        return {GoalStatus::Unknown, "no build command detected in this project", true};
+    }
+    const std::string cmd = guard_command(raw);
     if (cmd.empty()) {
         return {GoalStatus::Failed, "build command rejected (not in allowlist)"};
     }
@@ -284,13 +405,16 @@ Verdict checker_build(const AgentGoal& goal, const std::string& cwd) {
     return {GoalStatus::Pending, std::format("build has errors (exit={})", code)};
 }
 
-namespace {
-/// @brief lint 默认命令（纯 echo 落 0 退出，避免含 shell 元字符的默认值过白名单）
-constexpr const char* kLintCmd = "echo 'no lint config'";
-}  // namespace
-
 Verdict checker_lint(const AgentGoal& goal, const std::string& cwd) {
-    const std::string cmd = guard_command(goal.command.empty() ? kLintCmd : goal.command);
+    // #78 P4：lint 此前的默认命令是 `echo 'no lint config'` —— 它恒定退出 0，
+    // 等于「没有 lint 配置也永远判定通过」，是假绿。改为探测不到就
+    // 如实报不可用（门禁放行），不再用 echo 假装验证过。
+    const std::string raw =
+        goal.command.empty() ? detect_goal_command(AgentGoal::LintZero, cwd) : goal.command;
+    if (raw.empty()) {
+        return {GoalStatus::Unknown, "no lint command detected in this project", true};
+    }
+    const std::string cmd = guard_command(raw);
     if (cmd.empty()) {
         return {GoalStatus::Failed, "lint command rejected (not in allowlist)"};
     }

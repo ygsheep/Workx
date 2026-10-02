@@ -179,6 +179,30 @@ TEST_CASE("subprocess terminates on timeout", "[subprocess][timeout]") {
 }
 
 // ============================================================
+// stdin 处理（#78 VF-08：自动执行的命令不得阻塞 stdin）
+// ============================================================
+
+TEST_CASE("subprocess stdin=Null: 读 stdin 的命令立即 EOF，不挂到超时",
+          "[subprocess][stdin]") {
+    // 场景：验证门禁 / headless 评测都是**无人值守自动执行**的。
+    // 默认 Inherit 会继承父进程 stdin（无人值守时往往是永不关闭的管道），
+    // 命令一读输入就挂到超时。接到空设备后读立即 EOF。
+    // 断言用 3s 超时兜底：真被阻塞的话就会命中 timed_out。
+    ExecOptions opts;
+#ifdef _WIN32
+    opts.args = {"/c", "set /p v="};
+#else
+    opts.args = {"-c", "read -r v"};
+#endif
+    opts.timeout = std::chrono::milliseconds(3000);
+    opts.stdin_mode = StdinMode::Null;
+
+    auto r = exec(kShell, opts);
+    REQUIRE(r.is_ok());
+    REQUIRE_FALSE(r.value().timed_out);  // 立即返回，而非耗尽 3s
+}
+
+// ============================================================
 // 取消
 // ============================================================
 

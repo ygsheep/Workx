@@ -580,9 +580,16 @@ std::string build_verification_warning(const Verdict& v) {
 }  // namespace
 
 void apply_verification_gate(ReActLoop::Config& cfg, const IConfigManager& config_manager,
-                             bool enabled_by_default) {
+                             bool enabled_by_default, std::string_view cwd) {
     const std::string goal_spec = config_manager.get_or<std::string>(keys::AGENT_GOAL, "");
-    cfg.goal = parse_goal(goal_spec);
+    if (goal_spec.empty()) {
+        // #78 P3：用户没声明目标时按项目线索推断（探测不到 → 放行）。
+        // 这是「默认开启」的前提：没有可跑命令的项目不会被硬套目标。
+        cfg.goal = detect_default_goal(cwd.empty() ? std::filesystem::current_path().string()
+                                                   : std::string(cwd));
+    } else {
+        cfg.goal = parse_goal(goal_spec);
+    }
     cfg.verify_before_finish =
         config_manager.get_or<bool>(keys::AGENT_VERIFY_BEFORE_FINISH, enabled_by_default);
     // 归一化到 >=1：0/负值会让 cap 判定永假或永真，两种都会破坏闭环语义
@@ -603,6 +610,13 @@ ReActLoop::GateResult ReActLoop::run_verification_gate(
     }
 
     const Verdict v = check_goal(m_config.goal, m_cwd);
+    // #78 P4：项目里探测不到任何可用验证手段 → 放行，不回灌也不降级。
+    // 「无法验证」与「验证失败」必须分开：前者再怎么重试也不会变好，
+    // 回灌只会让模型为一个不存在的测试目标白白消耗预算。
+    if (v.unavailable) {
+        LOG_INFO("[react_loop] #78 verification skipped (no command detected): {}", v.detail);
+        return GateResult::Pass;
+    }
     if (v.status == GoalStatus::Achieved) {
         result.goal_status = GoalStatus::Achieved;
         LOG_INFO("[react_loop] #78 verification passed: {}", v.detail);

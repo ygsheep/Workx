@@ -11,6 +11,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 #include <vector>
 #include <memory>
 #include <functional>
@@ -558,9 +559,13 @@ class WORKX_API ReActLoop {
 ///          是为了让"新增入口忘记接线"这类回归只能发生在一处（VF-04 守护）。
 /// @param cfg [out] 被填入 goal / verify_before_finish / verify_max_attempts
 /// @param config_manager 配置源
-/// @param enabled_by_default 未显式配置时的开关默认值。交互式传 false；
-///           headless（评测入口）传 true —— #78 的收益必须在能被测到的地方先落地。
+/// @param enabled_by_default 未显式配置时的开关默认值。#78 P3 起两个入口都传
+///           true（headless 是评测入口，交互式是真实用户路径，都需闭环）。
+/// @param cwd 用于未声明 agent.goal 时推断默认目标（P3），留空取当前目录。
+/// @note 默认开启之所以安全：目标由 `detect_default_goal()` 按项目线索推断，
+///       推断不出可跑命令时 goal 为 None，门禁直接放行 —— 不会在无测试
+///       项目上凭空制造失败。
 void apply_verification_gate(ReActLoop::Config& cfg, const IConfigManager& config_manager,
-                             bool enabled_by_default = false);
+                             bool enabled_by_default = false, std::string_view cwd = {});
 
 }  // namespace agent
