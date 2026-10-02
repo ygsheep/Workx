@@ -45,6 +45,7 @@ BIN_PATH = "/usr/local/bin/workx"
 INSTRUCTION_PATH = "/tmp/workx-instruction.md"
 STREAM_PATH = "/tmp/workx-stream.jsonl"
 LOG_PATH = "/tmp/workx-run.log"
+AUDIT_PATH = "/tmp/workx-audit.jsonl"
 
 #: 运行时系统依赖（Terminal-Bench 任务镜像多为 Ubuntu）
 APT_PACKAGES = "ca-certificates curl git libcurl4-openssl-dev tzdata"
@@ -169,6 +170,10 @@ class WorkxAgent(BaseInstalledAgent):
         env["WORKX_NO_COLOR"] = "1"
         env["WORKX_LOG_FILE"] = LOG_PATH
         env.setdefault("WORKX_LOG_LEVEL", "info")
+        # Issue #121 修复后 headless 才会初始化日志/审计，且**只在显式指定路径时才落盘**
+        # （不回落 ~/.workx/logs，避免并发跑题互相覆盖）。所以这两个路径必须显式给，
+        # 否则门禁的 #78 标记仍会丢失 —— 采集器的「门禁触发率 / 误报率」就采不到数。
+        env.setdefault("WORKX_AUDIT_FILE", AUDIT_PATH)
 
         if not env.get("WORKX_API_KEY"):
             raise RuntimeError(
