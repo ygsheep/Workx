@@ -8,7 +8,10 @@
 - 适配器本体：`__init__.py`（`WorkxAgent(BaseInstalledAgent)`）
 - 指标采集器：`scripts/harness/collect_metrics.py`
 
-> ⚠️ **本适配器尚未在真实容器里跑过** —— 编写机上 Docker 守护进程未运行、WSL 被安全策略拉黑。
+> ✅ **install 链路已实测**（2026-10-03，Docker Desktop 29.6.1）：
+> `harbor run ... --install-only --force-build` 跑通 —— 容器内 `apt-get install` 成功、预构建
+> 二进制下载成功、`workx --version` 退出 0。
+> ⚠️ **但完整 run（agent 真的解题 + verifier 判分）还没跑过**，卡在缺少模型凭据。
 > 首次使用**务必按下面的顺序先 smoke 再放量**，任何一步失败都请先看「已知阻塞」。
 
 ---
@@ -19,25 +22,43 @@
 | --- | --- | --- |
 | Docker | 守护进程**运行中**（CLI 装了不等于在跑） | `docker info` |
 | uv | Harbor 推荐用 uv 装 | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
-| Harbor | ≥ 2026-03（含 `BaseInstalledAgent` 新接口） | `uv tool install harbor && harbor --help` |
+| Harbor | ≥ 2026-03（含 `BaseInstalledAgent` 新接口） | `harbor --help`（实测 0.23.0） |
+| `PYTHONPATH` | 必须包含**仓库根**，否则 `-a agents.workx:WorkxAgent` 这个 import path 找不到 | `export PYTHONPATH=$PWD` |
 | 模型凭据 | `WORKX_API_KEY`（按需 `WORKX_BASE_URL` / `WORKX_MODEL`） | `echo $WORKX_API_KEY` |
 
 Apple Silicon 需额外 `export DOCKER_DEFAULT_PLATFORM=linux/amd64`。
+Windows / Git Bash 需 `export MSYS_NO_PATHCONV=1`，否则 `/src` 这类参数会被 MSYS 转成 Windows 路径。
 
 ## 2. Smoke：先跑一道题
 
 ```bash
+export MSYS_NO_PATHCONV=1
+export PYTHONPATH=$PWD
 export WORKX_API_KEY=...
+export WORKX_BASE_URL=https://api.deepseek.com   # 尾部会自动补 /v1/chat/completions
+export WORKX_AGENT_BINARY_URL=http://host.docker.internal:8899/workx-linux-amd64
+
 harbor run \
   --dataset terminal-bench@2.0 \
   -a agents.workx:WorkxAgent \
-  --include-task-name git-init \
-  -k 1
+  --include-task-name regex-log \
+  -k 1 -n 1 --force-build -y
+```
+
+`--force-build` **不能省**：Terminal-Bench 的官方镜像 `alexgshaw/*:20251031` 在常见国内加速器上
+会 403（加速器只缓存 Docker Hub 官方 library 镜像），只能拿任务自带的 `environment/Dockerfile`
+在本地构建。
+
+不想烧 token 只想验证安装时，加 `--install-only`（`install()` 不需要 API key）：
+
+```bash
+harbor run -d terminal-bench@2.0 -a agents.workx:WorkxAgent -i regex-log \
+           -k 1 -n 1 --install-only --force-build -y
 ```
 
 看三件事：
 
-1. `install()` 有没有把 `workx` 装进去（容器内 `workx --version`）
+1. `install()` 有没有把 `workx` 装进去（容器内 `workx --version`）—— 见 `jobs/<job-id>/job.log`
 2. `/agent/command-*/stdout.txt` 里有没有 NDJSON（每行一个 step）
 3. `/verifier/reward.txt` 是不是 0 或 1
 
@@ -82,33 +103,65 @@ python scripts/harness/collect_metrics.py \
 源码构建要在容器里 bootstrap vcpkg + 全量编译，每题都来一遍代价极高。先构建一次：
 
 ```bash
-docker run --rm -v "$PWD:/src" -w /src ubuntu:24.04 bash -c '
-  apt-get update && apt-get install -y --no-install-recommends \
-    build-essential cmake ninja-build pkg-config git curl unzip zip tar \
-    libcurl4-openssl-dev python3
-  export VCPKG_ROOT=/opt/vcpkg VCPKG_FORCE_SYSTEM_BINARIES=1
-  git clone --depth 1 https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
-  "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
-  cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
-  cmake --build build --target workx -j "$(nproc)"
-  cp build/bin/workx /src/workx-linux-amd64
+export MSYS_NO_PATHCONV=1
+docker run --rm \
+  -v "$PWD:/src" \
+  -v "$PWD/build/vcpkg_installed/x64-windows/include/nlohmann:/opt/nlohmann" \
+  -v "$PWD:/out" -w /src ubuntu:24.04 bash -c '
+  apt-get update -qq
+  apt-get install -y --no-install-recommends build-essential cmake ninja-build \
+    pkg-config libcurl4-openssl-dev nlohmann-json3-dev ca-certificates
+  # ① apt 的 nlohmann 是 3.11.3，编不过 json.value(key, std::optional<T>)，
+  #    必须换成 vcpkg baseline 的 3.12.0（直接复用本机已有的那一份头文件）
+  rm -rf /usr/include/nlohmann && cp -r /opt/nlohmann /usr/include/nlohmann
+  # ② Ubuntu 的 libcurl-dev 不提供 CMake package config，而 CMakeLists 用的是
+  #    find_package(CURL CONFIG REQUIRED) —— 自己造一个最小的
+  mkdir -p /usr/local/lib/cmake/CURL
+  cat > /usr/local/lib/cmake/CURL/CURLConfig.cmake <<CFG
+set(CURL_FOUND TRUE)
+if(NOT TARGET CURL::libcurl)
+  add_library(CURL::libcurl UNKNOWN IMPORTED)
+  set_target_properties(CURL::libcurl PROPERTIES
+    IMPORTED_LOCATION "/usr/lib/x86_64-linux-gnu/libcurl.so"
+    INTERFACE_INCLUDE_DIRECTORIES "/usr/include")
+endif()
+CFG
+  cmake -S /src -B /tmp/wxbuild -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DCURL_DIR=/usr/local/lib/cmake/CURL \
+    -DWORKX_BUILD_TESTS=OFF -DWORKX_BUILD_EXAMPLES=OFF -DWORKX_BUILD_CONSUMER=OFF \
+    -DWORKX_WITH_TREE_SITTER=OFF -DWORKX_FETCH_GRAMMARS=OFF
+  cmake --build /tmp/wxbuild --target workx -j "$(nproc)"
+  install -m 0755 /tmp/wxbuild/bin/workx /out/workx-linux-amd64
 '
 ```
 
-然后把产物挂到任意可访问 URL（对象存储 / 本地 HTTP / CI artifact），设 `WORKX_AGENT_BINARY_URL` 即可。
+约 3 分钟，产物 8 MB。然后把产物挂到任意**容器内可访问**的 URL：
+
+```bash
+cd <产物目录> && python -m http.server 8899 --bind 0.0.0.0
+# 容器侧用 http://host.docker.internal:8899/workx-linux-amd64
+```
+
+> 上面刻意**不用 vcpkg 装依赖**：容器内访问 github.com 常常不通，bootstrap vcpkg 会直接失败；
+> 而 nlohmann / curl 都可以用 apt + 上面两个补丁凑出来。
 
 ---
 
 ## 已知阻塞
 
-1. **headless 不写日志**（2026-10-03 实测，追踪 issue **#121**）
-   `src/tui/main.cpp` 的日志初始化块（第 180-221 行）位于 headless 提前 return（第 167-170 行）**之后**，
-   于是 `WORKX_LOG_FILE` 被静默忽略、stderr 也是 0 字节，`~/.workx/logs/workx.log` 与审计日志均无新增。
-   → 后果：门禁的 `#78 verification ...` 标记全部丢失，采集器的**门禁触发率**与**误报率**两项采不到
-   （其余三项走 stream-json，不受影响）。修复前这两项分母会被自动缩小并在报告里标注「不可外推」。
+1. ✅ ~~**headless 不写日志**~~ —— 已由 PR #123 修复并合并，#121 已关闭。
+   现在 headless 会在提前 return 之前调用 `init_logging_and_audit(allow_default_file=false)`，
+   `WORKX_LOG_FILE` / `WORKX_AUDIT_FILE` 生效（headless 侧不回落 `~/.workx/logs`，避免并发跑题互相覆盖）。
 
-2. **本机跑不了**：Docker 守护进程未运行 + WSL 在安全策略黑名单里，需人工启动/解禁。
+2. 🔴 **glibc 基线**：上面配方产出的二进制是 ubuntu 24.04（glibc 2.39 / libcurl 8.5）产物，
+   要求 `GLIBC_2.38`，**跑不了** `python:3.13-slim-bookworm`（2.36）和 `debian:bullseye-slim`（2.31）
+   的题 —— terminal-bench@2.0 的 89 题里有 **43 题**会直接 `GLIBC_2.38 not found`。
+   退到 ubuntu 22.04 也不行：代码用了 `<format>`（std::format），**至少要 GCC 13**，
+   而 jammy 默认只有 GCC 11/12。要覆盖全量子集，得先搞出 jammy + g++-13（toolchain PPA）或等价的低基线构建。
+   → **smoke 只挑 `ubuntu:24.04` 的题就绕得过去**（如 `regex-log`）。
 
-3. **首次 `install()` 成本高**：源码构建路径在容器里要跑 vcpkg bootstrap + 全量编译，
-   建议直接用预构建二进制。
+3. 🔴 **官方镜像拉取 403**：`alexgshaw/<task>:20251031` 在 daocloud 等加速器上返回 403
+   （加速器只缓存 Docker Hub 官方 library 镜像）。必须 `--force-build` 走本地构建。
+
+4. ⚠️ **容器内 github.com 不通**（未显式设代理时）：源码构建回退路径里的
+   `git clone vcpkg` 会失败，所以这条路径目前**只在有代理的环境可用**。预构建快路径不受影响。
