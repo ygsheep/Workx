@@ -28,6 +28,7 @@
 #include "agent/config/app_config.h"
 #include "core/config/config_manager.h"
 #include "core/config/i_config_manager.h"
+#include "core/utils/file_permissions.h"
 #include "agent/tool/constants.h"
 
 namespace agent {
@@ -369,11 +370,32 @@ void load_from_env(ConfigManager& cfg) {
     }
 }
 
+namespace {
+
+/// @brief 配置文件存了凭据却权限过宽时告警（Issue #88 建议 2）
+/// @details 只在确实存着 API Key 时提示 —— 没有凭据的配置文件没有加固价值，不必制造噪音。
+///          这里**只读告警**，不擅自改写用户文件：真正的收紧走 save_to_file 的既有路径
+///          （写后 close 再 harden_private_file），即「本次提醒、下次落盘自动修复」。
+///          查不到权限（err）同样静默：这是可用性提示，不该因为读不了而阻断启动。
+void warn_if_credentials_exposed(const IConfigManager& cfg, const std::filesystem::path& path) {
+    if (!cfg.has(keys::API_KEY)) return;
+    const auto privacy = is_private_file(path);
+    if (privacy.is_err() || privacy.value()) return;
+    std::cerr << "Warning: 配置文件 " << path.string()
+              << " 含 API Key 但权限过宽（同机其他用户可读）。\n"
+                 "         workx 会在下次写入该文件时自动收紧；若不再写入，请手动设为仅属主可读写"
+                 "（POSIX 0600 / Windows 仅保留当前用户与 SYSTEM）。\n";
+}
+
+}  // namespace
+
 void load_from_config_file(IConfigManager& cfg, const std::filesystem::path& path) {
     auto result = cfg.load_from_file(path);
     if (result.is_err()) {
         std::cerr << "Warning: " << result.error().to_string() << "\n";
+        return;
     }
+    warn_if_credentials_exposed(cfg, path);
 }
 
 // F.5：统一配置目录解析，优先级链：

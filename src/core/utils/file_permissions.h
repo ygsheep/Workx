@@ -27,4 +27,15 @@ ResultV2<void> harden_private_file(const std::filesystem::path& path);
 /// @return 成功 ok；目标不存在返回 ResourceNotFound，加固失败返回 PermissionDenied
 ResultV2<void> harden_private_dir(const std::filesystem::path& path);
 
+/// @brief 查询文件是否已收紧为「仅属主可访问」（只读检查，不修改任何东西）
+/// @param path 目标文件
+/// @return true = 已收紧；false = 权限过宽
+///         目标不存在返回 ResourceNotFound，读不到权限返回 PermissionDenied
+/// @details 判定基准与 harden_private_file 的产出严格对齐（POSIX 无 group/others 权限位；
+///          Windows 的 DACL 只剩「属主 + SYSTEM」两条 ACE），因此「加固后立刻查询」恒为 true。
+///          空 DACL（Windows 上 pDacl 为 nullptr）意味着 everyone 全权，判为过宽。
+/// @note 用途：持有凭据的老配置文件可能早于加固策略创建，加载时据此告警（Issue #88 建议 2）。
+///       本函数**只读**，不擅自改写用户文件 —— 真正的收紧仍走写路径的 harden_private_file。
+ResultV2<bool> is_private_file(const std::filesystem::path& path);
+
 }  // namespace agent

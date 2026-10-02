@@ -99,6 +99,53 @@ ResultV2<void> harden_windows(const std::filesystem::path& path, bool is_dir) {
     return ResultV2<void>::ok();
 }
 
+/// @brief 查询 DACL 是否只向「属主 + SYSTEM」授权
+/// @details 与 build_private_dacl 的产出对齐：任何**会授予访问**的 ACE 都必须属于这两个主体，
+///          其余一律判为过宽。空 DACL 意味着 everyone 全权，比任何显性授权都更开放，同样判过宽。
+///          DENY ACE 只**收回**权限，不参与判定 —— 一条针对陌生主体的 DENY 不会让文件变宽。
+ResultV2<bool> inspect_dacl_privacy(const std::filesystem::path& path) {
+    const std::string ctx = path.string();
+    PACL dacl = nullptr;
+    PSECURITY_DESCRIPTOR sd = nullptr;
+    if (GetNamedSecurityInfoW(path.c_str(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, nullptr,
+                              nullptr, &dacl, nullptr, &sd) != ERROR_SUCCESS) {
+        return ResultV2<bool>::err(Error::Code::PermissionDenied, "cannot read DACL", ctx);
+    }
+    if (dacl == nullptr) {
+        LocalFree(sd);
+        return ResultV2<bool>::ok(false);
+    }
+
+    ACL_SIZE_INFORMATION size{};
+    if (!GetAclInformation(dacl, &size, sizeof(size), AclSizeInformation)) {
+        LocalFree(sd);
+        return ResultV2<bool>::err(Error::Code::PermissionDenied, "cannot read ACL size", ctx);
+    }
+    PSID owner = read_owner_sid(path);
+    BYTE sys_buf[SECURITY_MAX_SID_SIZE];
+    DWORD sys_len = sizeof(sys_buf);
+    const bool sys_ok = CreateWellKnownSid(WinLocalSystemSid, nullptr, sys_buf, &sys_len) == TRUE;
+    if (!owner || !sys_ok) {
+        LocalFree(owner);
+        LocalFree(sd);
+        return ResultV2<bool>::err(Error::Code::PermissionDenied, "cannot resolve trusted SIDs",
+                                   ctx);
+    }
+
+    bool trusted_only = true;
+    for (DWORD i = 0; i < size.AceCount && trusted_only; ++i) {
+        LPVOID entry = nullptr;
+        if (!GetAce(dacl, i, &entry)) continue;
+        if (static_cast<ACE_HEADER*>(entry)->AceType == ACCESS_DENIED_ACE_TYPE) continue;
+        // ALLOWED 与 OBJECT_ALLOWED 在 SidStart 处布局一致，统一取这一段
+        PSID sid = &static_cast<ACCESS_ALLOWED_ACE*>(entry)->SidStart;
+        if (!EqualSid(sid, owner) && !EqualSid(sid, sys_buf)) trusted_only = false;
+    }
+    LocalFree(owner);
+    LocalFree(sd);
+    return ResultV2<bool>::ok(trusted_only);
+}
+
 }  // namespace
 
 #else  // POSIX
@@ -120,6 +167,23 @@ ResultV2<void> harden_posix(const std::filesystem::path& path, mode_t mode) {
     return ResultV2<void>::ok();
 }
 
+/// @brief 查询权限位是否已无 group / others 授权
+/// @details 与 harden_posix 的目标位对齐：group 与 others 的 rwx 全部为 0 才算收紧。
+///          注意 perms::*_all 都含执行位，掩码必须覆盖读写执行三者。
+ResultV2<bool> inspect_posix_privacy(const std::filesystem::path& path) {
+    const std::string ctx = path.string();
+    std::error_code ec;
+    if (!std::filesystem::exists(path, ec)) {
+        return ResultV2<bool>::err(Error::Code::ResourceNotFound, "target not found", ctx);
+    }
+    const auto perms = std::filesystem::status(path, ec).permissions();
+    if (ec) {
+        return ResultV2<bool>::err(Error::Code::PermissionDenied, "cannot read permissions", ctx);
+    }
+    const auto others = std::filesystem::perms::group_all | std::filesystem::perms::others_all;
+    return ResultV2<bool>::ok((perms & others) == std::filesystem::perms::none);
+}
+
 }  // namespace
 
 #endif
@@ -137,6 +201,14 @@ ResultV2<void> harden_private_dir(const std::filesystem::path& path) {
     return harden_windows(path, /*is_dir=*/true);
 #else
     return harden_posix(path, 0700);
+#endif
+}
+
+ResultV2<bool> is_private_file(const std::filesystem::path& path) {
+#if defined(_WIN32)
+    return inspect_dacl_privacy(path);
+#else
+    return inspect_posix_privacy(path);
 #endif
 }
 
