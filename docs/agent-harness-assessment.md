@@ -229,11 +229,28 @@ workx -p "<task>" --permission-mode accept-edits   # 无人值守档
 
 ```
 agents/workx/
-  install.sh     # 拷贝 workx 二进制 + vendor 工具
-  run.sh         # 调用 workx -p "$TASK" --output-format json
+  __init__.py    # WorkxAgent(BaseInstalledAgent)：install() + @with_prompt_template run()
+  README.md      # 跑分步骤 / 配置项 / 已知阻塞
+scripts/harness/
+  collect_metrics.py   # Step 2b 五项指标采集器（含 --self-test）
 ```
+
+> ✅ **已落地（2026-10-03）**：适配器与采集器已写出，采集器 `--self-test` 5/5 通过，
+> 并用真实 `workx -p ... --output-format stream-json` 输出验证过解析链路。
+> ⚠️ **尚未实跑容器**：本机 Docker 守护进程未运行 + WSL 被安全策略拉黑，
+> `install()` / `run()` 的容器内行为**未验证**，首次使用须先 smoke 单题。
+>
+> 🔴 **接口更正**：原计划的 `install.sh` / `run.sh` 两件套**已被 Harbor 废弃** ——
+> Harbor 于 **2026-03-24** 做了破坏性重构，移除 `_install_agent_template_path` /
+> `create_run_agent_commands` / `ExecInput` 与全部 `install-*.sh.j2` 模板，
+> 现行契约是 `install(environment)` + `run(instruction, environment, context)`。
+> 适配器按**现行**契约编写，老版本 Harbor 需按 CHANGELOG 反向迁移。
+
 先跑 `terminal-bench@2.0` 的 **30 题随机子集 × 3 次**（对齐 HarnessTax 口径：任务平均后 bootstrap 10k 次取 95% CI），再逐步扩到全量 89 题。
 模型选择上注意：Workx 主打 DeepSeek/GLM/Kimi，跑 SWE-bench 这类英文 Python 题会吃亏，建议**同时报一个 Claude/GPT 对照组**，才能把"harness 贡献"和"模型贡献"分开。
+
+> ⚠️ **采集口径更正**：命令执行工具的真名是 **`Bash`**（`BashTool::name()`，Windows 另有 `PowerShell`），
+> 不是本文早先假设的 `execute_command`。采集器按真名匹配，勿照旧口径写正则。
 
 #### Step 2b — 一并验证 #78 的原始验收口径（行为统计，追踪 issue **#117**）
 
@@ -255,7 +272,7 @@ agents/workx/
 > 已输出 `tool_name` + `tool_input`（含命令原文），`--output-format stream-json` 逐 step 落 NDJSON
 > —— **采集不需要改 workx 代码**，早先「审计日志未导出该字段，要一并补」的判断不成立。
 >
-> ✅ **门禁日志已可用（#121 已修）**：此前 headless **不初始化日志与审计** ——
+> ✅ **门禁日志已可用（#121 已修，PR #123 已合并）**：此前 headless **不初始化日志与审计** ——
 > `src/tui/main.cpp` 的初始化块位于 headless 提前 return 之后，`WORKX_LOG_FILE` 被静默忽略、
 > stderr 实测 0 字节，导致「门禁触发率 / 误报率」两项采不到。现把初始化提为
 > `init_logging_and_audit(allow_default_file)`，headless 与交互式两条路径都显式调用；
