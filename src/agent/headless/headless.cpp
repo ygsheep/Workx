@@ -157,11 +157,13 @@ std::unique_ptr<ReActLoop> build_loop(IConfigManager& cfg, ITaskManager& task_ma
     // Issue #78 阶段 P2：headless 是评测入口，验证门禁在这里**默认开启**。
     // 必须在此显式接线 —— headless 自己 new ReActLoop，既不经过 chat_session 的
     // goal 注入，也不经过 GoalGuardedAgent 包壳，漏了这条评测链路就永远零验证。
-    // 默认开启本身是安全的：agent.goal 未配置时 goal.type == None，门禁自动放行。
-    agent::apply_verification_gate(loop_config, cfg, /*enabled_by_default=*/true);
+    // 默认开启本身是安全的：未声明 agent.goal 时目标按项目线索推断，
+    // 探测不到可跑命令则 goal.type == None，门禁自动放行。
+    const std::string cwd = std::filesystem::current_path().string();
+    agent::apply_verification_gate(loop_config, cfg, /*enabled_by_default=*/true, cwd);
 
     return std::make_unique<ReActLoop>(provider, tool_registry, loop_config, &cfg, &task_manager,
-                                       std::filesystem::current_path().string(),
+                                       cwd,
                                        /*external_compactor=*/nullptr,
                                        /*event_bus=*/nullptr,
                                        /*touch_collector=*/nullptr,

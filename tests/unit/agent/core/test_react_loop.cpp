@@ -993,6 +993,25 @@ class WriteArtifactTool : public ITool {
     }
 };
 
+/// @brief #78 P3/P4：建只含指定线索文件的临时项目目录（探测用例用）
+/// @details 探测结果只由这些线索文件决定，不受测试进程当前目录影响。
+///          调用方负责 fs::remove_all。
+std::string make_probe_project(const std::vector<std::string>& files) {
+    namespace fs = std::filesystem;
+    const std::string dir =
+        (fs::temp_directory_path() /
+         ("workx_vfprobe_" +
+          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())))
+            .string();
+    fs::create_directories(dir);
+    for (const auto& rel : files) {
+        const fs::path p = fs::path(dir) / rel;
+        fs::create_directories(p.parent_path());
+        std::ofstream(p) << "{}\n";
+    }
+    return dir;
+}
+
 struct VerificationGateFixture : ReActLoopFixture {
     std::string dir;       ///< 隔离工作目录（同时作为 loop 的 cwd）
     std::string artifact;  ///< 待验证的目标产物路径
@@ -1154,9 +1173,12 @@ TEST_CASE_METHOD(ReActLoopFixture, "VF-04: apply_verification_gate 按入口正�
                  "[react_loop][issue78]") {
     MockConfigManager cfg_mgr;
 
-    // 交互式：未显式配置 → 关闭、无目标（MVP 不改变既有行为）
+    // 探测用空目录：不传会取进程当前目录，结果会被「跑在仓库根」污染
+    const std::string empty = make_probe_project({});
+
+    // 传 false 的分支（P3 之前交互式走这条）：未显式配置 → 关闭、无目标
     ReActLoop::Config interactive;
-    apply_verification_gate(interactive, cfg_mgr, /*enabled_by_default=*/false);
+    apply_verification_gate(interactive, cfg_mgr, /*enabled_by_default=*/false, empty);
     REQUIRE_FALSE(interactive.goal.has_goal());
     REQUIRE(interactive.verify_before_finish == false);
 
@@ -1164,8 +1186,10 @@ TEST_CASE_METHOD(ReActLoopFixture, "VF-04: apply_verification_gate 按入口正�
     // 这是 #78 阶段 P2 的关键：headless 自建 ReActLoop，不走 GoalGuardedAgent，
     // 漏掉这条接线评测链路就是零验证。
     ReActLoop::Config headless;
-    apply_verification_gate(headless, cfg_mgr, /*enabled_by_default=*/true);
+    apply_verification_gate(headless, cfg_mgr, /*enabled_by_default=*/true, empty);
     REQUIRE(headless.verify_before_finish == true);
+    // P3 的安全边界：空目录里推断不出任何目标 → 门禁开了也不会跑命令
+    REQUIRE_FALSE(headless.goal.has_goal());
 
     // 配置了 goal → 必须解析进 Config，否则门禁永远不会真正验证任何东西
     cfg_mgr.set_value(agent::keys::AGENT_GOAL, std::string("tests_pass"));
@@ -1182,8 +1206,42 @@ TEST_CASE_METHOD(ReActLoopFixture, "VF-04: apply_verification_gate 按入口正�
     // 非法值归一化为 >=1：0/负值会让重试封顶判定失去意义
     cfg_mgr.set_value(agent::keys::AGENT_VERIFY_MAX_ATTEMPTS, 0);
     ReActLoop::Config bad_cap;
-    apply_verification_gate(bad_cap, cfg_mgr, true);
+    apply_verification_gate(bad_cap, cfg_mgr, true, empty);
     REQUIRE(bad_cap.verify_max_attempts == 1);
+
+    std::error_code ec;
+    std::filesystem::remove_all(empty, ec);
+}
+
+// ============================================================
+// VF-11（Issue #78 P3）：默认开启后按项目线索推断目标
+// ============================================================
+
+TEST_CASE_METHOD(ReActLoopFixture, "VF-11: 未声明 agent.goal 时按项目线索推断默认目标",
+                 "[react_loop][issue78]") {
+    MockConfigManager cfg_mgr;
+
+    // 有 CTest 入口 → 测试优先（tests_pass 比 build_clean 更贴近任务验收）
+    const std::string cmake = make_probe_project({"CMakeLists.txt", "build/CTestTestfile.cmake"});
+    ReActLoop::Config cmake_cfg;
+    apply_verification_gate(cmake_cfg, cfg_mgr, true, cmake);
+    REQUIRE(cmake_cfg.goal.type == AgentGoal::TestsPass);
+
+    // 只能构建、跑不了测试 → 退到 build_clean
+    const std::string make_only = make_probe_project({"Makefile"});
+    ReActLoop::Config make_cfg;
+    apply_verification_gate(make_cfg, cfg_mgr, true, make_only);
+    REQUIRE(make_cfg.goal.type == AgentGoal::BuildClean);
+
+    // 用户显式声明优先于推断
+    cfg_mgr.set_value(agent::keys::AGENT_GOAL, std::string("lint_zero"));
+    ReActLoop::Config explicit_goal;
+    apply_verification_gate(explicit_goal, cfg_mgr, true, cmake);
+    REQUIRE(explicit_goal.goal.type == AgentGoal::LintZero);
+
+    std::error_code ec;
+    std::filesystem::remove_all(cmake, ec);
+    std::filesystem::remove_all(make_only, ec);
 }
 
 TEST_CASE_METHOD(VerificationGateFixture, "VF-05: Stop hook 阻断不吞掉验证结论",
@@ -1231,4 +1289,32 @@ TEST_CASE_METHOD(VerificationGateFixture, "VF-09: 预算仅剩一轮时不再无
     REQUIRE(result.final_answer.find("未完成验证") != std::string::npos);
     REQUIRE(result.total_iterations == 1);
     REQUIRE(provider->submit_count == 1);  // 没有多余的一次回灌
+}
+
+// ============================================================
+// VF-10（Issue #78 P4）：探测不到验证手段时门禁放行
+// ============================================================
+// 与 VF-03 的区别：VF-03 覆盖「goal 类型没有验证器」（has_checker 为假）；
+// 本条覆盖「类型有验证器，但这个项目里没有可跑的命令」。
+// 二者都必须放行 —— 否则「无法验证」会被当成「验证失败」，模型为
+// 不存在的测试目标反复纠错，把预算烧在没有答案的地方。
+
+TEST_CASE_METHOD(VerificationGateFixture, "VF-10: 项目探测不到验证命令 → 门禁直接放行",
+                 "[react_loop][issue78]") {
+    // fixture 的 dir 是空临时目录：没有 CMakeLists / package.json / Cargo.toml …
+    ReActLoop::Config cfg;
+    cfg.goal = parse_goal("tests_pass");
+    cfg.verify_before_finish = true;
+    cfg.verify_max_attempts = 3;
+    cfg.max_iterations = 10;
+    auto loop = make_gate_loop(cfg);
+    make_text_reader("完成了。");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("请实现这个功能")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.goal_status != GoalStatus::Failed);  // 不得降级成「未完成验证」
+    REQUIRE(result.final_answer == "完成了。");          // 答复不得被追加警告
+    REQUIRE(provider->submit_count == 1);               // 不得产生回灌轮
+    REQUIRE_FALSE(injected_user_text(messages, "验证未通过"));
 }
