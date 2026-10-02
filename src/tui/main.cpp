@@ -130,6 +130,73 @@ int main(int argc, char** argv) {
     if (!first_run) agent::load_from_config_file(cfg, config_path);
     agent::load_from_env(cfg);
 
+    // ---- 日志 / 审计日志初始化（Issue #121）----
+    // ⚠️ 原实现是一段内联块，位于 headless 提前 return **之后**，headless 路径永远走不到：
+    //    `WORKX_LOG_FILE` 被静默忽略、stderr 实测 0 字节、`~/.workx/logs/` 与审计日志均无新增。
+    //    现提为 lambda，让 headless 与交互式两条路径都显式调用。
+    //
+    // @param allow_default_file 未显式指定路径时是否回落到默认文件（`~/.workx/logs/workx.log`）。
+    //        交互式 = true（保持原行为）；headless = false —— 评测会并发跑多题，
+    //        默认路径会被互相覆盖 / 追加，故 headless 仅在**显式**指定路径时才写文件。
+    auto init_logging_and_audit = [&cfg](bool allow_default_file) {
+        // logging.level：字符串 → LogLevel（平缓回退到 info）
+        const std::string level_str = cfg.get_or<std::string>(agent::keys::LOG_LEVEL, "info");
+        agent::log::LogLevel level = agent::log::LogLevel::LOG_INFO;
+        if (level_str == "trace")
+            level = agent::log::LogLevel::LOG_TRACE;
+        else if (level_str == "debug")
+            level = agent::log::LogLevel::LOG_DEBUG;
+        else if (level_str == "warn")
+            level = agent::log::LogLevel::LOG_WARN;
+        else if (level_str == "error")
+            level = agent::log::LogLevel::LOG_ERROR;
+        else if (level_str == "fatal")
+            level = agent::log::LogLevel::LOG_FATAL;
+        agent::log::Logger::get_instance().set_level(level);
+
+        // logging.file：空 = 默认单一固定文件 workx.log（按大小轮转）；
+        // 启动时清理旧版时间戳历史日志 workx_*.log
+        std::string log_file = cfg.get_or<std::string>(agent::keys::LOG_FILE, "");
+        const size_t max_size_mb =
+            static_cast<size_t>(cfg.get_or<int>(agent::keys::LOG_MAX_SIZE_MB, 10));
+        const size_t max_files =
+            static_cast<size_t>(cfg.get_or<int>(agent::keys::LOG_MAX_FILES, 5));
+        if (log_file.empty()) {
+            if (!allow_default_file) {
+                // #121 headless：未显式指定 → 保持静默，不碰默认日志。
+                // 级别已在上面设置，一旦后续显式指定路径即刻生效。
+            } else {
+                agent::cleanup_expired_logs(cfg.get_or<int>(agent::keys::LOG_RETENTION_DAYS, 7));
+                const auto& def = agent::default_log_path();
+                if (!def.empty()) log_file = def.string();
+            }
+        }
+        if (!log_file.empty()) {
+            auto& logger = agent::log::Logger::get_instance();
+            logger.set_rotation(max_size_mb * 1024 * 1024, max_files);
+            logger.enable_file_output(log_file, true);
+        }
+
+        // 审计日志（大小轮转 + 天数清理）：启用后记录工具调用与安全事件
+        if (cfg.get_or<bool>(agent::keys::AUDIT_ENABLED, true)) {
+            std::string audit_file = cfg.get_or<std::string>(agent::keys::AUDIT_FILE, "");
+            if (audit_file.empty()) {
+                if (!allow_default_file) {
+                    // #121 headless：同上，未显式指定则不落盘
+                    agent::audit::AuditLogger::instance().set_enabled(false);
+                    return;
+                }
+                audit_file = (agent::log_dir() / "workx_audit.jsonl").string();
+            }
+            agent::audit::AuditLogger::instance().init(
+                audit_file,
+                static_cast<size_t>(cfg.get_or<int>(agent::keys::AUDIT_MAX_SIZE_MB, 10)),
+                static_cast<size_t>(cfg.get_or<int>(agent::keys::AUDIT_RETENTION_DAYS, 30)));
+        } else {
+            agent::audit::AuditLogger::instance().set_enabled(false);
+        }
+    };
+
     // #77 headless：跳过首次运行向导 / TUI / 文件索引 / Island，直接同步执行
     if (headless_mode) {
         // 参数校验：非法值直接以退出码 2 拒绝，避免静默降级导致 CI 误判
@@ -161,6 +228,10 @@ int main(int argc, char** argv) {
             std::cerr << "workx: 缺少任务文本（-p \"<task>\" 或 -p - 从 stdin 读）\n";
             return 2;
         }
+        // #121：headless 也必须初始化日志 / 审计，否则 `WORKX_LOG_FILE` 形同虚设，
+        // 验证门禁（#78）的运行标记全部丢失，Issue #117 的行为统计采不到数。
+        // 参数校验放在前面：非法参数 / 空任务不该产生日志文件。
+        init_logging_and_audit(/*allow_default_file=*/false);
         auto& bus = agent::EventBus::instance();
         auto& tm = agent::TaskManager::instance();
         auto result = agent::run_headless(cfg, tm, bus, opts);
@@ -175,52 +246,9 @@ int main(int argc, char** argv) {
         ftxtui::run_first_run_wizard(cfg, config_path);
     }
 
-    // 日志（Debug/Release 统一到 ~/.workx/logs）
-    // 级别 / 文件路径 / 保留天数全部由配置接管；删除过期历史日志后再打开文件。
-    {
-        // logging.level：字符串 → LogLevel（平缓回退到 info）
-        const std::string level_str = cfg.get_or<std::string>(agent::keys::LOG_LEVEL, "info");
-        agent::log::LogLevel level = agent::log::LogLevel::LOG_INFO;
-        if (level_str == "trace")
-            level = agent::log::LogLevel::LOG_TRACE;
-        else if (level_str == "debug")
-            level = agent::log::LogLevel::LOG_DEBUG;
-        else if (level_str == "warn")
-            level = agent::log::LogLevel::LOG_WARN;
-        else if (level_str == "error")
-            level = agent::log::LogLevel::LOG_ERROR;
-        else if (level_str == "fatal")
-            level = agent::log::LogLevel::LOG_FATAL;
-        agent::log::Logger::get_instance().set_level(level);
-
-        // logging.file：空 = 默认单一固定文件 workx.log（按大小轮转）；
-        // 启动时清理旧版时间戳历史日志 workx_*.log
-        std::string log_file = cfg.get_or<std::string>(agent::keys::LOG_FILE, "");
-        size_t max_size_mb = static_cast<size_t>(cfg.get_or<int>(agent::keys::LOG_MAX_SIZE_MB, 10));
-        size_t max_files = static_cast<size_t>(cfg.get_or<int>(agent::keys::LOG_MAX_FILES, 5));
-        if (log_file.empty()) {
-            agent::cleanup_expired_logs(cfg.get_or<int>(agent::keys::LOG_RETENTION_DAYS, 7));
-            const auto& def = agent::default_log_path();
-            if (!def.empty()) log_file = def.string();
-        }
-        if (!log_file.empty()) {
-            auto& logger = agent::log::Logger::get_instance();
-            logger.set_rotation(max_size_mb * 1024 * 1024, max_files);
-            logger.enable_file_output(log_file, true);
-        }
-
-        // 审计日志（大小轮转 + 天数清理）：启用后记录工具调用与安全事件
-        if (cfg.get_or<bool>(agent::keys::AUDIT_ENABLED, true)) {
-            std::string audit_file = cfg.get_or<std::string>(agent::keys::AUDIT_FILE, "");
-            if (audit_file.empty()) audit_file = (agent::log_dir() / "workx_audit.jsonl").string();
-            agent::audit::AuditLogger::instance().init(
-                audit_file,
-                static_cast<size_t>(cfg.get_or<int>(agent::keys::AUDIT_MAX_SIZE_MB, 10)),
-                static_cast<size_t>(cfg.get_or<int>(agent::keys::AUDIT_RETENTION_DAYS, 30)));
-        } else {
-            agent::audit::AuditLogger::instance().set_enabled(false);
-        }
-    }
+    // #121：日志 / 审计初始化已提为 lambda（定义见上方 `init_logging_and_audit`），
+    // 此处为交互式路径调用 —— 未显式指定路径时回落到 ~/.workx/logs（保持原行为）。
+    init_logging_and_audit(/*allow_default_file=*/true);
 
     auto& bus = agent::EventBus::instance();
     auto& tm = agent::TaskManager::instance();

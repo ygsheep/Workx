@@ -245,13 +245,23 @@ agents/workx/
 
 | 采集项 | 口径 | 数据来源 |
 | --- | --- | --- |
-| **验证命令执行率** | 30 题中，agent 结束前执行过测试/构建命令的题数占比（≥90% 达标） | run manifest 的 tool_call 序列，匹配 `execute_command` 且命令命中探测到的测试/构建命令 |
+| **验证命令执行率** | 30 题中，agent 结束前执行过测试/构建命令的题数占比（≥90% 达标） | stream-json 的 step 序列，匹配 `tool_name == "Bash"`（Windows 另有 `PowerShell`）且命令命中测试/构建工具表 |
 | **门禁触发率** | 其中**由门禁回灌驱动**（而非模型自选）的占比 | 日志中 `#78 verification not passed` → 后续 tool_call 的配对 |
 | **降级率** | 达 `verify_max_attempts` 后带警告终止的题数 | `goal_status == Failed` 的题 |
-| **误报率** | `unavailable` 直接放行的题数（推断不出命令） | `Verdict.unavailable` 计数 |
+| **误报率** | `unavailable` 直接放行的题数（推断不出命令） | 日志中 `#78 verification skipped (no command detected)` |
 | **成本增幅** | 门禁默认开启后的平均 turns / token 增量 | 与关掉门禁的同题对照跑 |
 
-> ⚠️ **前提**：Step 2 的 run manifest 必须记录完整的 tool_call 序列（含命令原文）。当前审计日志有骨架但未导出该字段，**这是 Step 2 落地时要一并补的**，否则 Step 2b 采不到数。
+> ✅ **前提已消解（2026-10-03 核实）**：`headless.cpp` 的 `step_json()` 在 `Action` 分支
+> 已输出 `tool_name` + `tool_input`（含命令原文），`--output-format stream-json` 逐 step 落 NDJSON
+> —— **采集不需要改 workx 代码**，早先「审计日志未导出该字段，要一并补」的判断不成立。
+>
+> ✅ **门禁日志已可用（#121 已修）**：此前 headless **不初始化日志与审计** ——
+> `src/tui/main.cpp` 的初始化块位于 headless 提前 return 之后，`WORKX_LOG_FILE` 被静默忽略、
+> stderr 实测 0 字节，导致「门禁触发率 / 误报率」两项采不到。现把初始化提为
+> `init_logging_and_audit(allow_default_file)`，headless 与交互式两条路径都显式调用；
+> headless 侧**仅在显式指定路径时落盘**（不回落 `~/.workx/logs`，避免评测并发跑题互相覆盖）。
+> 同时为 `audit.enabled` / `audit.file` 补上 `WORKX_AUDIT_ENABLED` / `WORKX_AUDIT_FILE`
+> 环境变量绑定 —— 原先 `WORKX_AUDIT_FILE` **根本没有绑定**，设了也不生效。
 >
 > **判定规则**：首轮跑分后若验证命令执行率 **< 90%**，按实测结果**另开针对性 issue**（届时才有真实数据定位是「门禁未触发」「探测不到命令」还是「模型绕过」），不在本报告预先推测。验收追踪 issue：**#117**。
 
