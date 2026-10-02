@@ -86,8 +86,10 @@
 
 <header>
   <h1>Workx · Agent Harness 评分卡</h1>
-  <div class="sub">v0.10.1 · 静态代码审计 + 业界 Harness 评测方法论对齐 · 初评 2026-09-29 · <b style="color:var(--blue)">复审 2026-09-30</b> · <b style="color:var(--red)">二次更正 13:35</b> · <b style="color:var(--green)">三次更新 18:55</b></div>
-  <div class="badge">⚠ 代码预估分，非跑分结果 —— P0 五项现已全部落地（#78 为 P1 / P2），headless 入口已通，但仍未跑过任何基准</div>
+  <div class="sub">v0.10.1 · 静态代码审计 + 业界 Harness 评测方法论对齐 · 初评 2026-09-29 · <b style="color:var(--blue)">复审 2026-09-30</b> · <b style="color:var(--red)">二次更正 13:35</b> · <b style="color:var(--green)">三次更新 18:55</b> · <b style="color:var(--purple)">五次更新 2026-10-01</b></div>
+  <div class="badge">⚠ 代码预估分，非跑分结果 —— P0 五项现已全部落地（#78 为 P1 / P2），headless 入口已通，<b>CI 也已首次开始跑测试</b>，但仍未跑过任何基准</div>
+  <div class="badge" style="background:rgba(188,140,255,.14);color:var(--purple);border-color:rgba(188,140,255,.4)">🛠 <b>五次更新 2026-10-01</b>：<b>阶段 6「CI 接入」已落地</b> —— 新增 <code style="color:var(--purple)">.github/workflows/build-test.yml</code>（ubuntu + <code style="color:var(--purple)">ctest -LE slow</code>），补齐仓库<b>从未在 CI 跑过任何测试</b>的门禁缺口（<code style="color:var(--purple)">code-quality.yml</code> 只有 lint；<code style="color:var(--purple)">release.yml</code> 只 build 不跑测试）。已在 WSL Ubuntu 24.04 + 全新 vcpkg 上<b>按真实 CI 步骤预演</b>：4 个测试目标编译全通（含此前本机编不过的 <code style="color:var(--purple)">tui_unit_tests</code>），<code style="color:var(--purple)">ctest</code> <b>98% passed / 23 failed out of 1342</b>。<br>→ 首轮即暴露 <b>5 类 Linux 平台缺陷</b>：#104（MCP 硬编码 <code style="color:var(--purple)">python</code>）/#105（island IPC <code style="color:var(--purple)">close()</code> 缺 <code style="color:var(--purple)">shutdown()</code> → ctest 挂死，P0）/#107（GrepTool 平台假设）/#108（本地 FTXUI 被系统 vcpkg 遮蔽）/#109（零星平台假设）；门禁先以 <code style="color:var(--purple)">continue-on-error</code> <b>观察期</b>运行，而非 <code style="color:var(--purple)">|| true</code> 假绿。<b>加权总分维持 71.9</b>——CI 接入是工程化基建，不改变「有没有接入基准」这一评测维度（见下方风险条目）。</div>
+  <div class="badge" style="background:rgba(63,185,80,.14);color:var(--green);border-color:rgba(63,185,80,.4)">✅ <b>四次更新 2026-09-30 23:31</b>：headless 用例与可测性改造落地（PR #100 <code style="color:var(--purple)">241f014</code> + PR #101 <code style="color:var(--purple)">edd2608</code>）—— <code style="color:var(--purple)">test_headless.cpp</code> 13 个 TEST_CASE 覆盖 <b>HL-01~HL-12</b>，<code style="color:var(--purple)">headless_internal.h</code> 暴露 <code style="color:var(--purple)">run_headless_with_provider()</code>，JS-16 端到端闭环补齐。→ 此前记的「headless 零测试 / 无法注入 mock 后端」两条风险<b>已消除</b>。<b>加权总分维持 71.9 不变</b>——这是风险消除而非能力提升：评测维度衡量的是「有没有接入基准」，补齐单测不改变它。<b>新风险变为「用例尚未进 CI」</b>（见下方）。</div>
   <div class="badge" style="background:rgba(63,185,80,.14);color:var(--green);border-color:rgba(63,185,80,.4)">✅ <b>三次更新 2026-09-30 18:39</b>：#78 的 P1 / P2 已落地（<code style="color:var(--purple)">9a2de19</code> / PR #98）—— 主循环自带 FinalAnswer 前验证门禁（<code style="color:var(--purple)">run_verification_gate()</code>），headless 默认开启，13 条 <code style="color:var(--purple)">[issue78]</code> 用例全绿。→ 验证闭环 55 → <b>65</b>，加权总分 69.9 → <b>71.9</b>。<b>这一次是真实能力提升</b>，与二次更正的记账性质不同。</div>
   <div class="badge" style="background:rgba(248,81,73,.14);color:var(--red);border-color:rgba(248,81,73,.4)">🔴 <b>二次更正</b>：「#78 零实现 / 代码完全未实现」的判定<b>不成立</b>。#31/#32 的目标验证栈已存在（<code style="color:var(--purple)">check_goal</code> / <code style="color:var(--purple)">guard_command</code> / <code style="color:var(--purple)">parse_goal</code> / <code style="color:var(--purple)">GoalGuardedAgent</code>）且已有测试，缺的是<b>接入默认 ReAct 路径 + 默认开启</b>。→ 验证闭环 48 → <b>55</b>，加权总分 68.5 → <b>69.9</b>。<b>这是记账更正，不是能力提升</b>——能力一直在代码里，只是初评与复审都没看见。</div>
 </header>
@@ -172,7 +174,7 @@
 <div class="find">
   <div class="find-h"><span class="tag t-p0" style="background:rgba(63,185,80,.16);color:var(--green);border-color:rgba(63,185,80,.4)">DONE</span>P0 已落地 4.5/5 — 复审核实（commit 级）</div>
   <ul>
-    <li><b>#77 headless 非交互模式</b> ✅ — <code>src/agent/headless/headless.{h,cpp}</code>；CLI <code>-p/--print</code> + <code>--output-format text|json|stream-json</code>（<code>main.cpp:89-166</code>）；退出码 0/1/2 语义化。<br><span>→ 评测链路的前置条件已解除。⚠️ 但<b>零测试覆盖</b>——全仓 <code>grep -i headless -- tests</code> 无命中，是新的最大风险点。</span></li>
+    <li><b>#77 headless 非交互模式</b> ✅ — <code>src/agent/headless/headless.{h,cpp}</code>；CLI <code>-p/--print</code> + <code>--output-format text|json|stream-json</code>（<code>main.cpp:89-166</code>）；退出码 0/1/2 语义化。<br><span>→ 评测链路的前置条件已解除。✅ <b>零覆盖已补齐</b>：<code>tests/unit/agent/headless/test_headless.cpp</code>（PR #100 <code>241f014</code>）13 个 TEST_CASE 覆盖 <b>HL-01~HL-12</b>；配套 <code>headless_internal.h</code> 暴露 <code>run_headless_with_provider()</code>，解决原先无法注入 mock 后端的问题。</span></li>
     <li><b>#80 json_schema 执行侧校验</b> ✅ — <code>util/json_schema.{h,cpp}</code>（275 行，type/properties/required/enum/range/length/pattern/items），已接入 <code>executor.h:223</code> 作为 <code>validate_input</code> 之后的兜底。<br><span>→ 新工具漏写 validate_input 不再裸奔，错误结构化可回灌自纠。</span></li>
     <li><b>#79 子 Agent 派生护栏</b> ✅ — <code>SubAgentBudget</code>（批量上限 + run 累计上限，atomic CAS 预约），配置 <code>agent.sub_agent_max_batch/total</code>。<br><span>📌 复审修正：issue 标题的「递归深度」其实<b>已被结构性禁止</b>——<code>agent_tool.cpp:80</code> 构建子工具集时 <code>continue</code> 掉 <code>kAgentToolName</code>，深度恒为 1。真实缺口是横向规模，实现也是按这个做的。</span></li>
     <li><b>#81 git 检查点</b> ✅ — <code>util/git_checkpoint.{h,cpp}</code>；<code>react_loop.cpp:622</code> 捕获基线、<code>chat_session.cpp:496</code> reset、headless 输出 <code>git_diff_summary</code>、TUI <code>/diff</code> + <code>/rollback --confirm</code>。<br><span>→ 只读安全网 + 人工回滚入口；不自动回滚，避免误删用户改动。</span></li>
@@ -188,11 +190,27 @@
 </div>
 
 <div class="find">
-  <div class="find-h"><span class="tag t-p1">NEW</span>P0 落地后新暴露的风险</div>
+  <div class="find-h"><span class="tag t-p1" style="background:rgba(63,185,80,.16);color:var(--green);border-color:rgba(63,185,80,.4)">已消除</span>此前「P0 落地后新暴露的风险」— 三条均已闭环</div>
   <ul>
-    <li><b>headless 零测试</b><span> — 唯一合入即零覆盖的 P0 模块，且失败模式是「静默输出错内容」而非崩溃（最难发现）。用例方案见 <code>docs/p0-test-plan.md</code> 的 HL-01~12。</span></li>
-    <li><b>headless 无法注入 mock 后端</b><span> — <code>run_headless()</code> 内部直连 <code>create_backend(cfg,...)</code>，测试拿不到 <code>MockCompletionProvider</code>；需先抽 <code>run_headless_with_provider()</code> 重载。<br>→ ⚠️ <b>且不止主流程</b>：<code>parse_permission_mode</code> / <code>result_text</code> / <code>step_json</code> 位于<b>匿名 namespace</b>，<code>resolve_backend</code> / <code>build_loop</code> / <code>render_output</code> / <code>derive_exit_code</code> / <code>execute_task</code> <b>未在 headless.h 声明</b> → 测试<b>连「纯函数」也拿不到</b>，HL 用例目前一条都写不了。<br>（此前记的「只能测纯函数」低估了缺口。）</span></li>
-    <li><b>schema 执行侧接入已覆盖</b><span> — ✅ <b>更正</b>：<code>test_json_schema.cpp:160</code> 的 <code>[json_schema][executor]</code>（PR #90 <code>d34d44a</code>，与另 7 条同批引入）已真调 <code>ToolExecutor::execute()</code> 验证「执行侧真的接入」：缺必填 → <code>MissingArgument</code>、类型错 → <code>InvalidInput</code>、合法 → ok。<br>→ 此前记的「8 条只测纯函数」把第 8 条漏看了，与自身引用的「8 条」自相矛盾。<br>→ 真缺口只剩 <b>JS-16「错误回灌后自纠」</b>。</span></li>
+    <li><b>① headless 零测试</b> ✅ <b>已消除</b>（PR #100 <code>241f014</code>）<span> — <code>tests/unit/agent/headless/test_headless.cpp</code> 309 行、13 个 TEST_CASE，HL-01~HL-12 全部落地（三种输出格式、exit_code 0/1/2、四种权限模式、空 final_answer 回退链、AskUser 不阻塞、git 仓库/非仓库两种收尾报告）。</span></li>
+    <li><b>② headless 无法注入 mock 后端</b> ✅ <b>已消除</b><span> — 新增 <code>src/agent/headless/headless_internal.h</code>（42 行）声明 <code>run_headless_with_provider()</code> 与原先锁在匿名 namespace 的 <code>parse_permission_mode</code> / <code>result_text</code> / <code>step_json</code> / <code>resolve_backend</code> / <code>build_loop</code> / <code>render_output</code> / <code>derive_exit_code</code> / <code>execute_task</code>，测试侧全部可直达。</span></li>
+    <li><b>③ schema 执行侧接入</b> ✅ <b>更正 + 已补齐</b><span> — 更正：<code>test_json_schema.cpp:160</code> 的 <code>[json_schema][executor]</code> 其实早已覆盖 JS-15（此前漏看第 8 条）。补齐：PR #101 <code>edd2608</code> 新增 <code>test_json_schema_wiring.cpp</code>（171 行）覆盖 <b>JS-15 + JS-16「错误回灌后自纠」</b> 端到端闭环。</span></li>
+  </ul>
+</div>
+
+<div class="find">
+  <div class="find-h"><span class="tag t-p1" style="background:rgba(63,185,80,.16);color:var(--green);border-color:rgba(63,185,80,.4)">已消除</span>五次更新：此前两条 CI 风险 — 均已闭环</div>
+  <ul>
+    <li><b>① CI 没有 build / test job</b> ✅ <b>已消除</b><span> — 新增 <code>.github/workflows/build-test.yml</code>（触发条件与 <code>code-quality.yml</code> 对齐：push/PR 到 develop）。13 条 HL 用例与 JS-16 <b>现在会真的被 CI 触发</b>。设计上做了三重防御：<code>--no-tests=error</code>（防零发现）+ <b>用例数下限 1200</b>（防「用例变少但依然绿」）+ <code>--timeout 180</code>（防挂死）；依赖裁剪 <code>WORKX_WITH_TREE_SITTER=OFF</code>，缓存同时覆盖 vcpkg 与 <code>vcpkg_installed</code>。方案见 <code>docs/p0-test-plan.md</code> §3.2。</span></li>
+    <li><b>② ctest 中文名用例长期未真正执行</b> ✅ <b>定性已更正，缺陷已定位</b><span> — PR #98 的 <code>chcp 65001</code> + UTF-8 argv 只修了「测试发现阶段」。CI 落地后实测：<b>Windows 上 ctest 并非「静默跳过」，而是「必然失败」——196 / 1319 失败</b>，与该批次<b>名字含中文的用例数 196 精确吻合</b>（#106）。根因是 ctest 把中文测试名当过滤参数传给测试进程时 argv 被 GBK 破坏。<br>→ <b>含义修正</b>：Windows 上 ctest 干脆不可用（平时直接跑 exe、全量不过滤名称，所以长期未被发现）；这也解释了为何门禁平台选 Linux。历史分数「偏低」的判断仍需实测验证，但机制已查清。</span></li>
+  </ul>
+</div>
+
+<div class="find">
+  <div class="find-h"><span class="tag t-p1">NEW</span>当前剩余的风险</div>
+  <ul>
+    <li><b>平台缺陷未清完，CI 仍是软门禁</b><span> — 首轮预演 <b>23 / 1342 失败</b>（5 类），全部已开 issue：#104 / #105 / #107 / #109。<br>→ 其中 <b>#105（island IPC <code>close()</code> 缺 <code>shutdown()</code>）会让 <code>ctest</code> 挂死</b>，是最关键阻塞项——该文件头注释明写设计意图就是「stop() 时 shutdown+close 使阻塞的 accept/recv 返回」，实现漏了。<br>→ <b>转硬门禁的条件</b>：#104 / #105 / #107 / #109 关闭后，删除 <code>continue-on-error: true</code> 一行即可。这是「接了 CI」到「CI 真的能拦回归」之间的最后一步。</span></li>
+    <li><b>写得出来 ≠ 已经跑分</b><span> — CI 跑的是<b>单元测试</b>，不是评测基准。评分卡「评测与迭代 45 / 100」衡量的是有没有接 Terminal-Bench / SWE-bench 这类集，<b>本次不改变该维度</b>。真正的下一步仍是评估报告 §3 Step 2：写 Harbor adapter，跑 <code>terminal-bench@2.0</code> 30 题 × 3 次子集。</span></li>
   </ul>
 </div>
 
@@ -227,7 +245,7 @@
   <div class="step">
     <div class="n">STEP 1 ✅ 已完成</div>
     <div class="t">加 headless 模式</div>
-    <p><code>workx -p "&lt;task&gt;" --output-format json</code> 已落地（PR #90）。<br><b>欠账</b>：零测试覆盖 + 无法注入 mock 后端，见上方 NEW 区块。</p>
+    <p><code>workx -p "&lt;task&gt;" --output-format json</code> 已落地（PR #90）。<br><b>欠账已清零</b> ✅：零测试覆盖 + 无法注入 mock 后端两项均已由 PR #100 <code>241f014</code> 补齐（<code>test_headless.cpp</code> 13 条 + <code>headless_internal.h</code> 注入口）；13 条用例现已<b>进 CI</b>（阶段 6，<code>.github/workflows/build-test.yml</code>）。</p>
   </div>
   <div class="step">
     <div class="n">STEP 2</div>
@@ -251,7 +269,7 @@
 <footer>
   参考：HarnessTax（UC Berkeley × Arena）· LangChain《Improving Deep Agents with Harness Engineering》《The Anatomy of an Agent Harness》· Anthropic《Writing effective tools for agents》· Harbor（Terminal-Bench 官方 runner）· Backgrind《Agentic coding benchmarks in 2026》<br>
   完整文字版：<code>docs/agent-harness-assessment.md</code> · 用例方案：<code>docs/p0-test-plan.md</code> · 题库清单：<code>docs/agent-harness-eval-datasets.md</code><br>
-  复审基准：develop <code>b2d41ca</code>（#93 git checkpoint）/ <code>67ea633</code>（#92 子 Agent 护栏）/ <code>d34d44a</code>（#90 headless + schema） · <b style="color:var(--green)">三次更新基准：develop <code>9a2de19</code>（#98：#78 验证门禁 P1/P2）</b>
+  复审基准：develop <code>b2d41ca</code>（#93 git checkpoint）/ <code>67ea633</code>（#92 子 Agent 护栏）/ <code>d34d44a</code>（#90 headless + schema） · <b style="color:var(--green)">三次更新基准：develop <code>9a2de19</code>（#98：#78 验证门禁 P1/P2）</b> · <b style="color:var(--purple)">四次更新基准：PR #100 <code>241f014</code> + PR #101 <code>edd2608</code>（HL-01~HL-12 / JS-15+16）</b> · <b style="color:var(--purple)">五次更新：阶段 6 CI 接入</b>（`.github/workflows/build-test.yml`，WSL Ubuntu 24.04 真机预演：编译全通 / 98% passed / 23 failed）
 </footer>
 
 </div>

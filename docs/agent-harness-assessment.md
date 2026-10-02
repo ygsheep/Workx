@@ -1,6 +1,6 @@
 # Workx Agent Harness 能力评估与改进路线
 
-> 初评 2026-09-29 · **复审 2026-09-30**（develop `b2d41ca`）· **三次更新 2026-09-30 18:55**（develop `9a2de19`）· 对象：`Workx v0.10.1`（`src/core` + `src/agent` + `src/tui`）
+> 初评 2026-09-29 · **复审 2026-09-30**（develop `b2d41ca`）· **三次更新 2026-09-30 18:55**（develop `9a2de19`）· **四次更新 2026-10-01**（阶段 6：CI 接入）· 对象：`Workx v0.10.1`（`src/core` + `src/agent` + `src/tui`）
 > 方法：**静态代码审计 + 业界 Harness 评测方法论对齐**。
 > ⚠️ 本文的分数是**基于代码的预估分，不是跑分结果**。P0 五项现已全部落地（#78 为 P1 / P2 部分），headless 入口已通，**但仍未跑过任何基准**，真实分数必须用 §3 的方案实测。
 > 📌 可视化评分卡：`docs/agent-harness-scorecard.html`
@@ -9,6 +9,11 @@
 > ⚠️ **那是记账更正，不是能力提升**——能力自始至终就在代码里，只是初评与复审都没看见，误记为 0。
 > ✅ **三次更新 2026-09-30 18:39**：#78 的 P1 / P2 已落地（`9a2de19` / PR #98）——主循环自带 FinalAnswer 前验证门禁，headless 默认开启，13 条用例全绿。
 > 「验证闭环」维度 **55 → 65**，加权总分 **69.9 → 71.9**。⚠️ **这一次是真实的能力提升**（与二次更正性质不同）：默认路径开始真的执行验证了。
+>
+> 🛠 **四次更新 2026-10-01**：**阶段 6「CI 接入」已落地** —— 新增 `.github/workflows/build-test.yml`（ubuntu + `ctest -LE slow`），补齐仓库**从未在 CI 跑过任何测试**的门禁缺口（`code-quality.yml` 只有 lint，`release.yml` 只 build 不跑测试）。
+> 已在 WSL Ubuntu 24.04 + 全新 vcpkg 上**按真实 CI 步骤预演**：4 个测试目标编译全通，`ctest` **98% passed / 23 failed out of 1342**。
+> 首轮即暴露 5 类 Linux 平台缺陷（#104 / #105 / #107 / #108 / #109），门禁先以 `continue-on-error` 观察期运行。
+> ⚠️ **加权总分维持 71.9**：CI 跑的是**单元测试**而非评测基准，故「评测与迭代」维度（45 / 100）不变 —— 该维度衡量的是「有没有接 Terminal-Bench / SWE-bench」，下一步仍是 §3 Step 2（Harbor adapter + 子集跑分）。
 
 ---
 
@@ -191,7 +196,9 @@ P0-2 PreCompletionChecklist  ← ✅ P1/P2 已落地（#78，PR #98）
 P0-3 子 Agent 深度 + 预算上限 ← ✅ 已修（#79，PR #92）
 P0-4 schema 校验器补实现      ← ✅ 已修（#80，PR #90）
 P0-5 git checkpoint/回滚      ← ✅ 已修（#81，PR #93）
-  ↓ ⬅ **当前卡在这里**：跑第一轮 Terminal-Bench 子集，拿真实基线（比继续补 P1 更优先）
+🛠 阶段 6 CI 接入             ← ✅ 已落地（.github/workflows/build-test.yml，观察期软门禁）
+  ↓ ⬅ **当前卡在这里**：① 先清 #104 / #105 / #107 / #109 使 Linux ctest 全绿、转硬门禁；
+                          ② 跑第一轮 Terminal-Bench 子集，拿真实基线（比继续补 P1 更优先）
 P1-1 环境上下文注入
 P1-2 时间预算提示
 P1-5 AGENTS.md 兼容        ← 3 行代码，立刻修

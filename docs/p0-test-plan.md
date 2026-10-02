@@ -20,21 +20,33 @@
 
 | Issue | 功能 | GitHub 状态 | develop 合并提交 | 现有测试 | 可开工 |
 |---|---|---|---|---|---|
-| #77 | headless 非交互模式 | CLOSED | `d34d44a`（PR #90） | ❌ **零覆盖** | ✅ 最高优先 |
-| #80 | json_schema 通用参数校验 | CLOSED | `d34d44a`（PR #90） | ✅ 8 用例，`test_json_schema.cpp`（含 1 条执行侧集成 `:160`） | ✅（JS-16 待补） |
+| #77 | headless 非交互模式 | CLOSED | `d34d44a`（PR #90） | ✅ **已补齐**：`test_headless.cpp` 13 条，HL-01~HL-12（PR #100 `241f014`） | ✅ **已完成** |
+| #80 | json_schema 通用参数校验 | CLOSED | `d34d44a`（PR #90） | ✅ 8 用例 + `test_json_schema_wiring.cpp` 覆盖 JS-15/JS-16（PR #101 `edd2608`） | ✅ **已完成** |
 | #79 | 子 Agent 派生护栏 | CLOSED | `67ea633`（PR #92） | 5 用例，`test_sub_agent_budget.cpp` | ✅ |
 | #81 | git 检查点与回滚 | CLOSED | `b2d41ca`（PR #93） | 7 用例，`test_git_checkpoint.cpp` | ✅ |
 | #78 | 强制验证闭环 / PreCompletion 门禁 | **OPEN**（部分落地） | ✅ `9a2de19`（PR #98，P1+P2） | ✅ **13 条 `[issue78]` 用例全绿**（`test_react_loop.cpp` 8 条 + `test_agent_core.cpp` 5 条） | ⚠️ P1 / P2 已完成；P3 / P4 与 VF-08 待做 |
 
-**结论（三次更新后）**：**#77 仍是唯一零覆盖项，优先级最高**；#78 的 P1 / P2 已于 2026-09-30 落地（PR #98）——
-门禁进主循环 + headless 默认开启，VF-01 ~ VF-07 / VF-09 共 13 条用例全绿。**剩余缺口**：P3（交互式默认开启）、P4（命令自适应探测）、VF-08。
+**结论（五次更新后，2026-10-01）**：
+- **阶段 0 / 1 / 2 已完成** —— `mock_git_repo.h`（PR #100）、`headless_internal.h` 注入口（PR #100）、HL-01~HL-12 共 13 条（PR #100）、JS-15/JS-16（PR #101）**全部已落地**；
+- **阶段 6 已落地** —— 新增 `.github/workflows/build-test.yml`，并在 WSL 上按真实 CI 步骤完成预演；首轮即暴露 5 类 Linux 平台缺陷（#104 / #105 / #107 / #109），门禁先以 `continue-on-error` 观察。见 §3.2；
+- #78 的 P1 / P2 已于 2026-09-30 落地（PR #98）——门禁进主循环 + headless 默认开启，VF-01 ~ VF-07 / VF-09 共 13 条用例全绿。**剩余缺口**：P3（交互式默认开启）、P4（命令自适应探测）、VF-08；
+- **当前真正待办**：清 #104 / #105 / #107 / #109（CI 转硬门禁的前置）→ 阶段 3（#79 补边界）→ 阶段 4（#81 补真仓库用例）→ 阶段 5（#78 P3/P4/VF-08）。
 
-**评分同步（三次更新）**：Harness 加权总分 **61.05 → 68.5 →（记账更正）69.9 → 71.9**（验证闭环 55 → 65，因 #78 P1 / P2 落地）。详见 `docs/agent-harness-scorecard.html`。
+**评分同步（五次更新）**：Harness 加权总分 **61.05 → 68.5 →（记账更正）69.9 → 71.9**。**CI 接入不改变评分**——评测维度衡量的是「有没有接入基准并跑出分数」，跑通单测属于工程化基建，不等于 harness 能力提升。详见 `docs/agent-harness-scorecard.html`。
 
-**新暴露的三个风险**（P0 落地后才出现，已计入本方案）：
-1. **headless 零测试** —— 唯一合入即零覆盖的 P0 模块，失败模式是「静默输出错内容」而非崩溃；
-2. **headless 无法注入 mock 后端** —— 阻塞 HL 用例主流程（见 §0.3）；**且缺口比初判更大**：`parse_permission_mode` / `result_text` / `step_json` 在**匿名 namespace**，`resolve_backend` / `build_loop` / `render_output` / `derive_exit_code` / `execute_task` **未在 `headless.h` 声明** → 测试**连「纯函数」也拿不到**；
-3. ~~**#80 只测了纯函数**~~ → **更正（2026-09-30）**：执行侧接入（JS-15）**已由 `test_json_schema.cpp:160` 的 `[json_schema][executor]` 覆盖**——该用例与另 7 条**同属 PR #90（`d34d44a`）**，真调 `ToolExecutor::execute()` 验证缺必填 → `MissingArgument`、类型错 → `InvalidInput`。此前判定把第 8 条漏看了。**真缺口只剩 JS-16（错误回灌自纠）**。
+**此前记录的风险，现均已闭环**：
+1. ✅ ~~headless 零测试~~ → PR #100 补齐 13 条 HL-01~HL-12；
+2. ✅ ~~headless 无法注入 mock 后端~~ → PR #100 新增 `headless_internal.h`，暴露 `run_headless_with_provider()` 及原先锁在匿名 namespace 的 8 个内部函数；
+3. ✅ ~~#80 只测了纯函数~~ → **更正**：JS-15 早已由 `test_json_schema.cpp:160` 的 `[json_schema][executor]` 覆盖（此前漏看第 8 条）；JS-16 由 PR #101 的 `test_json_schema_wiring.cpp` 补齐。
+
+**当前剩余风险**：
+- ✅ ~~headless 与 JS-16 用例尚未进 CI~~ → **阶段 6 已落地**（`.github/workflows/build-test.yml`）；
+- 🔴 **Linux 上 23 / 1342 用例失败，CI 暂为软门禁** —— 5 类平台缺陷，已开 #104 / #105 / #107 / #109；
+  其中 #105（island IPC `close()` 缺 `shutdown()`）会让 `ctest` **挂死**，是最关键的一项；
+- 🔴 **更正：Windows 上 ctest 并非「静默跳过」，而是「必然失败」** —— 实测 **196 / 1319 失败**，
+  且与该批次**名字含中文的用例数 196 精确吻合**（#106）。PR #98 的 `chcp 65001` 只修了
+  「测试发现阶段」，未覆盖「执行阶段的 argv 传递」。**含义：Windows 上 ctest 不可用；
+  平时直接跑 exe（全量、不做名称过滤）所以长期未被发现。**
 
 ### 0.2 技术栈与基建假设（已核实，非假设）
 
@@ -47,7 +59,7 @@
 | Mock 基建 | `tests/unit/helpers/`：`mock_config_manager.h` / `mock_event_bus.h` / `mock_provider.h` / `mock_task_manager.h` |
 | 脚本化模型 | `MockCompletionProvider` + `MockStreamReader` 支持 `add_content_chunk / add_tool_use_start / add_tool_use_delta / error_at / cancel_after`，`deque` 串多轮 → **可无真模型驱动完整 ReActLoop**（`tests/unit/agent/core/test_react_loop.cpp` 已是范例） |
 | 标签体系 | `catch_discover_tests(ADD_TAGS_AS_LABELS ON)` → Catch2 tag 自动映射为 ctest label；`[slow]` 已被 `ctest -LE slow` 使用 |
-| CI | `.github/workflows/code-quality.yml` 只有 complexity / format / clang-tidy / cppcheck 四个 job；`release.yml` 有 build 但**不跑测试** → **当前 CI 完全没有 build/test job** |
+| CI | ✅ 已新增 `.github/workflows/build-test.yml`（build + `ctest -LE slow`，ubuntu）；原 `code-quality.yml` 只有 complexity / format / clang-tidy / cppcheck 四个 job，`release.yml` 有 build 但**不跑测试** |
 
 ### 0.3 需要新增的基建（否则部分用例写不了）
 
@@ -287,83 +299,76 @@ TEST_CASE("headless: 未知权限模式返回 exit 2", "[headless][error][issue7
 ### 3.1 执行顺序
 
 ```
-阶段 0（0.5d）基建  →  阶段 1（1.5d）#77  →  阶段 2（0.5d）#80
+阶段 0 ✅  →  阶段 1 ✅  →  阶段 2 ✅
                                     ↓
-              阶段 3（0.5d）#79  →  阶段 4（0.5d）#81  →  阶段 5（#78 已落地）
+     阶段 3（0.5d）#79  →  阶段 4（0.5d）#81  →  阶段 5（#78 剩余 P3/P4/VF-08）
                                     ↓
-                          阶段 6（0.5d）CI 接入
+                阶段 6（0.5d）CI 接入  ← ✅ 已落地（观察期软门禁）
 ```
 
-> 复审更新：#79 / #81 已合入 develop，**阶段 3 / 4 的前置条件已解除**，可与阶段 1、2 并行推进。
+> **五次更新（2026-10-01）**：阶段 0 / 1 / 2 **已全部完成**（PR #100 `241f014` + PR #101 `edd2608`）。
+> **阶段 6（CI 接入）已落地** —— 新增 `.github/workflows/build-test.yml`，并在 WSL 上按真实 CI 步骤预演（编译全通）；
+> 首轮暴露 5 类 Linux 平台缺陷（#104 / #105 / #107 / #109），门禁先以 `continue-on-error` 观察，待其关闭后转硬。
 
-| 阶段 | 内容 | 前置 | 产出 |
+| 阶段 | 内容 | 状态 | 产出 |
 |---|---|---|---|
-| **0** | ① `helpers/mock_git_repo.h` ② headless 后端注入重载 ③（可选）`scripted_model.h` | 无 | 可测性基建 |
-| **1** | HL-01 ~ HL-12 | 阶段 0 ② | #77 从零覆盖 → 12 条 |
-| **2** | JS-09 ~ JS-16（**JS-15 已覆盖**，重点 JS-16） | 无 | #80 补齐错误回灌自纠 |
-| **3** | SA-06 ~ SA-13 | ✅ 无（#79 已合入 `67ea633`） | #79 护栏完整 |
-| **4** | GC-08 ~ GC-15 | ✅ 无（#81 已合入 `b2d41ca`） | #81 完整 |
-| **5** | VF-01 ~ VF-09 | ✅ 无（#78 的 P1 / P2 已落地 `9a2de19`；仅 VF-08 依赖 #77 集成基建） | 验证闭环 |
-| **6** | `.github/workflows/build-test.yml` | 阶段 1 完成 | CI 真门禁 |
+| **0** | ① `helpers/mock_git_repo.h` ② headless 注入口 `headless_internal.h` ③（可选）`scripted_model.h` | ✅ **已完成**（PR #100；③ 未做） | 可测性基建 |
+| **1** | HL-01 ~ HL-12 | ✅ **已完成**（`test_headless.cpp`，13 TEST_CASE，PR #100） | #77 零覆盖 → 13 条 |
+| **2** | JS-15 / JS-16 | ✅ **已完成**（`test_json_schema_wiring.cpp`，PR #101） | #80 端到端闭环 |
+| **3** | SA-06 ~ SA-13 | ⬜ 待做（#79 已合入 `67ea633`，仅需补边界与回归） | #79 护栏完整 |
+| **4** | GC-08 ~ GC-15 | ⬜ 待做（#81 已合入 `b2d41ca`；`mock_git_repo.h` 已就绪） | #81 完整 |
+| **5** | VF-08 / P3 / P4 | ⬜ 部分待做（#78 P1/P2 已落地 `9a2de19`，13 条 `[issue78]` 全绿） | 验证闭环收尾 |
+| **6** | `.github/workflows/build-test.yml` | ✅ **已落地**（观察期软门禁：编译全通，23/1342 平台缺陷待清） | CI 门禁 |
+| **6.1** | 清 #105 / #104 / #107 / #109 | 🔴 **新增最高优先**（CI 转硬门禁的前置） | 门禁由软转硬 |
 
-**排序理由**：
-- #77 第一 —— 唯一零覆盖，且是整条评测链路的入口，失败模式是「静默错」最难发现；
-- #80 第二 —— ~~JS-15/JS-16 是 issue 本意（执行侧校验），现有 8 条只覆盖了一半~~ → **更正**：JS-15（执行侧接入）已由 `test_json_schema.cpp:160` 覆盖，仅剩 JS-16；仍是最便宜的一条；
-- #79 / #81 第三/四 —— 实现与基础用例已在 develop，只需补边界与回归；
-- #78 最后 —— ✅ **P1 / P2 已落地**（`9a2de19`：门禁进主循环 + headless 默认开启），仅剩 VF-08 待补；
-  P3（交互式默认开启）/ P4（命令自适应探测）按设计文档后续推进，不再阻塞阶段 5。
+**排序理由（五次更新后）**：
+- **新增最高优先：清 #105 / #104 / #107 / #109** —— 阶段 6 一落地就暴露出这批平台缺陷；
+  它们此前从未被发现（CI 从未跑过测试，本机开发走 Windows 不命中），
+  而 #105（island IPC 缺 `shutdown()`）会让 `ctest` **挂死**，是转硬门禁的关键阻塞项；
+- 阶段 3 / 4 其次 —— 实现与基础用例已在 develop，只需补边界与回归，投入小；
+- 阶段 5 最后 —— #78 的 P1/P2 已落地，仅剩 VF-08 与 P3/P4 设计项。
 
-**建议并行排布**：阶段 0 的 ① 与 ② 可并行（互不依赖），阶段 1 开工的同时阶段 3 / 4 可由另一人推进。
+**建议排布**：先修 #105（一行改动即可消掉 12 项 hang）→ #104 → #107 → #109，随后把 CI 由软转硬；
+阶段 3 / 4 / 5 可与上述缺陷清理并行。
 
-### 3.2 CI 接入
+### 3.2 CI 接入 ✅ 已落地
 
-**现状问题**：`code-quality.yml` 只有 lint/格式/复杂度/cppcheck，`release.yml` 只 build 不测试 → **CI 从来没有跑过任何一个测试用例**。这不是加几个 job 的问题，是门禁缺失。
+**现状问题（已解决）**：`code-quality.yml` 只有 lint/格式/复杂度/cppcheck，`release.yml` 只 build 不测试 → **CI 从来没有跑过任何一个测试用例**。
 
-**新增 `.github/workflows/build-test.yml`**（与 `code-quality.yml` 的触发条件对齐）：
+**新增 `.github/workflows/build-test.yml`**（触发条件与 `code-quality.yml` 对齐）：
 
-```yaml
-name: Build & Test
-
-on:
-  push:
-    branches: [develop]
-  pull_request:
-    branches: [develop]
-
-jobs:
-  unit-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      # vcpkg bootstrap + cache：直接复用 release.yml 中已验证的段落
-      - name: Configure
-        run: cmake --preset default -DWORKX_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
-      - name: Build
-        run: cmake --build build --config Release -j 4
-      - name: Run unit tests (fast subset)
-        run: ctest --test-dir build -C Release -LE slow -j 4 --output-on-failure
-
-  slow-tests:
-    runs-on: ubuntu-latest
-    continue-on-error: true   # 先观察 flaky，稳定后转硬门禁
-    steps:
-      # ... 同上 build ...
-      - run: ctest --test-dir build -C Release -L slow --output-on-failure
-```
-
-**门禁分级**（沿用 `code-quality.yml` 已确立的「硬门禁只卡新增、软报告看全量」策略，避免重蹈 `|| true` 假绿覆辙）：
-
-| 级别 | 内容 | 阻塞 |
+| 设计点 | 取值 | 理由 |
 |---|---|---|
-| 硬门禁 | `ctest -LE slow` 全绿；新增 P0 用例必须存在且通过 | ✅ |
-| 硬门禁 | 单 issue 回归：`ctest -L issue77` 等 | ✅（阶段 1 后开启） |
-| 软报告 | `-L slow`（并发压测等），`continue-on-error: true` 观察 2 周再转硬 | ❌ |
-| 软报告 | 全量测试耗时 / 通过数趋势，上传 artifact | ❌ |
+| runner | `ubuntu-latest` | Windows 上 ctest 因中文测试名编码不可用（#106）；且同等规模构建快 2–3 倍 |
+| 构建配置 | Release + Ninja | 与 vcpkg `x64-linux` 预编译依赖的配置一致 |
+| 构建目标 | 显式列出 core/agent/island/tui 四个 `*_unit_tests` | `cmake --build build` 会连带构建 workx 主程序与 example，与验证测试无关 |
+| 依赖裁剪 | `WORKX_WITH_TREE_SITTER=OFF`、`WORKX_BUILD_EXAMPLES=OFF` | 去掉 FetchContent 网络依赖与无关目标 |
+| 缓存 | `vcpkg` + `build/vcpkg_installed` | 只缓存前者会导致每轮重编 curl/openssl，比不缓存更慢 |
+| 用例选择 | `ctest -LE slow` | 跳过 3 个依赖 30s 兜底的 `[slow]` 用例 |
+| 三重防御 | `--no-tests=error` + **用例数下限 1200** + `--timeout 180` | 分别防「零发现」「部分丢失」（与 #106 同源风险）「hang 挂死」（#105） |
+| 门禁强度 | **观察期软门禁**（`continue-on-error: true`） | 首轮实测 23/1342 失败，全部由下文记录的平台缺陷造成 |
 
-**三个必须注意的坑**：
-1. **git 身份**：fixture 里 commit 必须带 `-c user.name=... -c user.email=...`，否则 CI 环境 `git commit` 失败 → `[git]` 用例全红。
-2. **Windows/Linux 差异**：`[git]` 用例在 Windows 上受 CRLF（`core.autocrlf`）影响（项目记忆里已有同类踩坑），建议先只在 Linux runner 跑，Windows 作为后续软报告。
-3. **前 2 周不要直接开硬门禁**：先 `continue-on-error` 跑，确认无 flaky 再转。否则团队会像注释里写的那样「关掉整个 workflow」。
+**WSL 真机预演结论**（Ubuntu 24.04 + 全新 vcpkg + Ninja + Release，完整复刻 CI 步骤）：
+
+- ✅ configure + 编译 4 个测试目标**全部成功**（含此前在本机编不过的 `tui_unit_tests`）
+- ❌ `ctest -LE slow --timeout 60`：**98% passed，23 failed out of 1342**
+
+| 失败类别 | 数 | Issue |
+|---|---|---|
+| island Timeout（hang） | 12 | #105 `transport_posix.cpp` 的 `close()` 缺 `shutdown()` |
+| MCP SIGPIPE | 4 | #104 连接失败路径写已关闭管道 |
+| GrepTool Failed | 5 | #107 搜索类用例在 Linux 上返回错误 |
+| windows drive pattern | 1 | #109 缺平台守卫 |
+| subprocess | 1 | #109 退出码断言平台相关 |
+
+> 另有 6 处测试硬编码 `python`（Ubuntu 只有 `python3`），已并入 #104。
+
+**转硬门禁的条件**：#104 / #105 / #107 / #109 关闭后，删除 `continue-on-error: true` 一行即可。
+
+**三个原计划预判的坑 —— 均已规避**：
+1. **git 身份** ✅ `tests/unit/helpers/mock_git_repo.h` 的 fixture commit 已带 `-c user.name` / `-c user.email`
+2. **Windows/Linux 差异** ✅ 门禁平台确定为 Linux；Windows 侧另因 ctest 编码问题（#106）暂不纳入
+3. **不要直接开硬门禁** ✅ 用 `continue-on-error` 显式表达「观察期」，而非 `|| true` 的静默假绿；同时补了用例数下限守卫，防止「用例变少但依然绿」
 
 ### 3.3 提交规范
 
@@ -400,13 +405,20 @@ Refs #77
 
 ## 附录：验收标准（本案完成时）
 
-- [ ] #77 用例数 ≥ 12，且能 `ctest -L issue77` 单独跑通（**当前 0，最高优先**）
-- [ ] #80 补齐 JS-16（错误回灌自纠）；JS-15 已于 PR #90（`test_json_schema.cpp:160`）覆盖
+> 五次更新（2026-10-01）：#77 / #80 已随 PR #100 / #101 完成；**CI 接入已落地**（观察期软门禁）。
+
+- [x] #77 用例数 ≥ 12 —— ✅ `test_headless.cpp` 13 条，HL-01~HL-12（PR #100 `241f014`）
+- [x] headless 可测性改造 —— ✅ `headless_internal.h` 暴露 `run_headless_with_provider()`（PR #100）
+- [x] #80 补齐 JS-16 —— ✅ `test_json_schema_wiring.cpp` 覆盖 JS-15 + JS-16（PR #101 `edd2608`）
+- [x] `helpers/mock_git_repo.h` —— ✅ 已建（PR #100，95 行）
 - [ ] #79 补齐 SA-06 ~ SA-13（含并发不超发 SA-10、防递归回归 SA-13）
 - [ ] #81 补齐 GC-08 ~ GC-15（含真仓库用例与 `[git]` 标签守卫）
 - [x] #78 验收规格已挂到 issue（2026-09-30 已回帖）
 - [x] #78 实现已落地（P1 / P2，`9a2de19` / PR #98）——VF-01 ~ VF-07 / VF-09 共 13 条用例全绿
-- [ ] VF-08（headless 下验证执行不阻塞 stdin）—— 依赖 #77 的 headless 集成基建，待补
-- [ ] CI 存在 build + test job，且对 develop 的 push/PR 生效
-- [ ] 无一个用例依赖真实 LLM 或外网
-- [x] 评分卡分数同步（`docs/agent-harness-scorecard.html` 已更新至 **71.9**；验证闭环 55 → 65 是 #78 P1 / P2 落地带来的**真实能力提升**，与此前 48 → 55 的记账更正性质不同）
+- [ ] VF-08（headless 下验证执行不阻塞 stdin）+ P3 / P4
+- [x] **CI 存在 build + test job，且对 develop 的 push/PR 生效** —— ✅ `.github/workflows/build-test.yml`
+      （ubuntu + `ctest -LE slow`；WSL 真机预演：编译全通，98% passed / 23 failed，先以 `continue-on-error` 观察）
+- [x] 无一个用例依赖真实 LLM 或外网（`-LE slow` 子集；`[live]` 用例在无用户配置时自动跳过）
+- [ ] 🔴 **清 #105 / #104 / #107 / #109**，使 Linux 上 `ctest -LE slow` 全绿，随后删除
+      `continue-on-error: true` 转为硬门禁
+- [x] 评分卡分数同步（`docs/agent-harness-scorecard.html` 保持 **71.9**；CI 接入属工程化基建，不改 harness 能力评分）
