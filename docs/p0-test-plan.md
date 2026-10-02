@@ -2,7 +2,7 @@
 
 > 适用范围：Issue #77 ~ #81（Agent Harness 评分卡中的 5 项 P0）
 > 编写日期：2026-09-30 · **复审更新 12:30** · **二次更正 13:20** · **三次更新 18:55**（develop `9a2de19`）
-> 状态：方案待评审；#77 / #79 / #80 / #81 均已合入 develop；**#78 的 P1 基建 + P2 headless 已落地**（PR #98），P3 / P4 待做
+> 状态：方案待评审；#77 / #79 / #80 / #81 均已合入 develop；**#78 已完整落地（P1~P4 + VF-01~VF-11，PR #116 `49d0ca4`），issue 已关闭**
 >
 > 🔴 **二次更正说明**：初版与复审均把 #78 判为「代码未实现 / 零实现」，**该判定不成立**。详见 §1.2 E。
 > ✅ **三次更新（2026-09-30 18:39，`9a2de19`）**：#78 已落地 P1 / P2 —— `ReActLoop` 自带 FinalAnswer 前验证门禁
@@ -24,16 +24,18 @@
 | #80 | json_schema 通用参数校验 | CLOSED | `d34d44a`（PR #90） | ✅ 8 用例 + `test_json_schema_wiring.cpp` 覆盖 JS-15/JS-16（PR #101 `edd2608`） | ✅ **已完成** |
 | #79 | 子 Agent 派生护栏 | CLOSED | `67ea633`（PR #92） | 5 用例，`test_sub_agent_budget.cpp` | ✅ |
 | #81 | git 检查点与回滚 | CLOSED | `b2d41ca`（PR #93） | 7 用例，`test_git_checkpoint.cpp` | ✅ |
-| #78 | 强制验证闭环 / PreCompletion 门禁 | **OPEN**（部分落地） | ✅ `9a2de19`（PR #98，P1+P2） | ✅ **13 条 `[issue78]` 用例全绿**（`test_react_loop.cpp` 8 条 + `test_agent_core.cpp` 5 条） | ⚠️ P1 / P2 已完成；P3 / P4 与 VF-08 待做 |
+| #78 | 强制验证闭环 / PreCompletion 门禁 | **CLOSED**（已完整落地） | ✅ `9a2de19`（PR #98，P1+P2）+ **`49d0ca4`（PR #116，P3+P4+VF-08）** | ✅ **20 条 `[issue78]` 用例全绿**（105 断言；`test_react_loop.cpp` + `test_agent_core.cpp`） | ✅ P1 / P2 / P3 / P4 与 VF-01~VF-11 全部落地；⚠️ 原始**行为统计口径（≥90%）待首轮跑分实测** |
 
-**结论（六次更新后，2026-10-02）**：
+**结论（八次更新后，2026-10-03）**：
 - **阶段 0 / 1 / 2 已完成** —— `mock_git_repo.h`（PR #100）、`headless_internal.h` 注入口（PR #100）、HL-01~HL-12 共 13 条（PR #100）、JS-15/JS-16（PR #101）**全部已落地**；
 - **阶段 6 已完成并转为硬门禁** —— `.github/workflows/build-test.yml` 删除 `continue-on-error: true`（PR #111 `fcb2aad`），Linux 上 `ctest -LE slow` **1363 用例 100% passed / 0 failed**；首轮暴露的 5 类平台缺陷（#104 / #105 / #107 / #108 / #109）**已全部关闭**。见 §3.2；
-- #78 的 P1 / P2 已于 2026-09-30 落地（PR #98）——门禁进主循环 + headless 默认开启，VF-01 ~ VF-07 / VF-09 共 13 条用例全绿。**剩余缺口**：P3（交互式默认开启）、P4（命令自适应探测）、VF-08；
-- **当前真正待办**：阶段 3（#79 补边界）→ 阶段 4（#81 补真仓库用例）→ 阶段 5（#78 P3/P4/VF-08）。
+- 🔴 **七次更新（真跑 CI 复核）：门禁已硬，但不可信** —— 把 `build-test.yml` 的**全部历史运行**拉出来核对：8 次首次运行 **5 绿 3 红**，3 次失败**全部命中同一个用例** `server: ring buffer replays missed events on reconnect`（**37.5% 误拦**）。失败横跨不同提交（含零代码变更的纯 docs 提交），对同一 commit `83e4b41` 重跑**即由红转绿** → **flaky 铁证**。根因在 `transport_posix.cpp:105-115`「`accept()` 后立刻关闭监听端点」，使**服务连接期间端点上没有监听者**，重连只能靠 `connect()` 的 600ms 固定重试硬扛。**新增阶段 6.2**；
+- ✅ **八次更新：#78 已完整落地并关闭 issue** —— PR #116（`49d0ca4`）收掉最后三项：**P4** 命令自适应探测（`detect_goal_command()`，探测不到走 `unavailable` 放行，顺带修掉 lint 假绿）、**P3** 交互式默认开启（真实用户路径此前仍是零验证，而 issue 验收口径指的正是它）、**VF-08** 验证执行改 `StdinMode::Null` 不阻塞 stdin。`[issue78]` **20 用例 / 105 断言全绿**。**阶段 5 因此从待办移出**；
+- ⚠️ **#78 唯一未竟：行为统计口径未实测** —— 原始验收标准是「10 个任务中 agent 结束前实际执行过测试/构建命令的比例 **≥90%**」。单测只能证明门禁**接线与判定**正确，证不了真实任务下 agent 真的会去跑。**并入首轮跑分采集**（评估报告 §3 Step 2b），不达标再开针对性 issue；
+- **当前真正待办**：**阶段 6.2（修 island 重连 flaky）** → 然后阶段 3（#79 补边界）→ 阶段 4（#81 补真仓库用例）→ **首轮跑分（含 #78 行为统计采集）**。
   CI 侧剩余 #106（Windows ctest 中文测试名，196 / 1319 必然失败）——它只影响 Windows，不阻塞已生效的 Linux 硬门禁。
 
-**评分同步（五次更新）**：Harness 加权总分 **61.05 → 68.5 →（记账更正）69.9 → 71.9**。**CI 接入不改变评分**——评测维度衡量的是「有没有接入基准并跑出分数」，跑通单测属于工程化基建，不等于 harness 能力提升。详见 `docs/agent-harness-scorecard.html`。
+**评分同步（八次更新）**：Harness 加权总分 **61.05 → 68.5 →（记账更正）69.9 → 71.9 → 71.7 → 72.9**。前几次 CI 接入与转硬门禁**不改变评分**——评测维度衡量的是「有没有接入基准并跑出分数」，跑通单测属于工程化基建。七次 **-0.2** 来自「编排与可靠性」72 → 70（唯一回归防线有 37.5% 误拦）；**八次 +1.2** 来自「验证闭环」65 → 70（#78 完整落地，交互式真实用户路径才真正关上闭环）。**仍不给更高档**：验收口径是行为统计且未实测。详见 `docs/agent-harness-scorecard.html`。
 
 **此前记录的风险，现均已闭环**：
 1. ✅ ~~headless 零测试~~ → PR #100 补齐 13 条 HL-01~HL-12；
@@ -41,6 +43,9 @@
 3. ✅ ~~#80 只测了纯函数~~ → **更正**：JS-15 早已由 `test_json_schema.cpp:160` 的 `[json_schema][executor]` 覆盖（此前漏看第 8 条）；JS-16 由 PR #101 的 `test_json_schema_wiring.cpp` 补齐。
 
 **当前剩余风险**：
+- 🔴 **新增：island 重连用例 flaky（阶段 6.2）** —— `server: ring buffer replays missed events on reconnect`
+  在 8 次 CI 首次运行中失败 **3 次（37.5%）**，同 commit 重跑翻转。详见 §0.2 与 §3.2。
+  这是**唯一阻塞「门禁可信」的项**，优先级高于阶段 3 / 4 / 5；
 - ✅ ~~headless 与 JS-16 用例尚未进 CI~~ → **阶段 6 已落地**（`.github/workflows/build-test.yml`）；
 - ✅ ~~Linux 上 23 / 1342 用例失败，CI 暂为软门禁~~ → **已清零并转硬门禁**（2026-10-02）：
   #104 / #105 / #107 / #108 / #109 **全部关闭**，PR #111 `fcb2aad` 删除 `continue-on-error: true`，
@@ -154,7 +159,7 @@
 > 📌 **对 Issue #79 标题的修正**：标题写的是「递归深度上限」，但深度其实已被**结构性禁止**——`agent_tool.cpp:80`（develop）/ `:103`（#79 分支）构建子 Agent 工具集时无条件 `continue` 掉 `kAgentToolName`，嵌套深度恒为 1。真实缺口是**横向规模**（批量 + run 累计），护栏实现也是按这个做的。因此**不需要**再写深度上限用例，SA-13 改为「锁住防递归守卫」的回归用例。
 > 📌 这条同时说明：本仓库的 issue 描述会过时，**动手前必须回代码核实**（此前 #52 / #87 / #89 均已出现同类情况）。
 
-#### E. #78 验证闭环（~~未实现~~ → ~~未接入默认路径~~ → **P1 / P2 已落地**）
+#### E. #78 验证闭环（~~未实现~~ → ~~未接入默认路径~~ → ~~P1 / P2 已落地~~ → **已完整落地并关闭**）
 
 > ✅ **三次更新（2026-09-30 18:39，`9a2de19` / PR #98）**：原列的三项缺口，前两项已闭合 ——
 > **① 接入默认 ReAct 路径** ✅ `run_verification_gate()` 已进入 `react_loop.cpp` 主循环（FinalAnswer 落地之前）；
@@ -181,7 +186,7 @@
 | **VF-05** | P2 | `Stop` hook 的 `blockingError` 不得吞掉 final_answer（`react_loop.cpp:1218-1224` 的覆写） | ✅ **已落地**（用例「VF-05: Stop hook 阻断不吞掉验证结论」）—— 门禁不走 Stop 路线，天然绕开该覆写 |
 | **VF-06** | **P1·安全** | `guard_command` 必须拦住 `goal.command` 注入：`;` `&&` `\|` `$()` 反引号、换行 | ✅ **已落地**（2 条用例：字符串级拦截 + 正常调用形式不误伤）—— 自动执行场景的 RCE 前置已守住 |
 | **VF-07** | P2 | 「无可用验证命令」的探测行为（`custom_script` + 项目无 CMake/Makefile → 跳过） | ⚠️ **部分** —— 用例锁了「目标类型与 checker 对应」；真实探测语义归 P4 |
-| **VF-08** | P4 | headless(#77) × 验证闭环：验证执行时不得阻塞 stdin（无人值守） | ❌ **未落地** —— 依赖 #77 的 headless 集成基建（与 HL-12 同类），待同批补 |
+| **VF-08** | P4 | headless(#77) × 验证闭环：验证执行时不得阻塞 stdin（无人值守） | ✅ **已落地**（PR #116 `49d0ca4`）—— `ExecOptions` 新增 `StdinMode`（Inherit / Null），POSIX 接 `/dev/null`、Windows 接 `NUL`，验证命令执行改用 Null |
 | **VF-09** | P2 | 达 `max_iterations`（`at_limit`）时是否仍能完成一轮验证 | ✅ **已落地**（用例「VF-09: 预算仅剩一轮时不再无效回灌，直接降级」）；⚠️ 内部评审器两条退出路径仍不经门禁（设计文档 §7.1） |
 
 > ⚠️ **实现约束（影响方案选型）**：`Stop` 事件**撑不起闭环**——派发点在 `react_loop.cpp` 循环收尾之后，
@@ -191,7 +196,8 @@
 > **未**采用 `GoalGuardedAgent` 外层包壳——headless 自行构造 `ReActLoop`，走包壳会让评测入口零验证。
 
 三条先以规格形式挂在 #78（✅ **已于 2026-09-30 回帖**），实现落地后在 `tests/unit/agent/core/test_react_loop.cpp` 用脚本化模型实现。
-> ✅ **已实现**（2026-09-30，PR #98）：13 条 `[issue78]` 用例分布在 `test_react_loop.cpp`（8 条）与 `test_agent_core.cpp`（5 条）。
+> ✅ **已完整实现**：P1/P2 于 2026-09-30（PR #98），P3/P4/VF-08 于 2026-10-02（PR #116 `49d0ca4`），issue 已关闭。`[issue78]` **20 用例 / 105 断言全绿**，分布在 `test_react_loop.cpp` 与 `test_agent_core.cpp`。
+> ⚠️ **唯一未竟**：本 issue 的原始验收口径是**行为统计**（10 个任务中 agent 结束前实际执行过测试/构建命令的比例 **≥90%**），**尚未实测** —— 单测证明的是门禁接线与判定正确，不是真实任务下的行为。已并入首轮跑分采集（评估报告 §3 Step 2b）。
 > 未新增独立的 `scripted_model.h` —— 直接复用了 `VerificationGateFixture` + `MockCompletionProvider` 的多轮脚本能力。
 
 > 📌 前置：`scripted_model.h`（§0.3 第 3 项）为 VF-02 / VF-04 的多轮脚本化所必需 → ✅ 落地时以 `VerificationGateFixture` 等价实现，**无需新增基建**。
@@ -305,9 +311,13 @@ TEST_CASE("headless: 未知权限模式返回 exit 2", "[headless][error][issue7
 ```
 阶段 0 ✅  →  阶段 1 ✅  →  阶段 2 ✅
                                     ↓
-     阶段 3（0.5d）#79  →  阶段 4（0.5d）#81  →  阶段 5（#78 剩余 P3/P4/VF-08）
+     阶段 3（0.5d）#79  →  阶段 4（0.5d）#81  →  阶段 5 ✅ #78 已完整落地（P1~P4 + VF-08）
                                     ↓
                 阶段 6（0.5d）CI 接入  ← ✅ 已落地并转**硬门禁**（1363 用例 100% 绿）
+                                    ↓
+      阶段 6.3 修 island 重连 flaky  ← ⬅ **当前卡在这里**（硬门禁 37.5% 误拦，已开 **#118**）
+                                    ↓
+      首轮跑分（含 #78 行为统计口径采集）  ← 唯一的「真实分数」来源
 ```
 
 > **五次更新（2026-10-01）**：阶段 0 / 1 / 2 **已全部完成**（PR #100 `241f014` + PR #101 `edd2608`）。
@@ -318,6 +328,14 @@ TEST_CASE("headless: 未知权限模式返回 exit 2", "[headless][error][issue7
 > `continue-on-error: true`，同时修完 #104 / #105 / #107 / #109；#108 由 PR #115 `7147eeb` 修复。
 > 实测：`Build & unit tests (ubuntu)` pass（5m47s，8 项 CI 检查全绿），`ctest -LE slow` **1363 用例 100% passed**。
 > → 阶段 6 到此**闭环**，不再是待办项。
+>
+> **七次更新（2026-10-02，真跑 CI 复核）**：把 `build-test.yml` 的**全部历史运行**拉出来核对，纠正上条。
+> **8 次首次运行 5 绿 3 红**，3 次失败**全部是同一个用例** —— `server: ring buffer replays missed events on reconnect`
+> （island canary 1/43，耗时稳定 3.00~3.11s）。失败横跨不同提交（后两次是**零代码变更的纯 docs 提交**），
+> 对同一 commit `83e4b41` 重跑**即由红转绿**（island 43/43 · 全量 1363/1363，4.98s）→ **flaky 铁证**。
+> 根因：`transport_posix.cpp:105-115` 在 `accept()` 成功后立刻关闭监听端点 → **服务连接期间无监听者**，
+> 重连仅靠 `connect()` 的 600ms 固定重试（`kConnectAttempts 6 × 100ms`）硬扛。
+> → **新增阶段 6.3**；上条「回归从此会被真的拦住」应打约 6 折。
 
 | 阶段 | 内容 | 状态 | 产出 |
 |---|---|---|---|
@@ -326,16 +344,23 @@ TEST_CASE("headless: 未知权限模式返回 exit 2", "[headless][error][issue7
 | **2** | JS-15 / JS-16 | ✅ **已完成**（`test_json_schema_wiring.cpp`，PR #101） | #80 端到端闭环 |
 | **3** | SA-06 ~ SA-13 | ⬜ 待做（#79 已合入 `67ea633`，仅需补边界与回归） | #79 护栏完整 |
 | **4** | GC-08 ~ GC-15 | ⬜ 待做（#81 已合入 `b2d41ca`；`mock_git_repo.h` 已就绪） | #81 完整 |
-| **5** | VF-08 / P3 / P4 | ⬜ 部分待做（#78 P1/P2 已落地 `9a2de19`，13 条 `[issue78]` 全绿） | 验证闭环收尾 |
+| **5** | VF-08 / P3 / P4 | ✅ **已完成**（#78 完整落地：P1/P2 `9a2de19` + P3/P4/VF-08 `49d0ca4`；20 条 `[issue78]` 全绿） | 验证闭环收尾 |
 | **6** | `.github/workflows/build-test.yml` | ✅ **已落地**（编译全通） | CI 门禁 |
 | **6.1** | 清 #105 / #104 / #107 / #109 + 转硬门禁 | ✅ **已完成**（PR #111 `fcb2aad`：1363 用例 100% 绿） | 门禁由软转硬 |
 | **6.2** | #108 本机 tui 构建（vcpkg ftxui 遮蔽） | ✅ **已完成**（PR #115 `7147eeb`） | 本机可重编 tui |
+| **6.3** | 修 island 重连 flaky（`ring buffer replays missed events on reconnect`） | 🔴 **新增最高优先**（硬门禁 37.5% 误拦，同 commit 重跑翻转；追踪 **#118**） | 门禁可信 |
+| **7** | 首轮跑分（Terminal-Bench 子集） | ⬜ **未开始**（见评估报告 §3 Step 2 / 2b；验收追踪 **#117**） | **唯一真实分数来源**；并采集 #78 行为统计口径（≥90%） |
 
-**排序理由（六次更新后，2026-10-02）**：
-- **阶段 6 / 6.1 / 6.2 均已闭环** —— 平台缺陷不再是瓶颈，硬门禁已生效，回归从此会被真的拦住；
+**排序理由（八次更新后，2026-10-03）**：
+- 🔴 **新增最高优先：阶段 6.3（flaky，追踪 #118）** —— 这是**唯一**阻塞「门禁可信」的项。硬门禁已经装上、也确实在拦，
+  但 37.5% 的误拦率会让人养成「红灯先重跑一次」的习惯，那样门禁就退化成摆设（正是 `build-test.yml` 里
+  明确反对的「永久排除清单」的另一种形态）。优先级高于阶段 3 / 4；
+- **阶段 6 / 6.1 / 6.2 均已闭环** —— 平台缺陷不再是瓶颈，硬门禁已生效；
   作为代价，任何推到 develop 的改动（含直推）都必须过这一关；
-- 阶段 3 / 4 升至最前 —— 实现与基础用例已在 develop，只需补边界与回归，投入小；
-- 阶段 5 其次 —— #78 的 P1/P2 已落地，仅剩 VF-08 与 P3/P4 设计项；
+- ✅ **阶段 5 已出队** —— #78 完整落地（P1~P4 + VF-08），issue 已关闭；
+  其**行为统计验收口径（≥90%）随之并入阶段 7 首轮跑分**，不再单独排期；
+- 阶段 3 / 4 其次 —— 实现与基础用例已在 develop，只需补边界与回归，投入小；
+- **阶段 7（首轮跑分）是终点** —— 在此之前所有分数都是静态审计的预估分；
 - #106（Windows ctest 中文名）单独排队 —— 只影响 Windows 本地，Linux 门禁不受其影响。
 
 ### 3.2 CI 接入 ✅ 已落地
@@ -373,10 +398,37 @@ TEST_CASE("headless: 未知权限模式返回 exit 2", "[headless][error][issue7
 
 **修复后的实测（2026-10-02，PR #111 `fcb2aad`）**：
 
-- ✅ `Build & unit tests (ubuntu)` **pass（5m47s）**，8 项 CI 检查全绿（含 clang-tidy 18m42s）
+- ✅ `Build & unit tests (ubuntu)` **pass（5m47s）**，8 项 CI 检查全项通过（含 clang-tidy 18m42s）
 - ✅ `ctest -LE slow` → **1363 用例 100% passed / 0 failed**
 - ✅ island hang canary 43 项全过（`ipc: connect to nonexistent endpoint fails` 由 0.50s 降到 **0.00s**）
-- ✅ `server: ring buffer replays missed events on reconnect` Passed 0.20s（只重试 ECONNREFUSED 依然覆盖「重新 listen」窗口）
+
+**🔴 七次更新复核（2026-10-02，拉取全部历史运行）：门禁已硬，但 flaky**
+
+上面那次 pass 掩盖了一个问题。把 `build-test.yml` **8 次首次运行**全部拉出来核对：
+
+| 时间 (UTC) | commit | 事件 | 结果 | 备注 |
+|---|---|---|---|---|
+| 10-01 08:49 | `1e4b792` | PR #111 | ❌ | island canary 1/43，3.00s |
+| 10-01 09:03 | `4f1c6b6` | PR #111 | ✅ | |
+| 10-01 10:04 | `2cc4abd` | PR #111 | ✅ | |
+| 10-01 10:26 | `fcb2aad` | push（转硬门禁） | ✅ | island 43/43 · 全量 1363/1363 |
+| 10-01 14:16 | `d68970e` | PR #115 | ✅ | |
+| 10-01 14:36 | `7147eeb` | push | ✅ | |
+| **10-02 08:07** | `74de290` | push（**纯 docs**） | ❌ | island canary 1/43，3.11s |
+| **10-02 08:14** | `83e4b41` | push（**纯 docs**） | ❌ | island canary 1/43，3.11s |
+| rerun | `83e4b41` | **同 commit 重跑** | **✅** | island 43/43 · 全量 1363/1363，4.98s |
+
+→ **3 次失败全部是同一个用例** `server: ring buffer replays missed events on reconnect`（**37.5% 误拦**）。
+→ 失败横跨不同提交、含零代码变更的纯 docs 提交；**同 commit 重跑即翻转** → flaky 确证（此前记的「Passed 0.20s」只是碰巧落在窗口内）。
+→ **根因**：`transport_posix.cpp:105-115` 的 `accept()` **成功后立刻 `close_and_wake(m_listen_fd)`**，
+ 而 `island_server.cpp:122-156` 的 `handle_connection()` 是阻塞的 → **整个服务连接期间端点上没有监听者**，
+ 重连窗口完全靠 `connect()` 的 `kConnectAttempts 6 × 100ms = 600ms` 硬扛。单机轻载够用，共享 runner 抖动一超即 `ECONNREFUSED`。
+→ **为什么只在 Linux 暴露**：Windows 侧（`transport_win32.cpp:80-98`）用的是 `for attempt < 3` + `WaitNamedPipeA(endpoint, 5000)`，
+ 总容忍窗口 **≈ 15s**，约为 POSIX 的 **25 倍**。本机开发走 Windows，故从未暴露。
+→ **附带缺陷**：`tests/unit/island/test_island_server.cpp:68-76` 的 `read_until` 在 `read` 立即失败时**不 break**，
+ 空转满 3 秒 —— 这就是失败耗时稳定在 3.00~3.11s 的来源（它不代表任何真实等待，只是把「连接失败」包装成了「看起来像超时」）。
+→ **修法建议**：让 listen socket 在生命周期内保持开放（`accept()` 不再关 `m_listen_fd`，新连接进 backlog 排队）——
+ AF_UNIX 常规做法，根治窗口；退而求其次是 `connect()` 改 poll + 有界等待，或测试侧先等 server 恢复监听再重连。**这就是阶段 6.3（已开 #118）。**
 
 **转硬门禁（已于 2026-10-02 完成）**：#104 / #105 / #107 / #109 关闭后，删除 `continue-on-error: true` 一行即可 —— 该行已在 PR #111 中删除。
 
@@ -423,6 +475,11 @@ Refs #77
 > 五次更新（2026-10-01）：#77 / #80 已随 PR #100 / #101 完成；**CI 接入已落地**（观察期软门禁）。
 > **六次更新（2026-10-02）**：**门禁已转硬**，平台缺陷 #104 / #105 / #107 / #108 / #109 全部关闭，
 > `ctest -LE slow` 1363 用例 100% 绿。
+> **七次更新（2026-10-02）**：真跑 CI 复核 —— 1363 用例全绿**已被同 commit 重跑独立证实**，
+> 但发现门禁有 **37.5% flaky 误拦**（island 重连用例），**新增阶段 6.3**，「门禁可信」仍未达成。
+> **八次更新（2026-10-03）**：#78 完整落地并关闭 issue，**阶段 5 出队**；
+> 其原始行为统计口径（≥90%）并入**新增的阶段 7 首轮跑分**。
+> **八次更新续（2026-10-03）**：阶段 6.3 已开 issue **#118**（island 重连 flaky，硬门禁 37.5% 误拦）。
 
 - [x] #77 用例数 ≥ 12 —— ✅ `test_headless.cpp` 13 条，HL-01~HL-12（PR #100 `241f014`）
 - [x] headless 可测性改造 —— ✅ `headless_internal.h` 暴露 `run_headless_with_provider()`（PR #100）
@@ -431,12 +488,19 @@ Refs #77
 - [ ] #79 补齐 SA-06 ~ SA-13（含并发不超发 SA-10、防递归回归 SA-13）
 - [ ] #81 补齐 GC-08 ~ GC-15（含真仓库用例与 `[git]` 标签守卫）
 - [x] #78 验收规格已挂到 issue（2026-09-30 已回帖）
-- [x] #78 实现已落地（P1 / P2，`9a2de19` / PR #98）——VF-01 ~ VF-07 / VF-09 共 13 条用例全绿
-- [ ] VF-08（headless 下验证执行不阻塞 stdin）+ P3 / P4
+- [x] **#78 实现已完整落地并关闭 issue** —— ✅ P1/P2（`9a2de19` / PR #98）+ P3/P4/VF-08（`49d0ca4` / PR #116），
+      VF-01 ~ VF-11 共 **20 条 `[issue78]` 用例 / 105 断言全绿**
+- [ ] ⚠️ **#78 原始验收口径（行为统计）实测** —— 「10 个任务中 agent 结束前实际执行过测试/构建命令的比例 **≥90%**」，
+      **未实测**；已并入阶段 7 首轮跑分采集（评估报告 §3 Step 2b），**不达标再开针对性 issue**
 - [x] **CI 存在 build + test job，且对 develop 的 push/PR 生效** —— ✅ `.github/workflows/build-test.yml`
-      （ubuntu + `ctest -LE slow`；**硬门禁**，2026-10-02 实测 pass 5m47s / 1363 用例 100% passed）
+      （ubuntu + `ctest -LE slow`；**硬门禁**，七次更新复核：1363 用例 100% passed，whole-suite 4.98s）
+- [ ] 🔴 **门禁可信**：修 island 重连 flaky（阶段 6.3，**#118**）—— 实测 8 次首次运行 3 次误拦（37.5%），
+      同 commit 重跑翻转。**不修则上一条的「硬门禁」名不副实**
+- [ ] **阶段 7：首轮跑分** —— 写 Harbor adapter，跑 `terminal-bench@2.0` 30 题 × 3 次子集；
+      **这是当前所有分数从「静态预估」变成「实测」的唯一途径**
 - [x] 无一个用例依赖真实 LLM 或外网（`-LE slow` 子集；`[live]` 用例在无用户配置时自动跳过）
 - [x] ✅ **清 #105 / #104 / #107 / #109**，使 Linux 上 `ctest -LE slow` 全绿，随后删除
       `continue-on-error: true` 转为硬门禁 —— **已完成**（PR #111 `fcb2aad`）
 - [x] ✅ **#108 本机 tui 构建恢复** —— 已完成（PR #115 `7147eeb`；本机 tui 253 用例全过）
-- [x] 评分卡分数同步（`docs/agent-harness-scorecard.html` 保持 **71.9**；CI 接入属工程化基建，不改 harness 能力评分）
+- [x] 评分卡分数同步（`docs/agent-harness-scorecard.html`：七次 **71.9 → 71.7**；**八次 71.7 → 72.9**，
+      「验证闭环」65 → 70）
