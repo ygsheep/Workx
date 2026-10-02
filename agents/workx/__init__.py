@@ -47,8 +47,10 @@ STREAM_PATH = "/tmp/workx-stream.jsonl"
 LOG_PATH = "/tmp/workx-run.log"
 AUDIT_PATH = "/tmp/workx-audit.jsonl"
 
-#: 运行时系统依赖（Terminal-Bench 任务镜像多为 Ubuntu）
-APT_PACKAGES = "ca-certificates curl git libcurl4-openssl-dev tzdata"
+#: 运行时系统依赖（Terminal-Bench 任务镜像多为 Ubuntu / Debian）
+#: 注意用 libcurl4（运行时）而非 libcurl4-openssl-dev：workx 链接 libcurl.so.4，
+#: 头文件不是必需的；源码构建需要的 -dev 在 BUILD_PACKAGES 里单独装。
+APT_PACKAGES = "ca-certificates curl git libcurl4 tzdata"
 
 #: 源码构建所需的编译依赖
 BUILD_PACKAGES = (
@@ -107,11 +109,15 @@ class WorkxAgent(BaseInstalledAgent):
     # ------------------------------------------------------------------
 
     async def install(self, environment: Any) -> None:
-        """容器内的两阶段安装：系统依赖 → workx 本体。"""
+        """容器内的两阶段安装：运行时系统依赖 → workx 本体。
+
+        编译期依赖（cmake / build-essential …）**只在走源码构建时才装**：
+        预构建快路径下它们毫无用处，却要把 install 阶段拖慢数分钟（每 trial 各装一次）。
+        """
         await self.exec_as_root(
             environment,
             command=f"apt-get update -qq && apt-get install -y --no-install-recommends "
-            f"{APT_PACKAGES} {BUILD_PACKAGES}",
+            f"{APT_PACKAGES}",
         )
 
         if self.prebuilt_url:
@@ -121,6 +127,10 @@ class WorkxAgent(BaseInstalledAgent):
                 f"&& chmod 0755 {BIN_PATH} && {BIN_PATH} --version",
             )
         else:
+            await self.exec_as_root(
+                environment,
+                command=f"apt-get install -y --no-install-recommends {BUILD_PACKAGES}",
+            )
             await self.exec_as_root(
                 environment, command=_source_build_script(self.repo_url, self.ref)
             )
