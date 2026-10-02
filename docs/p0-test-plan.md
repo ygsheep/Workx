@@ -26,11 +26,12 @@
 | #81 | git 检查点与回滚 | CLOSED | `b2d41ca`（PR #93） | 7 用例，`test_git_checkpoint.cpp` | ✅ |
 | #78 | 强制验证闭环 / PreCompletion 门禁 | **OPEN**（部分落地） | ✅ `9a2de19`（PR #98，P1+P2） | ✅ **13 条 `[issue78]` 用例全绿**（`test_react_loop.cpp` 8 条 + `test_agent_core.cpp` 5 条） | ⚠️ P1 / P2 已完成；P3 / P4 与 VF-08 待做 |
 
-**结论（五次更新后，2026-10-01）**：
+**结论（六次更新后，2026-10-02）**：
 - **阶段 0 / 1 / 2 已完成** —— `mock_git_repo.h`（PR #100）、`headless_internal.h` 注入口（PR #100）、HL-01~HL-12 共 13 条（PR #100）、JS-15/JS-16（PR #101）**全部已落地**；
-- **阶段 6 已落地** —— 新增 `.github/workflows/build-test.yml`，并在 WSL 上按真实 CI 步骤完成预演；首轮即暴露 5 类 Linux 平台缺陷（#104 / #105 / #107 / #109），门禁先以 `continue-on-error` 观察。见 §3.2；
+- **阶段 6 已完成并转为硬门禁** —— `.github/workflows/build-test.yml` 删除 `continue-on-error: true`（PR #111 `fcb2aad`），Linux 上 `ctest -LE slow` **1363 用例 100% passed / 0 failed**；首轮暴露的 5 类平台缺陷（#104 / #105 / #107 / #108 / #109）**已全部关闭**。见 §3.2；
 - #78 的 P1 / P2 已于 2026-09-30 落地（PR #98）——门禁进主循环 + headless 默认开启，VF-01 ~ VF-07 / VF-09 共 13 条用例全绿。**剩余缺口**：P3（交互式默认开启）、P4（命令自适应探测）、VF-08；
-- **当前真正待办**：清 #104 / #105 / #107 / #109（CI 转硬门禁的前置）→ 阶段 3（#79 补边界）→ 阶段 4（#81 补真仓库用例）→ 阶段 5（#78 P3/P4/VF-08）。
+- **当前真正待办**：阶段 3（#79 补边界）→ 阶段 4（#81 补真仓库用例）→ 阶段 5（#78 P3/P4/VF-08）。
+  CI 侧剩余 #106（Windows ctest 中文测试名，196 / 1319 必然失败）——它只影响 Windows，不阻塞已生效的 Linux 硬门禁。
 
 **评分同步（五次更新）**：Harness 加权总分 **61.05 → 68.5 →（记账更正）69.9 → 71.9**。**CI 接入不改变评分**——评测维度衡量的是「有没有接入基准并跑出分数」，跑通单测属于工程化基建，不等于 harness 能力提升。详见 `docs/agent-harness-scorecard.html`。
 
@@ -41,8 +42,11 @@
 
 **当前剩余风险**：
 - ✅ ~~headless 与 JS-16 用例尚未进 CI~~ → **阶段 6 已落地**（`.github/workflows/build-test.yml`）；
-- 🔴 **Linux 上 23 / 1342 用例失败，CI 暂为软门禁** —— 5 类平台缺陷，已开 #104 / #105 / #107 / #109；
-  其中 #105（island IPC `close()` 缺 `shutdown()`）会让 `ctest` **挂死**，是最关键的一项；
+- ✅ ~~Linux 上 23 / 1342 用例失败，CI 暂为软门禁~~ → **已清零并转硬门禁**（2026-10-02）：
+  #104 / #105 / #107 / #108 / #109 **全部关闭**，PR #111 `fcb2aad` 删除 `continue-on-error: true`，
+  实测 `ctest -LE slow` **1363 用例 100% passed / 0 failed**；
+  其中 #105（island IPC `close()` 缺 `shutdown()` 导致 `ctest` 挂死）是最关键的一项，已由
+  `close_and_wake()`（先 `shutdown(SHUT_RDWR)` 再 `close()`）+ `connect()` 仅对 ECONNREFUSED 重试修掉；
 - 🔴 **更正：Windows 上 ctest 并非「静默跳过」，而是「必然失败」** —— 实测 **196 / 1319 失败**，
   且与该批次**名字含中文的用例数 196 精确吻合**（#106）。PR #98 的 `chcp 65001` 只修了
   「测试发现阶段」，未覆盖「执行阶段的 argv 传递」。**含义：Windows 上 ctest 不可用；
@@ -303,12 +307,17 @@ TEST_CASE("headless: 未知权限模式返回 exit 2", "[headless][error][issue7
                                     ↓
      阶段 3（0.5d）#79  →  阶段 4（0.5d）#81  →  阶段 5（#78 剩余 P3/P4/VF-08）
                                     ↓
-                阶段 6（0.5d）CI 接入  ← ✅ 已落地（观察期软门禁）
+                阶段 6（0.5d）CI 接入  ← ✅ 已落地并转**硬门禁**（1363 用例 100% 绿）
 ```
 
 > **五次更新（2026-10-01）**：阶段 0 / 1 / 2 **已全部完成**（PR #100 `241f014` + PR #101 `edd2608`）。
 > **阶段 6（CI 接入）已落地** —— 新增 `.github/workflows/build-test.yml`，并在 WSL 上按真实 CI 步骤预演（编译全通）；
 > 首轮暴露 5 类 Linux 平台缺陷（#104 / #105 / #107 / #109），门禁先以 `continue-on-error` 观察，待其关闭后转硬。
+>
+> **六次更新（2026-10-02）**：**阶段 6.1 已完成，门禁已由软转硬** —— PR #111 `fcb2aad` 删除
+> `continue-on-error: true`，同时修完 #104 / #105 / #107 / #109；#108 由 PR #115 `7147eeb` 修复。
+> 实测：`Build & unit tests (ubuntu)` pass（5m47s，8 项 CI 检查全绿），`ctest -LE slow` **1363 用例 100% passed**。
+> → 阶段 6 到此**闭环**，不再是待办项。
 
 | 阶段 | 内容 | 状态 | 产出 |
 |---|---|---|---|
@@ -318,18 +327,16 @@ TEST_CASE("headless: 未知权限模式返回 exit 2", "[headless][error][issue7
 | **3** | SA-06 ~ SA-13 | ⬜ 待做（#79 已合入 `67ea633`，仅需补边界与回归） | #79 护栏完整 |
 | **4** | GC-08 ~ GC-15 | ⬜ 待做（#81 已合入 `b2d41ca`；`mock_git_repo.h` 已就绪） | #81 完整 |
 | **5** | VF-08 / P3 / P4 | ⬜ 部分待做（#78 P1/P2 已落地 `9a2de19`，13 条 `[issue78]` 全绿） | 验证闭环收尾 |
-| **6** | `.github/workflows/build-test.yml` | ✅ **已落地**（观察期软门禁：编译全通，23/1342 平台缺陷待清） | CI 门禁 |
-| **6.1** | 清 #105 / #104 / #107 / #109 | 🔴 **新增最高优先**（CI 转硬门禁的前置） | 门禁由软转硬 |
+| **6** | `.github/workflows/build-test.yml` | ✅ **已落地**（编译全通） | CI 门禁 |
+| **6.1** | 清 #105 / #104 / #107 / #109 + 转硬门禁 | ✅ **已完成**（PR #111 `fcb2aad`：1363 用例 100% 绿） | 门禁由软转硬 |
+| **6.2** | #108 本机 tui 构建（vcpkg ftxui 遮蔽） | ✅ **已完成**（PR #115 `7147eeb`） | 本机可重编 tui |
 
-**排序理由（五次更新后）**：
-- **新增最高优先：清 #105 / #104 / #107 / #109** —— 阶段 6 一落地就暴露出这批平台缺陷；
-  它们此前从未被发现（CI 从未跑过测试，本机开发走 Windows 不命中），
-  而 #105（island IPC 缺 `shutdown()`）会让 `ctest` **挂死**，是转硬门禁的关键阻塞项；
-- 阶段 3 / 4 其次 —— 实现与基础用例已在 develop，只需补边界与回归，投入小；
-- 阶段 5 最后 —— #78 的 P1/P2 已落地，仅剩 VF-08 与 P3/P4 设计项。
-
-**建议排布**：先修 #105（一行改动即可消掉 12 项 hang）→ #104 → #107 → #109，随后把 CI 由软转硬；
-阶段 3 / 4 / 5 可与上述缺陷清理并行。
+**排序理由（六次更新后，2026-10-02）**：
+- **阶段 6 / 6.1 / 6.2 均已闭环** —— 平台缺陷不再是瓶颈，硬门禁已生效，回归从此会被真的拦住；
+  作为代价，任何推到 develop 的改动（含直推）都必须过这一关；
+- 阶段 3 / 4 升至最前 —— 实现与基础用例已在 develop，只需补边界与回归，投入小；
+- 阶段 5 其次 —— #78 的 P1/P2 已落地，仅剩 VF-08 与 P3/P4 设计项；
+- #106（Windows ctest 中文名）单独排队 —— 只影响 Windows 本地，Linux 门禁不受其影响。
 
 ### 3.2 CI 接入 ✅ 已落地
 
@@ -345,8 +352,9 @@ TEST_CASE("headless: 未知权限模式返回 exit 2", "[headless][error][issue7
 | 依赖裁剪 | `WORKX_WITH_TREE_SITTER=OFF`、`WORKX_BUILD_EXAMPLES=OFF` | 去掉 FetchContent 网络依赖与无关目标 |
 | 缓存 | `vcpkg` + `build/vcpkg_installed` | 只缓存前者会导致每轮重编 curl/openssl，比不缓存更慢 |
 | 用例选择 | `ctest -LE slow` | 跳过 3 个依赖 30s 兜底的 `[slow]` 用例 |
-| 三重防御 | `--no-tests=error` + **用例数下限 1200** + `--timeout 180` | 分别防「零发现」「部分丢失」（与 #106 同源风险）「hang 挂死」（#105） |
-| 门禁强度 | **观察期软门禁**（`continue-on-error: true`） | 首轮实测 23/1342 失败，全部由下文记录的平台缺陷造成 |
+| 三重防御 | `--no-tests=error` + **用例数下限 1200**（实测 **1363**）+ `--timeout 90` | 分别防「零发现」「部分丢失」（与 #106 同源风险）「hang 挂死」（#105） |
+| hang canary | `ctest -L island -LE slow --timeout 45` 独立 step | hang 集中在 island 组，先跑可让挂死 1 分钟内点名暴露，而非拖满 90 分钟 job 超时 |
+| 门禁强度 | ✅ **硬门禁**（PR #111 删除 `continue-on-error: true`） | 平台缺陷已清零，实测 1363 用例 100% passed |
 
 **WSL 真机预演结论**（Ubuntu 24.04 + 全新 vcpkg + Ninja + Release，完整复刻 CI 步骤）：
 
@@ -363,12 +371,19 @@ TEST_CASE("headless: 未知权限模式返回 exit 2", "[headless][error][issue7
 
 > 另有 6 处测试硬编码 `python`（Ubuntu 只有 `python3`），已并入 #104。
 
-**转硬门禁的条件**：#104 / #105 / #107 / #109 关闭后，删除 `continue-on-error: true` 一行即可。
+**修复后的实测（2026-10-02，PR #111 `fcb2aad`）**：
+
+- ✅ `Build & unit tests (ubuntu)` **pass（5m47s）**，8 项 CI 检查全绿（含 clang-tidy 18m42s）
+- ✅ `ctest -LE slow` → **1363 用例 100% passed / 0 failed**
+- ✅ island hang canary 43 项全过（`ipc: connect to nonexistent endpoint fails` 由 0.50s 降到 **0.00s**）
+- ✅ `server: ring buffer replays missed events on reconnect` Passed 0.20s（只重试 ECONNREFUSED 依然覆盖「重新 listen」窗口）
+
+**转硬门禁（已于 2026-10-02 完成）**：#104 / #105 / #107 / #109 关闭后，删除 `continue-on-error: true` 一行即可 —— 该行已在 PR #111 中删除。
 
 **三个原计划预判的坑 —— 均已规避**：
 1. **git 身份** ✅ `tests/unit/helpers/mock_git_repo.h` 的 fixture commit 已带 `-c user.name` / `-c user.email`
 2. **Windows/Linux 差异** ✅ 门禁平台确定为 Linux；Windows 侧另因 ctest 编码问题（#106）暂不纳入
-3. **不要直接开硬门禁** ✅ 用 `continue-on-error` 显式表达「观察期」，而非 `|| true` 的静默假绿；同时补了用例数下限守卫，防止「用例变少但依然绿」
+3. **不要直接开硬门禁** ✅ 观察期用 `continue-on-error` 显式表达（而非 `|| true` 的静默假绿），缺陷清零后整行删除转硬（PR #111）；用例数下限守卫保留，防止「用例变少但依然绿」
 
 ### 3.3 提交规范
 
@@ -406,6 +421,8 @@ Refs #77
 ## 附录：验收标准（本案完成时）
 
 > 五次更新（2026-10-01）：#77 / #80 已随 PR #100 / #101 完成；**CI 接入已落地**（观察期软门禁）。
+> **六次更新（2026-10-02）**：**门禁已转硬**，平台缺陷 #104 / #105 / #107 / #108 / #109 全部关闭，
+> `ctest -LE slow` 1363 用例 100% 绿。
 
 - [x] #77 用例数 ≥ 12 —— ✅ `test_headless.cpp` 13 条，HL-01~HL-12（PR #100 `241f014`）
 - [x] headless 可测性改造 —— ✅ `headless_internal.h` 暴露 `run_headless_with_provider()`（PR #100）
@@ -417,8 +434,9 @@ Refs #77
 - [x] #78 实现已落地（P1 / P2，`9a2de19` / PR #98）——VF-01 ~ VF-07 / VF-09 共 13 条用例全绿
 - [ ] VF-08（headless 下验证执行不阻塞 stdin）+ P3 / P4
 - [x] **CI 存在 build + test job，且对 develop 的 push/PR 生效** —— ✅ `.github/workflows/build-test.yml`
-      （ubuntu + `ctest -LE slow`；WSL 真机预演：编译全通，98% passed / 23 failed，先以 `continue-on-error` 观察）
+      （ubuntu + `ctest -LE slow`；**硬门禁**，2026-10-02 实测 pass 5m47s / 1363 用例 100% passed）
 - [x] 无一个用例依赖真实 LLM 或外网（`-LE slow` 子集；`[live]` 用例在无用户配置时自动跳过）
-- [ ] 🔴 **清 #105 / #104 / #107 / #109**，使 Linux 上 `ctest -LE slow` 全绿，随后删除
-      `continue-on-error: true` 转为硬门禁
+- [x] ✅ **清 #105 / #104 / #107 / #109**，使 Linux 上 `ctest -LE slow` 全绿，随后删除
+      `continue-on-error: true` 转为硬门禁 —— **已完成**（PR #111 `fcb2aad`）
+- [x] ✅ **#108 本机 tui 构建恢复** —— 已完成（PR #115 `7147eeb`；本机 tui 253 用例全过）
 - [x] 评分卡分数同步（`docs/agent-harness-scorecard.html` 保持 **71.9**；CI 接入属工程化基建，不改 harness 能力评分）
