@@ -282,6 +282,73 @@ scripts/harness/
 >
 > **判定规则**：首轮跑分后若验证命令执行率 **< 90%**，按实测结果**另开针对性 issue**（届时才有真实数据定位是「门禁未触发」「探测不到命令」还是「模型绕过」），不在本报告预先推测。验收追踪 issue：**#117**。
 
+#### Step 2c — 首轮实测结果（2026-10-03，20 题 × 1 次）
+
+| 项 | 值 |
+| --- | --- |
+| 模型 | DeepSeek `deepseek-v4-flash` |
+| workx | 0.10.1（develop `1587fd0`，含 #82 环境上下文注入 + #126 门禁日志） |
+| 题集 | terminal-bench@2.0 本地副本，**20 题 × 1 次**（`-k 1 -n 3 --force-build`） |
+| 墙钟 | 1h49m（含每题本地构建镜像） |
+| **pass@1** | **45.0%（9 / 20）** |
+| 通过 | break-filter-js-from-html、cancel-async-tasks、chess-best-move、cobol-modernization、count-dataset-tokens、crack-7z-hash、db-wal-recovery、extract-elf、feal-linear-cryptanalysis |
+| 失败 | adaptive-rejection-sampler、build-cython-ext、caffe-cifar-10、code-from-image、configure-git-webserver、custom-memory-heap-crash、extract-moves-from-video、feal-differential-cryptanalysis、financial-document-processor |
+| 无分（异常） | filter-js-from-html（VerifierTimeoutError）、fix-code-vulnerability（EnvironmentStartTimeoutError） |
+
+⚠️ **三个必须交代的口径问题**，否则这个 45% 会被误读：
+
+1. **选题是容量排除，不是随机也不是挑难度。** 77 题本地副本里有 16 题的
+   `[agent] timeout_sec > 1800`（`build-pov-ray` 12000s、`sam-cell-seg` 7200s、
+   `compile-compcert` 2400s …），单机扛不住，先按**机器容量**排除，在剩下 61 题里
+   **按字母序取前 20**。规则可复现，但**不是随机样本**，不能等同于全量 89 题的分数。
+2. **尚未对齐 HarnessTax 口径**（任务先平均、再 bootstrap 10k 取 95% CI）。
+   `-k 1` 单次采样，**没有置信区间**，只能当 smoke 之后的第一次量级确认。
+3. **没有对照组。** 同一个 45% 里混着「harness 贡献」和「模型贡献」，
+   报不出 harness 单独值多少 —— 必须再跑一组 Claude/GPT 对照才能分开。
+
+**#117 行为统计口径（#78 的原始验收标准）：未达标。**
+
+| 指标 | 实测 | 目标 | 分母 |
+| --- | --- | --- | --- |
+| 验证命令执行率 | **6.7%（1/15）** | ≥ 90% | 15（19 个 stream 里 4 个为空，已剔除） |
+| 验证命令执行率（宽松，含自写测试脚本） | 6.7%（1/15） | — | 15 |
+| 门禁触发率 | 0%（0/19） | — | 19 |
+| 降级率 / 误报率 | 0% / 0% | — | 19 |
+
+> ⚠️ **6.7% 不等于「agent 不验证」。** 逐条 dump 命令看过：`db-wal-recovery` 里 agent
+> 写了 `# final verification read of main.db` 并真的查了 sqlite；`cobol-modernization` 里
+> 反复跑程序比对输出。它**在验证，但不走任何可识别的测试/构建运行器** —— 用的是
+> `python3 -c ...`、`od -c`、临时 `probe*.sh` 这类一次性探针。
+> 所以严格口径（命中 `pytest` / `ctest` / `make test` / `npm test` … 运行器表）判不出来。
+> **这是「验证行为没被规范化」的问题，不是「没有验证行为」的问题** —— 定位 issue 时要说清。
+
+> 🔴 **门禁触发率 0% 是结构性的，不是 bug。** 这 20 题的工作目录 `/app` 里没有
+> `CMakeLists.txt` / `package.json` / `Makefile` 之类的项目标记，`detect_default_goal()`
+> 返回 None → #78 门禁完全不介入。7 个 trial 的日志里明确落了
+> `#78 gate inactive (no goal under '/app'; set WORKX_GOAL/--goal)`（PR #127 新增的日志，
+> 首轮 smoke 时这项是 0 次、无从判断）。**不要用这一项判达标/不达标。**
+
+> ⚠️ **4 个 stream 是 0 字节**：agent 撞上任务超时被强杀 → 容器销毁 →
+> `tee` 出来的 `/tmp/workx-stream.jsonl` 没取回。这 4 个 run **不是「没跑验证命令」，
+> 是「不知道它跑了什么」**，已从验证类指标分母剔除；其中 3 个（cancel-async-tasks、
+> extract-elf、break-filter-js-from-html）verifier 反而判了通过 —— 说明活干完了，
+> 只是没在超时前收尾。
+
+首轮实测同时暴露了采集器/导出器**三个真实缺陷**（已修，见 PR #128）：
+
+1. `collect_metrics.py` 用 `rglob("*.jsonl")` 收 run，**一次 run 被记成四次**。
+   一个 Harbor trial 目录下会落下四份 .jsonl：`workx-stream.jsonl`（真轨迹）、
+   `workx-audit.jsonl`（审计日志）、`<task>.stream.raw.jsonl` 与 `<task>.session.jsonl`
+   （导出器产出的**同一条轨迹的副本**，后者还是另一套 schema）。
+   后三份解析不出任何步骤，等于凭空灌进一批「没跑验证命令」的样本。
+2. `export_run.py` 遇到 0 字节 stream 在 `lines[-1]` 处 IndexError 崩掉整个导出。
+   现在改成写一份说明性轨迹并**不生成会话**（伪造空会话会让人误读成「agent 什么都没做」）。
+
+> ⚠️ 第 1 条是**分三次才修干净的**，值得单独记一笔：只排 `audit` 之前是 **38 个 run**
+> （执行率假报 2.6%）；只排 `audit` 之后变成 **53 个 run**（4.4%）——导出器那份
+> `*.stream.raw.jsonl` / `*.session.jsonl` 又混进来了；三类全排之后才是 **19 个 run / 6.7%**。
+> 教训：**目录递归收 run 必须严格收口，否则分母失真，判定口径形同虚设**。
+
 ### Step 3 — 建 trace 分析回路（持续迭代）
 
 审计日志已有骨架，补一份 **run manifest**（每轮：工具名/参数/结果摘要/token/耗时/错误类型），然后按 LangChain 的做法：
@@ -290,11 +357,14 @@ scripts/harness/
 
 ### 参考分数线（预估，非实测）
 
-| 阶段 | 预估 Terminal-Bench 2.x pass@1 |
-| --- | --- |
-| 现状（已具备跑分条件，尚未跑分） | — |
-| 补完 P0（headless + 深度限制 + schema 校验 + git 快照 + **#78 验证门禁 P1/P2/P3/P4**） | 45–58% |
-| 再补 P1（环境上下文注入 + 预算提示 + 沙箱） | 55–68% |
+| 阶段 | 预估 Terminal-Bench 2.x pass@1 | 实测 |
+| --- | --- | --- |
+| 补完 P0（headless + 深度限制 + schema 校验 + git 快照 + **#78 验证门禁 P1/P2/P3/P4**） | 45–58% | **45.0%**（20 题 × 1 次，2026-10-03，见 Step 2c） |
+| 再补 P1（环境上下文注入 + 预算提示 + 沙箱） | 55–68% | 未测 |
+
+> ⚠️ 45% 落在 P0 预估区间**下沿**，且该区间是按全量 89 题 + 多次采样估的，
+> 本次是 20 题容量筛选子集 × 1 次（无 CI）。**不能据此说「已达成 P0 目标」**，
+> 只能说量级对得上。要坐实需要：全量或更大随机子集 + `-k 3` + 对照组。
 
 对照：LangChain 的 deepagents-cli 基线 52.8% → 优化后 66.5%（gpt-5.2-codex，同一模型）。Workx 在工具层更完整，但模型侧若用国产模型会有额外折让。
 

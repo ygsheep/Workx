@@ -214,9 +214,11 @@ def parse_run(stream_path: Path, log_path: Path | None) -> dict[str, Any]:
     commands: list[str] = []
     goal_status: int | None = None
     usage: dict[str, Any] = {}
+    step_count = 0
 
     for obj in steps:
         if "type" in obj:
+            step_count += 1
             if obj.get("type") == "action":
                 if obj.get("tool_name") in COMMAND_TOOLS:
                     commands.append(extract_command(obj.get("tool_input")))
@@ -245,6 +247,11 @@ def parse_run(stream_path: Path, log_path: Path | None) -> dict[str, Any]:
         "gate_passed": MARK_PASSED in log_text,
         "goal_status": goal_status,
         "goal_status_name": GOAL_STATUS.get(goal_status, "?") if goal_status is not None else None,
+        # ⚠️ agent 被超时杀掉时 tee 出来的 stream 会是 **0 字节**（容器没了，产物没落盘）。
+        #   这种 run 不是「没跑验证命令」，是**根本不知道它跑了什么** ——
+        #   按本文件的诚实性原则，必须从验证类指标的分母里剔除，不能当成阴性样本。
+        "step_count": step_count,
+        "has_stream_evidence": step_count > 0,
         "total_iterations": usage.get("total_iterations"),
         "total_tool_calls": usage.get("total_tool_calls"),
         "prompt_tokens": usage.get("prompt_tokens"),
@@ -263,25 +270,36 @@ def collect(stream_files: list[Path]) -> dict[str, Any]:
     total = len(runs)
     with_log = sum(1 for r in runs if r["has_log_evidence"])
 
-    def rate(key: str, require_log: bool = False) -> dict[str, Any]:
-        pool = [r for r in runs if (not require_log or r["has_log_evidence"])]
+    def rate(key: str, require_log: bool = False,
+             require_steps: bool = False) -> dict[str, Any]:
+        pool = [
+            r for r in runs
+            if (not require_log or r["has_log_evidence"])
+            and (not require_steps or r["has_stream_evidence"])
+        ]
         n = len(pool)
         hit = sum(1 for r in pool if r[key])
+        excluded = total - n
         return {
             "numerator": hit,
             "denominator": n,
             "value": (hit / n) if n else None,
             "evidence": "log" if require_log else "stream",
-            "uncovered": (total - n) if require_log else 0,
+            "uncovered": excluded if (require_log or require_steps) else 0,
+            "uncovered_reason": (
+                "log_missing" if require_log
+                else ("stream_empty" if require_steps else "")
+            ),
         }
 
-    m1 = rate("verification_command")
+    # 验证类指标要求「轨迹里确实有步」——0 字节的 stream 不算阴性样本
+    m1 = rate("verification_command", require_steps=True)
     m2 = rate("gate_triggered", require_log=True)
     m3 = rate("gate_degraded")
     m4 = rate("gate_skipped", require_log=True)
 
     # 宽松口径（含自写测试脚本）只作参考，不参与达标判定
-    m1_loose = rate("verification_command_loose")
+    m1_loose = rate("verification_command_loose", require_steps=True)
 
     m1["target"] = 0.90
     m1["met"] = (m1["value"] is not None and m1["value"] >= 0.90)
@@ -291,9 +309,14 @@ def collect(stream_files: list[Path]) -> dict[str, Any]:
         "runs_total": total,
         "evidence_coverage": {
             "stream": total,
+            "stream_empty": sum(1 for r in runs if not r["has_stream_evidence"]),
             "log": with_log,
             "log_missing": total - with_log,
-            "note": "门禁触发率/误报率依赖日志；log_missing>0 时这两项分母被缩小，不可直接当作全量结论",
+            "note": (
+                "门禁触发率/误报率依赖日志；验证类指标还要求 stream 非空"
+                "（0 字节 = agent 被超时杀掉、产物没落盘）。"
+                "log_missing>0 或 stream_empty>0 时分母被缩小，不可直接当作全量结论"
+            ),
         },
         "metrics": {
             "verification_command_rate": m1,
@@ -358,7 +381,12 @@ def to_markdown(res: dict[str, Any], baseline: dict[str, Any] | None = None) -> 
     lines: list[str] = []
     lines.append("# Workx 行为统计采集结果（Issue #117）\n")
     lines.append(f"- run 总数：**{res['runs_total']}**")
-    lines.append(f"- 日志证据：{cov['log']} / {cov['stream']}（缺 {cov['log_missing']}）\n")
+    lines.append(f"- 日志证据：{cov['log']} / {cov['stream']}（缺 {cov['log_missing']}）")
+    lines.append(
+        f"- 轨迹非空：{cov['stream'] - cov['stream_empty']} / {cov['stream']}"
+        f"（空 {cov['stream_empty']}"
+        f"{'：agent 被超时杀掉、产物没落盘，已从验证类指标分母剔除' if cov['stream_empty'] else ''}）\n"
+    )
 
     lines.append("| 指标 | 值 | 计数 | 分母 | 证据源 |")
     lines.append("| --- | --- | --- | --- | --- |")
@@ -417,12 +445,48 @@ def to_markdown(res: dict[str, Any], baseline: dict[str, Any] | None = None) -> 
 # ---------------------------------------------------------------------------
 
 
+# 「长得像轨迹、其实不是轨迹」的产物命名片段。
+# 三条都是 20 题真实跑分时踩出来的，每踩一次 run 总数就翻倍一次。
+NON_STREAM_MARKERS = (
+    "audit",  # workx-audit.jsonl —— 审计日志
+    ".stream.raw.",  # <task>.stream.raw.jsonl —— export_run.py --copy-raw 的轨迹副本
+    ".session.",  # <task>.session.jsonl —— export_run.py 产的可导入会话（另一套 schema）
+)
+
+
+def is_stream_file(path: Path) -> bool:
+    """判断一个 .jsonl 是不是「轨迹」而不是别的产物。
+
+    ⚠️ 目录递归（`--runs-dir` / 传目录）会把 trial 目录里的**每一份** .jsonl 都收进来，
+    而这个目录下一次 run 会落下**四份**文件：
+
+      1. `workx-stream.jsonl`        —— 真轨迹，唯一该被当成 run 的
+      2. `workx-audit.jsonl`         —— 审计日志，一条工具调用都没有
+      3. `<task>.stream.raw.jsonl`   —— export_run.py `--copy-raw` 拷来的**轨迹副本**
+      4. `<task>.session.jsonl`      —— export_run.py 产的可导入会话，**另一套 schema**
+
+    第 2/3/4 类算进来的后果不是「多几条记录」，而是**一次 run 被记成四次**，
+    且副本里有两份解析不出任何步骤 → 凭空灌进一批「没跑验证命令」的样本。
+
+    实测踩坑顺序（同一份 20 题产物）：
+      · 只排 audit 之前：38 个 run，执行率假报 2.6%
+      · 只排 audit 之后：53 个 run，执行率假报 4.4%（raw + session 又混进来）
+      · 三类全排之后：**21 个 run**（20 题 job 19 个 + 两次 smoke 各 1 个）
+
+    → 结论：**目录递归必须严格收口**，否则分母失真、判定口径形同虚设。
+    """
+    name = path.name.lower()
+    if not name.endswith(".jsonl"):
+        return False
+    return not any(m in name for m in NON_STREAM_MARKERS)
+
+
 def expand_paths(paths: list[str]) -> list[Path]:
     out: list[Path] = []
     for p in paths:
         path = Path(p)
         if path.is_dir():
-            out.extend(sorted(path.rglob("*.jsonl")))
+            out.extend(sorted(f for f in path.rglob("*.jsonl") if is_stream_file(f)))
         else:
             out.append(path)
     return out
@@ -430,6 +494,23 @@ def expand_paths(paths: list[str]) -> list[Path]:
 
 def self_test() -> int:
     """用内置样例自检，确认解析链路可用（不是跑分，是协议验证）。"""
+    # 护栏：目录递归的收口规则。每次放宽 is_stream_file 都必须同步这里，
+    # 否则 20 题实跑会再次把一次 run 记成四次（实测踩过 38 → 53 → 21）。
+    ok = True
+    for name in (
+        "workx-stream.jsonl",
+        "workx-audit.jsonl",
+        "cobol-modernization.stream.raw.jsonl",
+        "cobol-modernization.session.jsonl",
+        "regex-log.audit.jsonl",
+    ):
+        want = name == "workx-stream.jsonl"
+        got = is_stream_file(Path(name))
+        status = "PASS" if got is want else "FAIL"
+        if got is not want:
+            ok = False
+        print(f"[{status}] is_stream_file({name}) = {got}")
+
     fx = Path(__file__).parent / "fixtures"
     files = sorted(fx.glob("*.jsonl"))
     if not files:
@@ -446,7 +527,6 @@ def self_test() -> int:
         "degrade_rate": (1, 4),
         "false_positive_rate": (0, 4),
     }
-    ok = True
     for key, (num, den) in expect.items():
         got = (m[key]["numerator"], m[key]["denominator"])
         status = "PASS" if got == (num, den) else "FAIL"
