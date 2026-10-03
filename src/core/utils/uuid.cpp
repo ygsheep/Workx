@@ -1,8 +1,8 @@
 /**
  * @file uuid.cpp
  * @brief UUIDv4 生成工具实现
- * @version 1.0.0
- * @date 2026-07
+ * @version 1.1.0
+ * @date 2026-10
  */
 
 #include "core/utils/uuid.h"
@@ -14,9 +14,22 @@
 namespace core::util {
 
 std::string generate_uuid() {
-    // 使用 random_device 播种 mt19937_64（每次调用独立，避免全局状态）
-    std::random_device rd;
-    std::mt19937_64 gen(rd());
+    // #131：原先是「每次调用 new 一个 random_device 再用**单个** rd() 播种」。
+    //       std::random_device::result_type 是 32 位 unsigned int，
+    //       于是整个 128 位输出完全由 32 位种子决定 —— 状态空间被削到 2^32，
+    //       而非 RFC 4122 §4.4 要求的 122 位随机。生日界下 1000 次采样碰撞概率
+    //       ≈1.2e-4，约 7.7 万个 ID 时就有 50% 概率撞过一次（CI 已实测撞到）。
+    //
+    //       现改为：每线程只播种一次，用 seed_seq 拼 8 个 rd() 输出（256 位种子），
+    //       mt19937_64 的状态空间回到 2^19937-1，输出具备完整的 122 位随机性。
+    //       代价：引入 thread_local 状态（原实现刻意"避免全局状态"）—— 但
+    //             thread_local 无跨线程共享，且省掉每次开关 /dev/urandom 的开销。
+    //       初始化列表的元素求值顺序自 C++11 起保证从左到右，8 次 rd() 顺序确定。
+    static thread_local std::mt19937_64 gen = [] {
+        std::random_device rd;
+        std::seed_seq seed{rd(), rd(), rd(), rd(), rd(), rd(), rd(), rd()};
+        return std::mt19937_64(seed);
+    }();
 
     // 生成 128 位随机数（两个 64 位）
     // UUID 128 位布局：time_low(32) | time_mid(16) | time_hi(16) | clock_seq(16) | node(48)
