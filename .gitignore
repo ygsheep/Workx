@@ -111,3 +111,7 @@ imgui.ini
 
 # CTest 在仓库根跑时残留的临时产物（Testing/Temporary/），不入仓
 /Testing/
+
+# Harbor 数据集的本地副本（harbor dataset download 下来的题库，约 34 MB / 77 题）
+# 用途：跑分时用 -p .cache/tb2/terminal-bench 走本地路径，避免每次都去 registry 拉
+/.cache/
