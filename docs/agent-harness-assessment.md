@@ -442,6 +442,30 @@ failed to download https://github.com/astral-sh/uv/releases/download/0.9.5/...
 3. `review_stall_window = 4`（`react_loop.h:198`）太小，建议 8–10，且要求**连续**重复才触发。
 4. 单独修 `reasoning_content` 的 provider 适配 400 错误。
 
+#### ✅ 修复已合入（2026-10-03，develop `84334aa` / PR #135）
+
+| 项 | 落地情况 |
+| --- | --- |
+| 1. fail-open | ✅ `ReviewerDecision::valid`：只有明确解析出 `continue`/`wrap_up` 才算可信裁决；失效一律继续，终止权交回预算 |
+| 2. max_tokens | ✅ 200 → **512**，提为 `Config::review_max_tokens`（原硬编码在 `run_reviewer` 内） |
+| 3. 停滞窗口 | ✅ 默认 4 → **8**；「要求连续重复」**未采纳**（见下） |
+| 4. provider 400 | ➡️ 另开 **#136**，不在本次改动范围 |
+
+配套加了**评审器熔断**：连续失效达 `max(1, review_max_grants)` 次后不再调用，
+直接 fail-open —— 实测 9/9 失效，不熔断就是每个停滞点白烧一次注定无果的 LLM 请求。
+
+日志侧同步增强：无 JSON 时打印 `content={}B, reasoning={}B`（一眼看出是不是推理链
+吃光预算），`reviewer decision` 带 `valid=` 标记。
+
+**未采纳「要求连续重复才触发停滞」的理由**：若改成只比较 `recent_calls.back()`，
+窗口大小就不再影响判定，`review_stall_window` 会变成死旋钮；且 fail-open 已经消除了
+误判的致命后果（误判现在只花 1 轮迭代 + 1 次评审调用，不再杀任务），窗口 4→8 已足够。
+
+验证：新增 5 个单测；Windows 本地 Debug `[react_loop]` 45 用例 / 187 断言、
+`~[slow]` 全量 **912 用例 / 3727 断言** 全绿无回归。CI 硬门禁 `Build & unit tests` 7m26s pass。
+
+⚠️ **评分卡暂不上调**：45.0% → 多少必须等复跑数据，不靠推理给分。
+
 ---
 
 ## 3. 怎么给 Workx 真跑一次分（三步走）
