@@ -12,6 +12,7 @@
 #include "agent/compact/prefix_shape.h"  // DS_CACHE M-2: normalize_tools_schema
 #include "agent/config/app_config.h"     // #30：agent::keys::MODEL_NAME / #78：验证门禁键
 #include "agent/core/verdict.h"          // #78：check_goal / has_checker（#31 验证原语）
+#include "agent/prompt/budget_hint.h"    // #83：剩余预算提示
 #include "agent/hook/hook_manager.h"     // Issue #50：通用 Hook 事件系统
 #include "agent/skill/inclaude/conditional.h"
 #include "agent/util/git_checkpoint.h"     // #81：git 基线检查点
@@ -577,6 +578,20 @@ std::string build_verification_warning(const Verdict& v) {
         v.detail);
 }
 
+/// @brief #83：低预算提示该引用哪条验证命令（门禁未装配 / 项目无验证手段则返回空）
+/// @details 与 #78 门禁同源（detect_goal_command），保证提示里点名的命令
+///          就是收尾时真正会被执行的那条；目标探测不到时返回空，
+///          由提示降级为泛化的「运行项目的构建/测试命令」。
+std::string budget_verification_command(const ReActLoop::Config& cfg, const std::string& cwd) {
+    if (!cfg.verify_before_finish || !cfg.goal.has_goal()) {
+        return {};
+    }
+    if (!has_checker(cfg.goal.type)) {
+        return {};
+    }
+    return detect_goal_command(cfg.goal.type, cwd);
+}
+
 }  // namespace
 
 void apply_verification_gate(ReActLoop::Config& cfg, const IConfigManager& config_manager,
@@ -755,6 +770,9 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
     std::deque<ToolCallSignature> recent_calls;  ///< 停滞判定滑动窗口（记录最近已执行调用签名）
     std::vector<std::string> tool_history;  ///< 最近工具执行日志（评审喂入）
     constexpr size_t kMaxToolHistory = 6;   ///< 喂给评审器的工具日志条数上限
+    // #83：低预算提示所需的验证命令，首次进入 Warn 档时探测一次后复用
+    bool budget_cmd_probed = false;
+    std::string budget_verify_cmd;
 
     // 评审上下文用"用户主要任务"（第一条非空 user 消息，截断）而非全量历史
     std::string primary_request;
@@ -1269,6 +1287,31 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
 
         // 继续下一轮 Thought（LLM 根据 tool_result 决定下一步）
         --budget;
+
+        // --- #83：剩余预算提示（低预算档位把模型推向验证与收尾）---
+        // budget 是本轮扣减后的真实余量；budget<=0 交给下面的达上限评审处理，
+        // 此处不注入，避免两条指令同时到达互相打架（一个喊收尾、一个问是否续跑）。
+        if (budget > 0) {
+            const int total_budget = std::max(1, m_config.max_iterations);
+            const auto tier = prompt::budget_tier(budget, total_budget);
+            if (tier != prompt::BudgetTier::Normal) {
+                if (tier == prompt::BudgetTier::Warn && !budget_cmd_probed) {
+                    // 探测走文件系统，只在首次进入 Warn 档时做一次，之后复用
+                    budget_cmd_probed = true;
+                    budget_verify_cmd = budget_verification_command(m_config, m_cwd);
+                }
+                const double elapsed_s =
+                    std::chrono::duration<double>(std::chrono::steady_clock::now() - loop_start)
+                        .count();
+                const std::string hint = prompt::format_budget_hint(
+                    budget, total_budget, elapsed_s,
+                    tier == prompt::BudgetTier::Warn ? budget_verify_cmd : std::string{});
+                messages.push_back(ChatMessage::system(hint));
+                LOG_INFO("[react_loop] #83 budget hint injected (tier={}, {}/{})",
+                         tier == prompt::BudgetTier::Critical ? "critical" : "warn", budget,
+                         total_budget);
+            }
+        }
 
         // --- 达上限评审门：基础预算耗尽且本轮未产出 final_answer → 评审是否追加 ---
         if (budget <= 0 && m_config.review_enabled &&
