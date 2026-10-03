@@ -1,9 +1,10 @@
 /**
  * @file test_headless.cpp
  * @brief headless（非交互执行模式）单元测试 —— Issue #77
- * @details 覆盖 p0-test-plan §1.2 A 的 HL-01 ~ HL-12：
+ * @details 覆盖 p0-test-plan §1.2 A 的 HL-01 ~ HL-14：
  *          输出序列化（text / json / stream-json）、退出码语义、权限模式映射、
- *          文本回退链、空任务、无人值守不阻塞、与 #81 git 检查点的耦合。
+ *          文本回退链、空任务、无人值守不阻塞、与 #81 git 检查点的耦合、
+ *          以及 #126 的显式目标声明（--goal 非法即报错 / 合法即落盘）。
  *
  *          headless 是评测链路入口，此前零测试且失败模式是「静默输出错内容」，
  *          因此这里对输出内容做逐字断言而非仅看退出码。
@@ -13,6 +14,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -23,6 +25,7 @@
 
 #include "agent/headless/headless.h"
 #include "agent/headless/headless_internal.h"  // @internal 可测件
+#include "agent/config/app_config.h"           // #126：keys::AGENT_GOAL
 #include "agent/core/react_loop.h"
 #include "agent/tool/context.h"
 #include "agent/util/git_checkpoint.h"
@@ -306,4 +309,42 @@ TEST_CASE_METHOD(HeadlessFixture, "HL-12b 非 git 仓库不写 git_diff_summary 
     REQUIRE(r.exit_code == 0);
     const auto j = nlohmann::json::parse(r.output);
     REQUIRE_FALSE(j.contains("git_diff_summary"));
+}
+
+// ============================================================================
+// HL-13 / HL-14：#126 显式目标声明
+// ============================================================================
+
+TEST_CASE_METHOD(HeadlessFixture, "HL-13 无法识别的 --goal 立即报错，不静默放行",
+                 "[headless][issue126]") {
+    // 回归点：拼错的目标（tests-pass）若被 parse_goal 解析成 None 还继续跑，
+    // 门禁就会以「无目标」静默放行 —— 正是 #126 首轮跑分踩到的静默失效。
+    auto opts = make_opts();
+    opts.goal = "tests-pass";
+    queue_text("done");
+
+    const auto r = run(opts);
+    REQUIRE(r.exit_code == 2);
+    REQUIRE(r.output.find("无法识别的 --goal") != std::string::npos);
+    // 关键：绝不能当成"正常完成"返回 0
+    REQUIRE(r.output.find("done") == std::string::npos);
+}
+
+TEST_CASE_METHOD(HeadlessFixture, "HL-14 合法 --goal 写入 agent.goal 供门禁读取",
+                 "[headless][issue126]") {
+    // 夹具已把 cwd 设为临时沙箱，造一个必然存在的标记文件即可让门禁判定通过
+    {
+        std::ofstream marker("marker.txt");
+        REQUIRE(marker.is_open());
+        marker << "x\n";
+    }
+
+    auto opts = make_opts();
+    opts.goal = "file_exists:marker.txt";
+    queue_text("done");
+
+    const auto r = run(opts);
+    REQUIRE(r.exit_code == 0);
+    // --goal 必须在 build_loop 读 agent.goal 之前落盘，否则门禁拿到的仍是空目标
+    REQUIRE(cfg.get_or<std::string>(keys::AGENT_GOAL, "") == "file_exists:marker.txt");
 }
