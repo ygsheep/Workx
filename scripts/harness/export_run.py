@@ -135,8 +135,29 @@ def read_verifier_stdout(trial_dir: Path) -> str:
 
 def write_transcript(stream: Path, out_path: Path, task: str) -> dict[str, Any]:
     lines = [json.loads(l) for l in stream.read_text(encoding="utf-8").splitlines() if l.strip()]
-    steps, result = lines[:-1], lines[-1]
     trial = trial_dir_of(stream)
+
+    # ⚠️ agent 被超时杀掉时 `tee` 出来的 stream 是 0 字节（容器没了，产物没落盘）。
+    #   这不是「空轨迹」，是**没有证据** —— 必须写成说明性文件而不是静默跳过，
+    #   更不能伪造一条空会话（会让人误以为 agent 什么都没做）。
+    if not lines:
+        reward = read_reward(trial)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with out_path.open("w", encoding="utf-8") as f:
+            f.write(f"# {task} · 运行轨迹\n\n")
+            f.write("> ⚠️ **轨迹为空：本次 run 没有留下任何步骤记录。**\n>\n")
+            f.write("> 成因通常是 agent 撞上任务超时被强杀 —— 容器随之销毁，\n")
+            f.write("> `tee` 到 `/tmp/workx-stream.jsonl` 的内容没能取回。\n")
+            f.write("> **这不是「agent 什么都没做」，是「我们不知道它做了什么」。**\n")
+            f.write("> 该 run 已从 `collect_metrics.py` 的验证类指标分母中剔除。\n\n")
+            f.write("| 项 | 值 |\n| --- | --- |\n")
+            f.write(f"| job | `{trial.parent.name}` |\n")
+            f.write(f"| trial | `{trial.name}` |\n")
+            f.write(f"| reward | **{reward or 'n/a'}** |\n")
+            f.write(f"| stream 大小 | 0 字节 |\n")
+        return {"steps": 0, "tools": [], "reward": reward, "empty": True}
+
+    steps, result = lines[:-1], lines[-1]
     usage = result.get("usage") or {}
 
     reward = read_reward(trial)
@@ -192,7 +213,7 @@ def write_transcript(stream: Path, out_path: Path, task: str) -> dict[str, Any]:
             f.write(fence(vout))
             f.write("\n")
 
-    return {"steps": len(steps), "tools": tool_seq, "reward": reward}
+    return {"steps": len(steps), "tools": tool_seq, "reward": reward, "empty": False}
 
 
 # ============================================================================
@@ -283,7 +304,12 @@ def export_one(stream: Path, outdir: Path, taskset_root: Path, model: str, cwd: 
     sess_path = outdir / f"{task}.session.jsonl"
 
     info = write_transcript(stream, md_path, task)
-    nrows, sid = write_session(stream, sess_path, task, instruction, model, cwd, start)
+
+    # 空轨迹不生成会话：造一条只有 user + session_end 的会话会让人误读成
+    # 「agent 什么都没做」，而真相是「我们不知道它做了什么」。
+    nrows, sid = 0, ""
+    if not info.get("empty"):
+        nrows, sid = write_session(stream, sess_path, task, instruction, model, cwd, start)
 
     if copy_raw:
         raw_dir = outdir / "raw"
@@ -358,6 +384,17 @@ def self_test() -> int:
         rows = [json.loads(l) for l in (out / "sample-task.session.jsonl")
                 .read_text(encoding="utf-8").splitlines() if l.strip()]
 
+        # 空轨迹：agent 被超时杀掉时 tee 出来的 stream 是 0 字节。
+        # 曾经在这里 IndexError 崩掉整个导出（真实 20 题跑分踩到）。
+        empty_dir = root / "job2" / "empty-task__XYZ" / "artifacts" / "tmp"
+        empty_dir.mkdir(parents=True)
+        esp = empty_dir / "workx-stream.jsonl"
+        esp.write_text("", encoding="utf-8")
+        out2 = root / "export2"
+        info2 = export_one(esp, out2, DEFAULT_TASKSET_ROOT, "test-model", "/app",
+                           copy_raw=False)
+        md2 = (out2 / "empty-task.transcript.md").read_text(encoding="utf-8")
+
         checks = [
             ("轨迹 Markdown 生成", (out / "sample-task.transcript.md").exists()),
             ("会话行数 = 6 步 + 4 条元信息", len(rows) == 10),
@@ -375,6 +412,9 @@ def self_test() -> int:
             ("verifier stdout 读到", "ok" in (out / "sample-task.transcript.md")
              .read_text(encoding="utf-8")),
             ("工具序列正确", info["tools"] == ["Bash", "Write"]),
+            ("空轨迹不崩且标记 empty", info2.get("empty") is True and info2["steps"] == 0),
+            ("空轨迹不伪造会话", not (out2 / "empty-task.session.jsonl").exists()),
+            ("空轨迹留说明而非静默跳过", "不知道它做了什么" in md2),
         ]
         ok = True
         for name, passed in checks:
@@ -420,6 +460,10 @@ def main() -> int:
     print(f"导出 {len(streams)} 个 trial → {outdir}")
     for sp in streams:
         info = export_one(sp, outdir, taskset, args.model, args.cwd, args.copy_raw)
+        if info.get("empty"):
+            print(f"  {info['task']}: ⚠️ 轨迹为空（agent 超时被杀，无证据）"
+                  f" / reward {info['reward'] or 'n/a'} / 不生成会话")
+            continue
         print(f"  {info['task']}: {info['steps']} 步 / session {info['session_rows']} 行 "
               f"/ reward {info['reward'] or 'n/a'}")
         if args.to_workx_projects:

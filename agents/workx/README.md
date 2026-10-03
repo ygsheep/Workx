@@ -8,11 +8,14 @@
 - 适配器本体：`__init__.py`（`WorkxAgent(BaseInstalledAgent)`）
 - 指标采集器：`scripts/harness/collect_metrics.py`
 
-> ✅ **首轮 smoke 已跑通**（2026-10-03，Docker Desktop 29.6.1 + DeepSeek `deepseek-v4-flash`）：
-> `regex-log` 一题 **reward = 1.0**，verifier `1 passed / 0 failed`；agent 11 iterations /
-> 10 tool calls / 71s。三份产物（stream / log / audit）均已取回，#121 的日志修复确认生效。
-> ⚠️ **n=1 不构成结论**：#78 的行为统计口径（验证命令执行率 ≥90%）要跑有代表性的子集才判得动，
-> 放量前请先读「已知阻塞」第 2、5 条。
+> ✅ **smoke 已跑通**：`regex-log` 一题 reward = 1.0（agent 11 iterations / 10 tool calls / 71s），
+> 三份产物（stream / log / audit）均已取回，#121 的日志修复确认生效。
+>
+> ✅ **首轮 20 题已跑完**（2026-10-03，DeepSeek `deepseek-v4-flash`，`-k 1 -n 3`，墙钟 1h49m）：
+> **pass@1 = 45.0%（9 / 20）**。同时采到 #117 行为统计：**验证命令执行率 6.7%（1/15），未达 ≥90%**。
+> 完整口径、题单与三个必须交代的偏差见 `docs/agent-harness-assessment.md` §3 Step 2c。
+> ⚠️ 不是随机样本（按容量排除 16 道超时 >30min 的题后取字母序前 20）、`-k 1` 无置信区间、
+> 无对照组 —— **只能当量级确认，不能当结论**。放量前请先读「已知阻塞」。
 
 ---
 
@@ -62,14 +65,62 @@ harbor run -d terminal-bench@2.0 -a agents.workx:WorkxAgent -i regex-log \
 2. `/agent/command-*/stdout.txt` 里有没有 NDJSON（每行一个 step）
 3. `/verifier/reward.txt` 是不是 0 或 1
 
-## 3. 首轮跑分：30 题 × 3 次
+## 3. 跑分
 
-对齐 HarnessTax 口径（任务先平均、再 bootstrap 10k 取 95% CI）：
+### 3.1 先把题库拉到本地（一次）
+
+`harbor run -d terminal-bench@2.0` 每次都要去 registry 拉题，慢且容易卡。
+先整包下载一次，之后一律用 `-p` 走本地路径：
 
 ```bash
-harbor run --dataset terminal-bench@2.0 -a agents.workx:WorkxAgent -m <model> \
-           --n-concurrent 4 -k 3
+harbor dataset download terminal-bench@2.0 -o .cache/tb2
 ```
+
+> ⚠️ 这一步实测要 **十几分钟**，很容易被误判成卡死。实测一次 15 分钟 timeout 杀掉后
+> 发现 34 MB / 77 题其实**已经下完了**（含 instruction.md / task.toml / tests / environment）。
+> 超时候先 `ls .cache/tb2/terminal-bench | wc -l` 看看，别急着重下。
+
+### 3.2 选题规则（可复现，不按难度挑）
+
+Terminal-Bench 2.0 里有 16 题的 `[agent] timeout_sec > 1800`，最夸张的
+`build-pov-ray` 是 **12000 秒（3.3 小时）**、`sam-cell-seg` 7200 秒、`compile-compcert` 2400 秒。
+单机跑分扛不住，按**机器容量**排除这 16 题，在剩下的 61 题里按字母序取前 N。
+
+> 这是**容量排除，不是难度挑选** —— 报分数时必须交代，否则等于挑软柿子。
+
+### 3.3 并发数：看内存而不是 CPU
+
+宿主实测 **12 CPU / 8 GB 内存**（Docker Desktop）。题目普遍声明 `cpus=1 / mem=2G`，
+`-n 4` 峰值会到 8～11 GB，有 OOM 风险 → **用 `-n 3`**。
+
+### 3.4 一条命令
+
+```bash
+export MSYS_NO_PATHCONV=1
+export PYTHONPATH="D:/develop/Workspace/workx"      # ⚠️ 必须 Windows 形式，$PWD 是 POSIX 路径
+export WORKX_API_KEY=... WORKX_BASE_URL=https://api.deepseek.com
+export WORKX_MODEL=deepseek-v4-flash
+export WORKX_AGENT_BINARY_PATH=/opt/workx-bin/workx-linux-amd64
+
+harbor run \
+  -p "D:/develop/Workspace/workx/.cache/tb2/terminal-bench" \
+  -a agents.workx:WorkxAgent -m deepseek-v4-flash \
+  -i <题名> ...                       # 按 3.2 的规则列出
+  -k 1 -n 3 --force-build -y \
+  --artifact /tmp/workx-stream.jsonl \
+  --artifact /tmp/workx-run.log \
+  --artifact /tmp/workx-audit.jsonl \
+  --mounts '[{"type":"bind","source":"D:/develop/Workspace/workx/build/linux","target":"/opt/workx-bin","read_only":true}]'
+```
+
+跑完导出轨迹：
+
+```bash
+python scripts/harness/export_run.py --runs-dir jobs/<job-id> \
+       --model deepseek-v4-flash --copy-raw --to-workx-projects
+```
+
+对齐 HarnessTax 口径（任务先平均、再 bootstrap 10k 取 95% CI）时把 `-k 1` 换成 `-k 3`。
 
 > 模型对照建议：Workx 主打 DeepSeek / GLM / Kimi，跑英文 Python 题会吃亏。
 > **同时报一个 Claude / GPT 对照组**，才能把「harness 贡献」和「模型贡献」分开。
@@ -201,9 +252,35 @@ harbor run ... --mounts '[{"type":"bind","source":"<宿主产物目录>","target
 4. ⚠️ **容器内 github.com 不通**（未显式设代理时）：源码构建回退路径里的
    `git clone vcpkg` 会失败，所以这条路径目前**只在有代理的环境可用**。预构建快路径不受影响。
 
-5. 🔴 **门禁在无项目线索的题上不介入（#126）**：`detect_default_goal()` 只认
+5. 🔴 **并发构建会把镜像构建拖过 600 秒上限**：题目声明的
+   `[environment] build_timeout_sec` 普遍是 **600 秒**，而 `-n 3` 时三个构建互相抢资源，
+   实测首批 3 题里 **2 题直接 `EnvironmentStartTimeoutError`**（首轮 20 题就是这么废掉的）。
+   → 单独放宽构建超时、不要动 agent 超时：
+   **`--environment-build-timeout-multiplier 4`**（600 → 2400 秒）。
+   加上之后 20 题里只剩 1 题环境超时（`fix-code-vulnerability`）。
+
+6. ⚠️ **Harbor 报「Docker daemon is not running」可能是误报**：它的 preflight 是
+   `subprocess.run(["docker", "info"], timeout=10)`，Docker Desktop **冷启动超过 10 秒**就
+   被判成没启动（实测热的时候 `docker info` 只要 2.4s）。先 `docker info` 预热再重试一次。
+
+6. ⚠️ **`export PYTHONPATH=$PWD` 在 Git Bash 下不生效**：`$PWD` 是 POSIX 路径，
+   Windows Python 不认，会报 `No module named 'agents'` → 必须写
+   `export PYTHONPATH="D:/develop/Workspace/workx"`。
+
+7. 🔴 **门禁在无项目线索的题上不介入（#126）**：`detect_default_goal()` 只认
    `CMakeLists.txt+CTestTestfile.cmake` / `Cargo.toml` / `go.mod` / `package.json` /
    `Makefile`，像 `regex-log` 这种 `/app` 空目录的题探测不到目标 → #78 门禁完全不生效
    （首轮 453 行日志里 `#78` 标记 0 次）。
    → 短期靠 `WORKX_GOAL` 按题面显式声明；修复前「门禁触发率」这一项**结构性偏低**，
      不要拿它直接判达标/不达标。
+   → ✅ **PR #127 后这项不再静默**：20 题实测里有 7 个 trial 落了
+     `#78 gate inactive (no goal under '/app'; set WORKX_GOAL/--goal)`，
+     能区分「门禁没介入」和「门禁判定通过」了。
+
+8. ⚠️ **agent 超时 → stream 变 0 字节，且 verifier 可能照样判过**：
+   撞上 `AgentTimeoutError` 时容器被销毁，`tee` 出来的 `/tmp/workx-stream.jsonl` 取不回来。
+   20 题里有 **4 个是 0 字节**，其中 3 个（cancel-async-tasks / extract-elf /
+   break-filter-js-from-html）**reward 仍是 1.0** —— 活干完了，只是没在超时前收尾。
+   → 采集器会把这 4 个从**验证类指标的分母**里剔除（`stream_empty`，不是「没跑验证命令」，
+     是「不知道它跑了什么」）；导出器给它们写说明性轨迹且**不生成会话**。
+   → 别把「reward=0 的题」直接当成「agent 做错了」，先查 stream 是不是空的。
