@@ -4,8 +4,13 @@
  * @details 实现 Thought/Action/Observation 三阶段显式分离的 agent 循环，
  *          替代 ChatSession 中的扁平 while 循环。
  *          使用原生 function calling（Anthropic/OpenAI），不依赖文本解析。
- * @version 1.2.0
+ * @version 1.3.0
  * @date 2026-07
+ *
+ * @par 版本沿革
+ * - 1.3.0（Issue #133）：评审器失效不再终止任务。
+ *   `ReviewerDecision::valid` 区分"明确裁决"与"评审器不可信"，后者一律 fail-open；
+ *   新增 `Config::review_max_tokens`（原硬编码 200），`review_stall_window` 默认 4→8。
  */
 
 #pragma once
@@ -194,12 +199,21 @@ class WORKX_API ReActLoop {
         int max_iterations = 40;
         /// 停滞/超限评审开关（内部一次性评审器，不暴露为工具 schema）
         bool review_enabled = true;
-        /// 停滞判定窗口：同一 (工具名+规范化输入) 签名在最近 N 次调用内再次出现即视为循环
-        int review_stall_window = 4;
+        /// @brief 停滞判定窗口：同一 (工具名+规范化输入) 签名在最近 N 次调用内再次出现即视为循环
+        /// @details #133：由 4 提到 8。窗口 4 太窄——"Read 同一文件 → Edit → 再 Read 确认"
+        ///          这类正常节奏会被误判成循环，而评审器一失效就把任务杀掉，
+        ///          两个缺陷叠加才造成 3 题在 26~34 轮上被误杀。
+        int review_stall_window = 8;
         /// 评审"继续"时追加的额外迭代预算（块大小）
         int review_extra_budget = 8;
         /// @brief 达上限评审的"继续"允许次数上限（硬性总预算 = max_iterations + extra*grants）
+        /// @details #133：同时用作评审器连续失效的熔断阈值——连续失败达此值后不再调用评审器，
+        ///          直接按 fail-open 处理，避免每个停滞点都白烧一次 LLM 调用。
         int review_max_grants = 2;
+        /// @brief #133：评审器请求的 max_tokens（原硬编码 200）
+        /// @details 200 太小：reasoning 模型会把预算全花在思维链上，content 空返回。
+        ///          评审器只需输出一行 JSON，但要给推理链留出余量，故默认 512。
+        int review_max_tokens = 512;
         CacheAwareCompactor::Config compactor_cfg;  ///< DS_CACHE: 缓存感知压缩配置
 
         /// @brief Issue #50：通用 Hook 事件系统（可空；空则全部跳过，零开销）
@@ -405,10 +419,21 @@ class WORKX_API ReActLoop {
     /// @brief 内部评审器决定（停滞检测 / 达上限时判断"是否继续"）
     /// @details 只喂关键信息（目标、工具序列、最近 observation、预算），
     ///          返回 continue（注入纠偏指令、追加预算）或 wrap_up（优雅收尾）。
+    ///
+    /// @par Issue #133：评审器会"静默失效"
+    /// 实测（Terminal-Bench 首轮 20 题）评审器 9 次被调用、9 次拿不到可解析的 JSON
+    /// ——DeepSeek reasoner 把 200 token 全花在 reasoning 上，content 为空，
+    /// old code 于是按"默认 wrap_up"把还在正常推进的任务直接杀掉（20 题里 9 题）。
+    /// 判"能否停"的组件失效时，正确取向是 fail-open（继续），让 max_iterations /
+    /// 预算去兜底终止，而不是让一个失效的裁判来终止。
     struct ReviewerDecision {
         bool continue_loop = false;  ///< true=注入纠偏继续; false=收尾
-        std::string correction;      ///< continue 时注入到 messages 的纠偏指令
-        std::string wrap_summary;    ///< wrap_up 时的收尾摘要（为空回退部分进展）
+        /// @brief #133：本次裁决是否可信（评审器真的给出了 continue/wrap_up）
+        /// @details false 表示评审器失效（提交失败 / 无 JSON / 解析失败 / 未知 action），
+        ///          此时 continue_loop 无意义，调用方必须按 fail-open 处理。
+        bool valid = false;
+        std::string correction;    ///< continue 时注入到 messages 的纠偏指令
+        std::string wrap_summary;  ///< wrap_up 时的收尾摘要（为空回退部分进展）
     };
 
     /// @brief 工具调用签名（停滞检测窗口元素）
@@ -481,7 +506,10 @@ class WORKX_API ReActLoop {
 
     /// @brief 内部评审器：一次性 completion 判断"是否继续"
     /// @details 只喂关键信息（用户目标、最近工具执行序列与观察、当前预算），
-    ///          返回 ReviewerDecision。失败/解析异常时默认 wrap_up（不冒险继续）。
+    ///          返回 ReviewerDecision。
+    /// @note Issue #133：失败/解析异常时返回 valid=false（**不再**默认 wrap_up）。
+    ///       评审器是"能否停"的裁判，裁判失效时应 fail-open 交由预算兜底，
+    ///       而不是让失效的裁判终止一个正在正常推进的任务。
     /// @param user_request 用户原始请求摘要（截断）
     /// @param tool_history 最近工具执行日志（tool_name: 首行观察）
     /// @param iteration 当前迭代

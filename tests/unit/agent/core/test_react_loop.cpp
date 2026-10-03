@@ -955,6 +955,119 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop at-limit reviewer wraps up gracefu
 }
 
 // ============================================================================
+// Issue #133：评审器失效不得终止任务（fail-open + 熔断）
+// ============================================================================
+// 背景：Terminal-Bench 首轮 20 题实测，评审器被调用 9 次、9 次拿不到可解析 JSON
+// （reasoning 模型把 max_tokens=200 全花在思维链上，content 为空）。旧代码把这种
+// "拿不到裁决"当作 wrap_up，直接杀掉 9 个还在正常推进的任务（其中 3 题本来能过）。
+
+TEST_CASE_METHOD(ReActLoopFixture, "#133: 评审器无裁决时停滞分支 fail-open 继续",
+                 "[react_loop][stall][issue133]") {
+    ReActLoop::Config config;
+    config.max_iterations = 10;
+    config.review_stall_window = 2;
+    auto loop = make_loop(config);
+
+    // 迭代1 Echo(a)；迭代2 再次 Echo(a) → 停滞；评审器返回非 JSON（失效）；迭代3 final
+    make_tool_call_reader("tu_1", "Echo", R"({"text":"a"})");
+    make_tool_call_reader("tu_2", "Echo", R"({"text":"a"})");
+    make_text_reader("我来想想……（没有任何 JSON）");  // 评审器：无裁决
+    make_text_reader("done after fail-open");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("fix task")};
+    auto result = loop->run(messages, "", registry->get_all_schemas(), should_cancel);
+
+    // 关键：不得因评审器失效而判定失败/收尾
+    REQUIRE_FALSE(result.was_error);
+    REQUIRE_FALSE(result.was_interrupted);
+    REQUIRE(result.final_answer == "done after fail-open");
+    REQUIRE(result.total_iterations == 3);
+    // 注入的是兜底纠偏指令（而非评审器给的摘要）
+    REQUIRE(messages.size() == 5);
+    REQUIRE(messages[3].role == ChatMessage::Role::System);
+    REQUIRE(messages[3].content.find("换一条更高效的路径") != std::string::npos);
+    REQUIRE(echo_tool->call_count == 1);
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#133: 评审器无裁决时达上限分支授予追加预算",
+                 "[react_loop][limit-review][issue133]") {
+    ReActLoop::Config config;
+    config.max_iterations = 2;
+    config.review_extra_budget = 5;
+    config.review_max_grants = 2;
+    auto loop = make_loop(config);
+
+    make_tool_call_reader("tu_1", "Echo", R"({"text":"a"})");  // 迭代1
+    make_tool_call_reader("tu_2", "Echo", R"({"text":"b"})");  // 迭代2（不同输入，不触发停滞）
+    make_text_reader("（空返回，无 JSON）");                      // 达上限评审：无裁决
+    make_text_reader("done with fail-open budget");             // 追加预算后迭代3
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("task")};
+    auto result = loop->run(messages, "", registry->get_all_schemas(), should_cancel);
+
+    REQUIRE_FALSE(result.was_error);
+    REQUIRE(result.final_answer == "done with fail-open budget");
+    REQUIRE(result.total_iterations == 3);  // 评审失效也要给预算，而不是收尾
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#133: 评审器连续失效后熔断，不再重复调用",
+                 "[react_loop][stall][issue133]") {
+    ReActLoop::Config config;
+    config.max_iterations = 6;
+    config.review_stall_window = 2;
+    config.review_max_grants = 1;  // 熔断阈值 = max(1, 1) = 1 → 首次失效即熔断
+    auto loop = make_loop(config);
+
+    // 迭代1 Echo(a) → 窗口 [a]
+    make_tool_call_reader("tu_1", "Echo", R"({"text":"a"})");
+    // 迭代2 Echo(a) → 停滞 → 评审第 1 次（失效）→ 熔断计数=1 → fail-open 继续
+    make_tool_call_reader("tu_2", "Echo", R"({"text":"a"})");
+    make_text_reader("no decision here");  // 评审器（唯一一次调用）
+    // 迭代3 Echo(a) → 窗口清空后重新累积 [a]
+    make_tool_call_reader("tu_3", "Echo", R"({"text":"a"})");
+    // 迭代4 Echo(a) → 停滞 → 熔断已开，不再调用评审器 → fail-open 继续
+    make_tool_call_reader("tu_4", "Echo", R"({"text":"a"})");
+    // 迭代5 收敛
+    make_text_reader("finished without reviewer");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("fix task")};
+    auto result = loop->run(messages, "", registry->get_all_schemas(), should_cancel);
+
+    REQUIRE_FALSE(result.was_error);
+    REQUIRE(result.final_answer == "finished without reviewer");
+    REQUIRE(result.total_iterations == 5);
+    // 5 次迭代 Thought + 1 次评审调用 = 6；若未熔断会是 7（多一次注定无果的评审请求）
+    REQUIRE(provider->submit_count == 6);
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#133: 评审器返回未知 action 视为不可信裁决",
+                 "[react_loop][stall][issue133]") {
+    ReActLoop::Config config;
+    config.max_iterations = 10;
+    config.review_stall_window = 2;
+    auto loop = make_loop(config);
+
+    make_tool_call_reader("tu_1", "Echo", R"({"text":"a"})");
+    make_tool_call_reader("tu_2", "Echo", R"({"text":"a"})");
+    make_text_reader(R"({"action":"maybe","reason":"not sure"})");  // 既非 continue 也非 wrap_up
+    make_text_reader("kept going");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("fix task")};
+    auto result = loop->run(messages, "", registry->get_all_schemas(), should_cancel);
+
+    REQUIRE_FALSE(result.was_error);
+    REQUIRE(result.final_answer == "kept going");
+}
+
+TEST_CASE("#133: 评审器默认参数放宽（窗口 8 / max_tokens 512）", "[react_loop][issue133]") {
+    const ReActLoop::Config cfg;
+    // 窗口 4 太窄：Read→Edit→Read 的正常节奏会被误判成循环
+    REQUIRE(cfg.review_stall_window == 8);
+    // 200 太小：reasoning 模型把预算吃光后 content 为空
+    REQUIRE(cfg.review_max_tokens == 512);
+}
+
+// ============================================================================
 // Issue #78：FinalAnswer 前强制验证闭环（PreCompletion 门禁）
 // ============================================================================
 // 用 FileExists 目标驱动门禁：不依赖真实构建环境，结果确定且执行快。

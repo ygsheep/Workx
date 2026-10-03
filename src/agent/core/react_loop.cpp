@@ -466,7 +466,9 @@ ReActLoop::ReviewerDecision ReActLoop::run_reviewer(const std::string& user_requ
                                                     const std::vector<std::string>& tool_history,
                                                     int iteration, int remaining_budget,
                                                     bool at_limit) const {
-    ReviewerDecision decision;  // 默认 continue_loop=false（wrap_up），失败即收尾
+    // #133：默认 valid=false —— 评审器未给出可信裁决。
+    // 调用方必须以 fail-open 处理（继续），不能拿一个失效的裁判去终止任务。
+    ReviewerDecision decision;
     if (!m_config.review_enabled) {
         return decision;
     }
@@ -495,22 +497,24 @@ ReActLoop::ReviewerDecision ReActLoop::run_reviewer(const std::string& user_requ
     CompletionRequest req;
     req.stream = false;
     req.temperature = 0.0f;
-    req.max_tokens = 200;
+    req.max_tokens = m_config.review_max_tokens;  // #133：>0 才不会把 reasoning 预算挤成空 content
     req.messages.push_back(ChatMessage::system(kSys));
     req.messages.push_back(ChatMessage::user(ctx));
 
     auto reader = m_provider->submit_completion(req);
     if (!reader) {
-        LOG_WARN("[react_loop] reviewer: submit failed, default wrap_up");
+        LOG_WARN("[react_loop] reviewer: submit failed, decision invalid (#133 fail-open)");
         return decision;
     }
 
     std::string text;
+    std::string reasoning;  // #133：仅用于诊断——reasoning 模型常把预算全花在思维链上
     StreamChunk chunk;
     while (true) {
         StreamState state = reader->next([]() { return false; }, chunk);
         if (state == StreamState::HasData || state == StreamState::Complete) {
             text += chunk.content_delta;
+            reasoning += chunk.reasoning_delta;
             if (state == StreamState::Complete) break;
         } else {
             break;  // Error / Cancelled
@@ -526,19 +530,29 @@ ReActLoop::ReviewerDecision ReActLoop::run_reviewer(const std::string& user_requ
             if (j.is_object()) {
                 const std::string action = j.value("action", "");
                 const std::string reason = j.value("reason", "");
+                // #133：只有明确解析出 continue / wrap_up 才算一次可信裁决
                 if (action == "continue") {
                     decision.continue_loop = true;
+                    decision.valid = true;
                     decision.correction = reason;
-                } else {
+                } else if (action == "wrap_up") {
                     decision.continue_loop = false;
+                    decision.valid = true;
                     decision.wrap_summary = reason;
+                } else {
+                    LOG_WARN("[react_loop] reviewer: unknown action='{}', decision invalid",
+                             action);
                 }
             }
         } catch (...) {
-            LOG_WARN("[react_loop] reviewer: failed to parse decision, default wrap_up");
+            LOG_WARN("[react_loop] reviewer: failed to parse decision, decision invalid");
         }
     } else {
-        LOG_WARN("[react_loop] reviewer: no JSON decision in response, default wrap_up");
+        // #133：最常见的失效形态——content 为空（预算被 reasoning 吃光）
+        LOG_WARN(
+            "[react_loop] reviewer: no JSON decision (content={}B, reasoning={}B), "
+            "decision invalid (#133 fail-open)",
+            text.size(), reasoning.size());
     }
 
     if (decision.continue_loop && decision.correction.empty()) {
@@ -547,8 +561,8 @@ ReActLoop::ReviewerDecision ReActLoop::run_reviewer(const std::string& user_requ
             "件事。";
     }
 
-    LOG_INFO("[react_loop] reviewer decision: {}, reason='{}'",
-             decision.continue_loop ? "continue" : "wrap_up",
+    LOG_INFO("[react_loop] reviewer decision: {} (valid={}), reason='{}'",
+             decision.continue_loop ? "continue" : "wrap_up", decision.valid,
              decision.continue_loop ? decision.correction : decision.wrap_summary);
     return decision;
 }
@@ -764,6 +778,9 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
     int budget = std::max(1, m_config.max_iterations);
     int iteration = 1;
     int review_grants = 0;             ///< 达上限评审"继续"已允许的次数
+    // #133：评审器连续失效计数（熔断）——连续失败达到阈值后不再调用，直接 fail-open，
+    // 避免"评审器坏掉"时每个停滞点都白烧一次 LLM 调用（实测 9/9 失效）。
+    int reviewer_failures = 0;
     bool graceful_stop = false;        ///< 内部评审 wrap_up 的优雅收尾（非硬错误）
     bool hard_budget_reached = false;  ///< 预算(含追加)真正耗尽且未产出 final_answer
     int verify_attempts = 0;  ///< #78：本 run 已发生的验证失败次数（跨迭代累计，用于重试封顶）
@@ -951,19 +968,50 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
             if (stall) {
                 LOG_WARN("[react_loop] iteration={} stall detected (repeated tool call)",
                          iteration);
-                ReviewerDecision dec = run_reviewer(primary_request, tool_history, iteration,
-                                                    budget, /*at_limit*/ false);
-                if (dec.continue_loop) {
+
+                // #133：评审器熔断 + fail-open
+                // - 评审器连续失效达阈值后不再调用（省掉注定拿不到结果的 LLM 请求）；
+                // - 无论"没调用"还是"调用了但裁决不可信"，都按"继续"处理，
+                //   把终止权交回预算，而不是交给一个失效的裁判。
+                ReviewerDecision dec;
+                if (reviewer_failures >= std::max(1, m_config.review_max_grants)) {
+                    LOG_WARN(
+                        "[react_loop] reviewer circuit open ({} consecutive failures), "
+                        "skip reviewer and fail-open",
+                        reviewer_failures);
+                } else {
+                    dec = run_reviewer(primary_request, tool_history, iteration, budget,
+                                       /*at_limit*/ false);
+                    if (dec.valid) {
+                        reviewer_failures = 0;
+                    } else {
+                        ++reviewer_failures;
+                        LOG_WARN(
+                            "[react_loop] reviewer unusable at stall, fail-open "
+                            "(consecutive failures={})",
+                            reviewer_failures);
+                    }
+                }
+
+                // 只有"评审器明确裁决 wrap_up"才收尾；其余一律继续
+                if (!dec.valid || dec.continue_loop) {
+                    std::string correction = dec.correction;
+                    if (correction.empty()) {
+                        // 与评审器"continue 但没给 reason"时同一套兜底话术
+                        correction = "检测到重复动作，请回顾当前进展并换一条更高效的路径完成"
+                                     "目标，不要再次调用相同工具做同一件事。";
+                    }
                     // 纠偏续跑：不执行重复工具（避免悬空 tool_calls），注入指令进入下轮 Thought
-                    messages.push_back(ChatMessage::system(dec.correction));
+                    messages.push_back(ChatMessage::system(correction));
                     recent_calls.clear();
                     --budget;
                     hard_budget_reached = (budget <= 0);  // 停滞连吃预算耗尽也判硬错误
                     ++iteration;
-                    LOG_INFO("[react_loop] stall recovery: continue (budget={})", budget);
+                    LOG_INFO("[react_loop] stall recovery: continue (budget={}, reviewer_valid={})",
+                             budget, dec.valid);
                     continue;  // 回到 while 条件，下一轮 Thought 重新规划
                 }
-                // wrap_up：优雅收尾（非硬错误）
+                // wrap_up：评审器明确裁决收尾（非硬错误）
                 graceful_stop = true;
                 result.final_answer = dec.wrap_summary.empty()
                                           ? "任务因检测到工具循环而由内部评审器中止。"
@@ -1316,20 +1364,41 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
         // --- 达上限评审门：基础预算耗尽且本轮未产出 final_answer → 评审是否追加 ---
         if (budget <= 0 && m_config.review_enabled &&
             review_grants < std::max(0, m_config.review_max_grants)) {
-            ReviewerDecision dec =
-                run_reviewer(primary_request, tool_history, iteration, budget, /*at_limit*/ true);
-            if (dec.continue_loop) {
+            // #133：评审器熔断 + fail-open（同停滞分支）
+            ReviewerDecision dec;
+            if (reviewer_failures >= std::max(1, m_config.review_max_grants)) {
+                LOG_WARN(
+                    "[react_loop] reviewer circuit open ({} consecutive failures), "
+                    "skip reviewer and fail-open at limit",
+                    reviewer_failures);
+            } else {
+                dec = run_reviewer(primary_request, tool_history, iteration, budget,
+                                   /*at_limit*/ true);
+                if (dec.valid) {
+                    reviewer_failures = 0;
+                } else {
+                    ++reviewer_failures;
+                    LOG_WARN(
+                        "[react_loop] reviewer unusable at limit, fail-open "
+                        "(consecutive failures={})",
+                        reviewer_failures);
+                }
+            }
+
+            // 只有"评审器明确裁决 wrap_up"才收尾；裁决不可信时授予追加预算继续
+            if (!dec.valid || dec.continue_loop) {
                 ++review_grants;
                 budget += std::max(1, m_config.review_extra_budget);
-                const std::string correction = dec.correction.empty()
-                                                   ? "已到达默认迭代上限，请尽快收敛：若任务完成请"
-                                                     "给出最终答复，否则换更高效的路径。"
-                                                   : dec.correction;
+                std::string correction = dec.correction;
+                if (correction.empty()) {
+                    correction = "已到达默认迭代上限，请尽快收敛：若任务完成请给出最终答复，"
+                                 "否则换更高效的路径。";
+                }
                 messages.push_back(ChatMessage::system(correction));
                 LOG_WARN(
                     "[react_loop] base budget exhausted, reviewer grants extra {} "
-                    "iterations (grant #{}), budget now {}",
-                    m_config.review_extra_budget, review_grants, budget);
+                    "iterations (grant #{}, reviewer_valid={}), budget now {}",
+                    m_config.review_extra_budget, review_grants, dec.valid, budget);
             } else {
                 // wrap_up：优雅收尾（非硬错误）
                 graceful_stop = true;
