@@ -334,13 +334,20 @@ scripts/harness/
 > extract-elf、break-filter-js-from-html）verifier 反而判了通过 —— 说明活干完了，
 > 只是没在超时前收尾。
 
-首轮实测同时暴露了采集器/导出器**两个真实缺陷**（已修，见 PR #128）：
+首轮实测同时暴露了采集器/导出器**三个真实缺陷**（已修，见 PR #128）：
 
-1. `collect_metrics.py` 用 `rglob("*.jsonl")` 收 run，把同目录的 `workx-audit.jsonl`
-   也当成了一次 run —— 20 题被算成 **38 个 run**，多出的 19 个审计文件里一条工具调用都没有，
-   等于凭空灌进 19 个「没跑验证命令」的样本。
+1. `collect_metrics.py` 用 `rglob("*.jsonl")` 收 run，**一次 run 被记成四次**。
+   一个 Harbor trial 目录下会落下四份 .jsonl：`workx-stream.jsonl`（真轨迹）、
+   `workx-audit.jsonl`（审计日志）、`<task>.stream.raw.jsonl` 与 `<task>.session.jsonl`
+   （导出器产出的**同一条轨迹的副本**，后者还是另一套 schema）。
+   后三份解析不出任何步骤，等于凭空灌进一批「没跑验证命令」的样本。
 2. `export_run.py` 遇到 0 字节 stream 在 `lines[-1]` 处 IndexError 崩掉整个导出。
    现在改成写一份说明性轨迹并**不生成会话**（伪造空会话会让人误读成「agent 什么都没做」）。
+
+> ⚠️ 第 1 条是**分三次才修干净的**，值得单独记一笔：只排 `audit` 之前是 **38 个 run**
+> （执行率假报 2.6%）；只排 `audit` 之后变成 **53 个 run**（4.4%）——导出器那份
+> `*.stream.raw.jsonl` / `*.session.jsonl` 又混进来了；三类全排之后才是 **19 个 run / 6.7%**。
+> 教训：**目录递归收 run 必须严格收口，否则分母失真，判定口径形同虚设**。
 
 ### Step 3 — 建 trace 分析回路（持续迭代）
 

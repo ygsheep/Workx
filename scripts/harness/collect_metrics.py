@@ -445,19 +445,40 @@ def to_markdown(res: dict[str, Any], baseline: dict[str, Any] | None = None) -> 
 # ---------------------------------------------------------------------------
 
 
+# 「长得像轨迹、其实不是轨迹」的产物命名片段。
+# 三条都是 20 题真实跑分时踩出来的，每踩一次 run 总数就翻倍一次。
+NON_STREAM_MARKERS = (
+    "audit",  # workx-audit.jsonl —— 审计日志
+    ".stream.raw.",  # <task>.stream.raw.jsonl —— export_run.py --copy-raw 的轨迹副本
+    ".session.",  # <task>.session.jsonl —— export_run.py 产的可导入会话（另一套 schema）
+)
+
+
 def is_stream_file(path: Path) -> bool:
     """判断一个 .jsonl 是不是「轨迹」而不是别的产物。
 
-    ⚠️ Harbor 一次 trial 会在同一目录落下 **两份** .jsonl：
-    `workx-stream.jsonl`（轨迹）与 `workx-audit.jsonl`（审计日志）。
-    早先这里用 `rglob("*.jsonl")` 全收，20 题实跑直接被算成 **38 个 run** ——
-    多出来的 19 个 audit 里一条工具调用都没有，等于凭空灌进 19 个
-    「没跑验证命令」的样本，把执行率压到真实值的一半以下。
+    ⚠️ 目录递归（`--runs-dir` / 传目录）会把 trial 目录里的**每一份** .jsonl 都收进来，
+    而这个目录下一次 run 会落下**四份**文件：
+
+      1. `workx-stream.jsonl`        —— 真轨迹，唯一该被当成 run 的
+      2. `workx-audit.jsonl`         —— 审计日志，一条工具调用都没有
+      3. `<task>.stream.raw.jsonl`   —— export_run.py `--copy-raw` 拷来的**轨迹副本**
+      4. `<task>.session.jsonl`      —— export_run.py 产的可导入会话，**另一套 schema**
+
+    第 2/3/4 类算进来的后果不是「多几条记录」，而是**一次 run 被记成四次**，
+    且副本里有两份解析不出任何步骤 → 凭空灌进一批「没跑验证命令」的样本。
+
+    实测踩坑顺序（同一份 20 题产物）：
+      · 只排 audit 之前：38 个 run，执行率假报 2.6%
+      · 只排 audit 之后：53 个 run，执行率假报 4.4%（raw + session 又混进来）
+      · 三类全排之后：**21 个 run**（20 题 job 19 个 + 两次 smoke 各 1 个）
+
+    → 结论：**目录递归必须严格收口**，否则分母失真、判定口径形同虚设。
     """
     name = path.name.lower()
     if not name.endswith(".jsonl"):
         return False
-    return "audit" not in name
+    return not any(m in name for m in NON_STREAM_MARKERS)
 
 
 def expand_paths(paths: list[str]) -> list[Path]:
@@ -473,6 +494,23 @@ def expand_paths(paths: list[str]) -> list[Path]:
 
 def self_test() -> int:
     """用内置样例自检，确认解析链路可用（不是跑分，是协议验证）。"""
+    # 护栏：目录递归的收口规则。每次放宽 is_stream_file 都必须同步这里，
+    # 否则 20 题实跑会再次把一次 run 记成四次（实测踩过 38 → 53 → 21）。
+    ok = True
+    for name in (
+        "workx-stream.jsonl",
+        "workx-audit.jsonl",
+        "cobol-modernization.stream.raw.jsonl",
+        "cobol-modernization.session.jsonl",
+        "regex-log.audit.jsonl",
+    ):
+        want = name == "workx-stream.jsonl"
+        got = is_stream_file(Path(name))
+        status = "PASS" if got is want else "FAIL"
+        if got is not want:
+            ok = False
+        print(f"[{status}] is_stream_file({name}) = {got}")
+
     fx = Path(__file__).parent / "fixtures"
     files = sorted(fx.glob("*.jsonl"))
     if not files:
@@ -489,7 +527,6 @@ def self_test() -> int:
         "degrade_rate": (1, 4),
         "false_positive_rate": (0, 4),
     }
-    ok = True
     for key, (num, den) in expect.items():
         got = (m[key]["numerator"], m[key]["denominator"])
         status = "PASS" if got == (num, den) else "FAIL"

@@ -42,6 +42,22 @@ python scripts/harness/collect_metrics.py --runs-dir jobs/on --baseline jobs/off
 
 采集器按「同目录同 stem 的 `.log`」自动配对日志；找不到就记 `evidence=none`。
 
+### ⚠️ `--runs-dir` 会遇到的重复计数（踩过三次）
+
+一个 Harbor trial 目录下有**四份** .jsonl，只有第一份是 run：
+
+| 文件 | 是 run 吗 | 说明 |
+| --- | --- | --- |
+| `workx-stream.jsonl` | ✅ | 真轨迹 |
+| `workx-audit.jsonl` | ❌ | 审计日志，一条工具调用都没有 |
+| `<task>.stream.raw.jsonl` | ❌ | `export_run.py --copy-raw` 拷来的**轨迹副本** |
+| `<task>.session.jsonl` | ❌ | `export_run.py` 产的可导入会话，**另一套 schema** |
+
+实测踩坑顺序（同一份 20 题产物）：38 个 run（2.6%）→ 只排 audit 后 53 个（4.4%）
+→ 三类全排后 **19 个（6.7%）**。**目录递归收 run 必须严格收口**，否则分母失真。
+
+自检里有 5 条 `is_stream_file()` 护栏盯着这个，放宽规则时必须同步改。
+
 ## 诚实性设计（重要）
 
 **绝不把「采不到」当成「没触发」。** 缺日志的 run 会被从「门禁触发率 / 误报率」的
