@@ -69,7 +69,11 @@ Workx 的**工具层和安全层**完成度相当高（22 个工具、并发执�
 pass@1 **45.0%（9/20）** 落在 P0 预估的下沿，但它是 `-k 1`、无对照组、非随机选题的产物，**不能据此说达成**；
 更要紧的是 #117 实测**验证命令执行率只有 6.7%**，而深挖下去发现根因不是「agent 不验证」，
 而是**验收口径与 Terminal-Bench 的场景根本不匹配**（verifier 测试跑在独立容器，agent 容器内拿不到 `tests/`）。
-→ 跑分最大的价值不是那个 45%，而是**把三个此前只能靠猜的维度换成了实测**，并暴露了 #132 这个真问题。
+→ 跑分最大的价值不是那个 45%，而是**把三个此前只能靠猜的维度换成了实测**。
+进一步做失败归因（**§2.5**）后还有一层：**真能力失败只有 3 题** ——
+反而有 **9/19 题的终止路径都经过一个已失效的内部评审器**（其中 3 题纯属误杀，**#133**），
+另有 3 题因 verifier 依赖外网下载 `uv` 而**环境性不可解**（剔除后 **52.9%**）。
+「模型不够强」是这里面占比最小的原因。
 
 > 🔴 **更正**：原判「#78 零实现」应改为「**#78 的能力大部分早已存在，缺的是接线与默认开启**」。`#31/#32` 留下的
 > `goal_verdict.h` / `verdict.h`（`check_goal` / `guard_command` / `parse_goal`）/ `GoalGuardedAgent` 均已实现且有测试，
@@ -267,6 +271,11 @@ Anthropic 的补充（工具设计五原则）：少而精（工具多了反而�
 | ❌ 失败 | 9 | adaptive-rejection-sampler、build-cython-ext、caffe-cifar-10、code-from-image、configure-git-webserver、custom-memory-heap-crash、extract-moves-from-video、feal-differential-cryptanalysis、financial-document-processor |
 | ⚠️ 异常 | 2 | filter-js-from-html（VerifierTimeoutError）、fix-code-vulnerability（EnvironmentStartTimeoutError，**压根没跑**） |
 
+> 🔎 **这 45% 是怎么丢的，见 §2.5**：实证归因显示**真能力失败只有 3 题**；
+> 9/19 的终止路径都经过一个已失效的内部评审器（其中 3 题纯属误杀），
+> 另有 3 题因 verifier 依赖外网下载 `uv` 而**环境性不可解**。
+> → **剔除那 3 道不可解题后 pass@1 = 9 / 17 = 52.9%**。
+
 **#117 五项行为统计指标**
 
 | 指标 | 实测 | 分母 | 证据源 |
@@ -330,6 +339,108 @@ Anthropic 的补充（工具设计五原则）：少而精（工具多了反而�
 
 > 📎 **本节是评分卡视角的摘要**。执行过程、采集器/导出器在真实数据下暴露的三个缺陷、
 > 「38 → 53 → 19」的 run 计数踩坑，见 **§3 Step 2c**。
+
+---
+
+### 2.5 首轮失败归因：45% 是怎么丢的（九次更新补记）
+
+> 用 19 份轨迹 + 逐题日志做的**实证归因**，不是推测。
+> 结论：**真正「模型做不出来」的只有 3 题**，其余丢分来自 harness 自身与环境。
+
+**按终止方式归因**
+
+| 终止方式 | 题数 | 通过 |
+| --- | --- | --- |
+| 🔴 内部评审器失效 → `wrap_up` | **9** | 3 |
+| 轨迹丢失（撞超时被杀，0 字节） | 4 | 3 |
+| 正常完成 | 5 | 3 |
+| 请求超时（`Total request timeout exceeded`） | 1 | 0 |
+
+#### 🔴 头号原因：内部评审器 100% 失效，且失效时默认终止任务
+
+19 题里 **9 题**的日志都有这一行（`react_loop.cpp:541`）：
+
+```
+[react_loop] reviewer: no JSON decision in response, default wrap_up
+[react_loop] reviewer decision: wrap_up, reason=''
+```
+
+| 触发评审器的原因 | 题数 | 结果 |
+| --- | --- | --- |
+| 撞最大迭代预算（40 轮） | 6 | 3 通过 / 3 失败 |
+| 检测到重复工具调用（stall） | 3 | **0 通过 / 3 失败** |
+
+被 stall 分支终止的 `build-cython-ext`（iteration 27）/ `caffe-cifar-10`（34）/
+`custom-memory-heap-crash`（26）**无一通过**。它们**不是做错被判失败**，而是在第 26–34 轮
+因一次「重复工具调用」触发评审器 → 评审器失效 → 默认 `wrap_up` → **任务就地终止**。
+末段调用是在正常推进（`Edit 文件` → `Read 同一文件` 验证改动），不是死循环。
+
+**根因链**
+
+```cpp
+// src/agent/core/react_loop.cpp:498 —— 评审器只给 200 tokens
+req.max_tokens = 200;
+// :520-542 —— 找不到 '{' 说明 content 是空的
+const auto lbrace = text.find('{');
+else LOG_WARN("... reviewer: no JSON decision in response, default wrap_up");
+```
+
+主循环日志实测该模型的 reasoning 规模：`reasoning_len=87267`（87K 字符）、
+单次 `thought_ms=120009`（120 秒）。**thinking 模式下 200 tokens 会被 reasoning 一口吃光**
+→ `content_delta` 全程为空 → `text` 空 → 找不到 JSON → `ReviewerDecision` 默认
+`continue_loop=false`（`react_loop.cpp:469`）→ **整条任务被杀**。
+
+> 📌 **这是 fail-deadly**：评审器的职责是判断「**是否可以**停止」，它失效时却默认「停」。
+> 安全默认应该是 `continue`，让 `max_iterations` / 预算去兜底终止。
+> 旁证：`db-wal-recovery` 的最终答复本身就是
+> `HTTP error: 400 - reasoning_content in the thinking mode must be passed back to the API`
+> —— 该 provider 的 thinking 模式在协议层就有问题。→ 已开 **#133**（P1/bug）。
+
+#### 第二：3 题环境性不可解（verifier 依赖外网）
+
+`adaptive-rejection-sampler` / `caffe-cifar-10` / `feal-differential-cryptanalysis`
+的 verifier `test.sh` 要用 `uvx`，容器内连不上 github：
+
+```
+curl: (7) Failed to connect to github.com port 443 after 21081 ms
+failed to download https://github.com/astral-sh/uv/releases/download/0.9.5/...
+/tests/test.sh: line 19: uvx: command not found
+```
+
+**这 3 题 agent 做对了也判不过** —— 属环境性必然失败，不该记在 harness 账上。
+→ **剔除后 pass@1 = 9 / 17 = 52.9%**。
+
+#### 第三：真能力不足只有 3 题
+
+| 题 | verifier 判定 |
+| --- | --- |
+| `code-from-image` | `File /app/output.txt does not exist` |
+| `extract-moves-from-video` | `File /app/solution.txt does not exist` |
+| `configure-git-webserver` | `assert 'TEST PASSED' in ...` 输出不对 |
+
+这 3 题是货真价实的能力失败。
+
+#### 两个反直觉的点
+
+1. **通过题均 92 步 vs 失败题均 89 步 —— 几乎一样**。失败不是「做得少」，
+   两类题都跑到了 ~90–130 步才结束。
+2. **命令层面零重复**：脚本查过 19 题，窗口 4 内完全相同的命令 **0 处**。
+   stall 触发的是 Read/Edit 类调用，而 `commands` 字段只记 Bash ——
+   **光看命令看不出来，必须查日志**。
+
+#### 顺带否掉的两个假设
+
+- ❌ **「思考太慢导致做不完」**：536 次思考**中位 2296ms**，>60s 仅 6 次（1%）。
+  速度不是瓶颈，40 轮预算是够用的。
+- ❌ **「`normalize_tool_input` 把不同命令归一化成了同一个签名」**：实现是对的
+  （标量走 `j.dump()`，只忽略键顺序），不是误判来源。
+
+#### 修复优先级（详见 #133）
+
+1. **评审器失效时默认 `continue` 而非 `wrap_up`** —— 最小改动、收益最大。
+2. 评审器请求关掉 thinking，或把 `max_tokens` 提到 512–1024（它只是输出一行 JSON 的判断任务）。
+3. `review_stall_window = 4`（`react_loop.h:198`）太小，建议 8–10，且要求**连续**重复才触发。
+4. 单独修 `reasoning_content` 的 provider 适配 400 错误。
 
 ---
 
@@ -483,6 +594,16 @@ scripts/harness/
 审计日志已有骨架，补一份 **run manifest**（每轮：工具名/参数/结果摘要/token/耗时/错误类型），然后按 LangChain 的做法：
 拉取失败 run → 并行 spawn 错误分析 agent → 汇总成 harness 改动 → 复测。
 **改完必须复跑，且每次改动都要看有没有在别的题上回归**（防过拟合到单题）。
+
+> ✅ **这条回路已手工跑通第一次，产出见 §2.5**。做法可直接当自动化模板：
+> 1. 逐题读「最终答复」+ verifier 错误行 → 分出「被终止」还是「做错了」（`build/linux/diag_reason.py`）
+> 2. 把 reward 与行为指标（步数 / 耗时 / 工具数）关联，看失败是不是「做得少」（`build/linux/analyze_fail.py`）
+> 3. 对「被终止」的题**必须查日志** —— 只看出轨迹/命令会漏判：
+>    stall 触发的是 Read/Edit 类调用，而 `commands` 只记 Bash
+> 4. 归因后开针对性 issue（本次 → **#133**），修完复跑验证
+>
+> ⚠️ **这一步的价值远大于分数本身**：45% 这个数字什么都改不了，
+> 但「9/19 的终止路径都经过一个失效的评审器」是一个可以立刻修、且能验证的具体缺陷。
 
 ### 参考分数线（预估，非实测）
 
