@@ -145,6 +145,7 @@ workx -p "<task>" -p -                         # 从 stdin 读任务
 
 - 默认 `Default`（危险操作会尝试 `AskUser`，但 headless 无人应答 → 需处理）。
 - `--permission-mode accept-edits`：映射到 `PermissionMode::AcceptEdits`，配合 `BypassPermissions` 支持无人值守。
+- `--permission-mode strict`（#85）：映射到 `PermissionMode::Strict`。**无人值守场景推荐用它**——命令按白名单放行（`cmake --build` / `ctest` / `git status` / `python -m pytest` …），未命中白名单的命令走 `ask_user_confirm()`，而 headless 无确认通道 → fail-closed 拒绝；破坏性命令直接拒绝不询问。判定核心见 `src/agent/tool/command_policy.{h,cpp}`。
 - `AskUserTool` 在 headless 下**自动拒绝**（返回结构化错误，不阻塞等待），依赖 `--permission-mode` 预授权（已确认，见 §8）。
 
 ### 4.3 涉及文件清单

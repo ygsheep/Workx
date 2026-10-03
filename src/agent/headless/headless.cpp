@@ -44,6 +44,9 @@ std::optional<tool::PermissionMode> parse_permission_mode(const std::string& s) 
     if (s == "accept-edits") return tool::PermissionMode::AcceptEdits;
     if (s == "bypass-permissions") return tool::PermissionMode::BypassPermissions;
     if (s == "plan") return tool::PermissionMode::Plan;
+    // #85：严格档——无人值守时未命中白名单的命令因无确认通道而被拒，故对
+    //      headless 是最有用的档位。取值集合须与 chat_session.cpp 的同构函数一致。
+    if (s == "strict") return tool::PermissionMode::Strict;
     return std::nullopt;
 }
 

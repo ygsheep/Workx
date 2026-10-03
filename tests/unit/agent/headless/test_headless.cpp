@@ -240,6 +240,8 @@ TEST_CASE("HL-09 四种权限模式映射", "[headless][issue77]") {
     REQUIRE(parse_permission_mode("accept-edits") == PermissionMode::AcceptEdits);
     REQUIRE(parse_permission_mode("bypass-permissions") == PermissionMode::BypassPermissions);
     REQUIRE(parse_permission_mode("plan") == PermissionMode::Plan);
+    // #85：严格档——无人值守下未命中白名单的命令因无确认通道而被拒，是 headless 的主力档位
+    REQUIRE(parse_permission_mode("strict") == PermissionMode::Strict);
 
     REQUIRE_FALSE(parse_permission_mode("nope").has_value());
 }

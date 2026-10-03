@@ -159,6 +159,7 @@ target_sources(workx_agent PRIVATE
     tool/quote_normalizer.cpp
     tool/file_history.cpp
     tool/shell_guard.cpp
+    tool/command_policy.cpp
 
     # audit: 审计日志系统（#37）
     audit/audit_logger.cpp
