@@ -85,6 +85,8 @@ std::string permission_mode_to_string(tool::PermissionMode m) {
             return "plan";
         case tool::PermissionMode::BypassPermissions:
             return "bypass-permissions";
+        case tool::PermissionMode::Strict:
+            return "strict";
     }
     return "default";
 }
@@ -94,6 +96,7 @@ std::optional<tool::PermissionMode> permission_mode_from_string(const std::strin
     if (s == "accept-edits") return tool::PermissionMode::AcceptEdits;
     if (s == "plan") return tool::PermissionMode::Plan;
     if (s == "bypass-permissions") return tool::PermissionMode::BypassPermissions;
+    if (s == "strict") return tool::PermissionMode::Strict;
     return std::nullopt;
 }
 
@@ -1092,6 +1095,8 @@ void ChatSession::toggle_permission_mode() {
             break;
         case tool::PermissionMode::AcceptEdits:
             break;  // 占位模式，不参与循环
+        case tool::PermissionMode::Strict:
+            break;  // #85：严格档由 CLI/配置显式指定，Shift+Tab 不参与循环
     }
     // #87：Shift+Tab 切换后落盘（会话中途改模式是最常见的边界丢失场景）
     if (changed) persist_permission_state_locked();

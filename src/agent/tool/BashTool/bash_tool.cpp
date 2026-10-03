@@ -12,6 +12,7 @@
 #include "agent/tool/ShellTool/shell_tool_common.h"
 #include "agent/tool/permission_ask.h"
 #include "agent/tool/secret_scanner.h"
+#include "agent/tool/command_policy.h"
 #include "agent/tool/shell_guard.h"
 #include "agent/audit/audit_logger.h"
 #include "core/process/subprocess.h"
@@ -241,6 +242,17 @@ PermissionResult BashTool::check_permissions(const nlohmann::json& input,
         return PermissionResult::err(Error::Code::PermissionDenied,
                                      "Command execution is not allowed in plan mode. "
                                      "Switch to default mode to run commands.");
+    }
+    // #85：严格档——白名单放行，未命中需确认（headless 无确认通道 → 拒绝），
+    //      破坏性命令直接拒绝不询问。判定与审计都在 enforce_strict_command 内。
+    if (is_strict_mode(ctx.permission_mode)) {
+        if (input.contains("command") && input["command"].is_string()) {
+            const auto r = enforce_strict_command(input["command"].get<std::string>(), ctx, name());
+            if (!r.allowed) {
+                return PermissionResult::err(Error::Code::PermissionDenied, r.reason);
+            }
+        }
+        return PermissionResult::ok();
     }
     // #36：Default 模式危险命令需用户确认
     if (input.contains("command") && input["command"].is_string()) {

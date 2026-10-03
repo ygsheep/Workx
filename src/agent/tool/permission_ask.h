@@ -28,6 +28,11 @@ bool is_plan_mode(PermissionMode mode) noexcept;
 /// @brief 是否完全放行模式
 bool is_bypass_mode(PermissionMode mode) noexcept;
 
+/// @brief #85：是否命令白名单严格档
+/// @details 严格档下命令默认拒绝：命中白名单才放行，未命中走确认
+///          （headless 无确认通道 → `ask_user_confirm()` fail-closed 即拒绝）。
+bool is_strict_mode(PermissionMode mode) noexcept;
+
 /// @brief 当前模式下应禁止写文件（Plan → true；Bypass → false）
 bool deny_write_by_mode(PermissionMode mode) noexcept;
 

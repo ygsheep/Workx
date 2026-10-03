@@ -65,11 +65,14 @@ using ProgressCallback = std::function<void(const std::string& progress_text)>;
 ///          - AcceptEdits：接受编辑类自动放行（CC 兼容占位）
 ///          - Plan：计划/只读模式，禁止写文件与执行命令
 ///          - BypassPermissions：完全放行（用户显式授权后）
+///          - Strict：#85 严格档 —— 命令按白名单放行，未命中需确认
+///            （headless 无确认通道即拒绝）；破坏性命令直接拒绝，不询问。
 enum class PermissionMode : uint8_t {
     Default = 0,
     AcceptEdits = 1,
     Plan = 2,
     BypassPermissions = 3,
+    Strict = 4,
 };
 
 /// @brief 会话工作模式（模式列表：标准 / 计划 / 极简）

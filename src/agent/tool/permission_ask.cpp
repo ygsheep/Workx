@@ -102,6 +102,8 @@ bool is_bypass_mode(PermissionMode mode) noexcept {
     return mode == PermissionMode::BypassPermissions;
 }
 
+bool is_strict_mode(PermissionMode mode) noexcept { return mode == PermissionMode::Strict; }
+
 bool deny_write_by_mode(PermissionMode mode) noexcept { return is_plan_mode(mode); }
 
 bool deny_execute_by_mode(PermissionMode mode) noexcept { return is_plan_mode(mode); }
