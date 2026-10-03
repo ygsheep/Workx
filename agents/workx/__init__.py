@@ -85,8 +85,11 @@ class WorkxAgent(BaseInstalledAgent):
         super().__init__(**kwargs)
         self.repo_url = os.environ.get("WORKX_AGENT_REPO_URL", DEFAULT_REPO_URL)
         self.ref = os.environ.get("WORKX_AGENT_REF", DEFAULT_REF)
-        # 预构建二进制 URL：给了就走快路径，不给就容器内源码构建
+        # 预构建二进制：给了 URL 就下载；给了容器内路径就用本地拷贝；两者都无才源码构建
         self.prebuilt_url = os.environ.get("WORKX_AGENT_BINARY_URL", "")
+        # 容器内路径（配合 harbor run --mounts 把宿主目录挂进来）。
+        # 比 URL 稳：不依赖宿主常驻 HTTP 服务，也不依赖容器出网。
+        self.prebuilt_path = os.environ.get("WORKX_AGENT_BINARY_PATH", "")
         self.max_iterations = os.environ.get("WORKX_AGENT_MAX_ITERATIONS", "")
         self.cwd = os.environ.get("WORKX_AGENT_CWD", "")
         self.permission_mode = os.environ.get(
@@ -125,6 +128,12 @@ class WorkxAgent(BaseInstalledAgent):
                 environment,
                 command=f"curl -fsSL {shlex.quote(self.prebuilt_url)} -o {BIN_PATH} "
                 f"&& chmod 0755 {BIN_PATH} && {BIN_PATH} --version",
+            )
+        elif self.prebuilt_path:
+            await self.exec_as_root(
+                environment,
+                command=f"install -m 0755 {shlex.quote(self.prebuilt_path)} {BIN_PATH} "
+                f"&& {BIN_PATH} --version",
             )
         else:
             await self.exec_as_root(

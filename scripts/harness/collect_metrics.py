@@ -83,12 +83,21 @@ _VERIFY_RULES: dict[str, set[str] | None] = {
     "gradlew": None,
     "dotnet": {"test", "build"},
     "tsc": None,
-    "python": None,
-    "python3": None,
+    # ⚠️ python / python3 **不在这里**。2026-10-03 首轮真实跑分发现：
+    # 把它们当「出现即算」会让 `python3 --version` 也被判成验证命令，
+    # 验证命令执行率被抬到 100%（假阳性）。python 族走下面的 _PY_* 规则。
 }
 
-# python -m pytest / python -m unittest 才算验证
+# python / python3 只在**真的在跑测试**时才算验证
+_PY_BASENAMES = {"python", "python3", "python2", "py"}
 _PY_MODULES = ("pytest", "unittest")
+_PY_RUNNER_RE = re.compile(r"(?:^|\s)(pytest|unittest)\b")
+#: 自写测试脚本（宽松口径）：python3 test_regex.py 这类确实是在验证，
+#: 但不是「识别得出的运行器」，故只计入宽松口径，不计入达标判定口径。
+_PY_TESTSCRIPT_RE = re.compile(r"(?:^|[\s/])(test_[^/\s]*\.py|[^/\s]*_test\.py|conftest\.py)\b")
+
+# 只是问版本/用法，不是在执行测试或构建
+_NON_RUN_FLAGS = {"--version", "-V", "--help", "-h", "--usage"}
 
 _SEP_RE = re.compile(r"&&|\|\||[;|\n]")
 
@@ -145,11 +154,15 @@ def split_commands(cmd: str) -> list[str]:
     return [seg.strip() for seg in _SEP_RE.split(cmd) if seg.strip()]
 
 
-def command_is_verification(cmd: str) -> bool:
+def command_is_verification(cmd: str, loose: bool = False) -> bool:
     """判断一条 Bash/PowerShell 命令是否为测试或构建命令。
 
     判定口径：先按 && || ; | 切段，再看每段的**首个词**是否命中已知工具，
     避免把 "make a sandwich" 这类自然语言误判成 make。
+
+    @param loose 宽松口径：额外把「python3 test_xxx.py」这类**自写测试脚本**
+                 也算进去。它确实是在验证，但不是识别得出的运行器，
+                 所以**不计入达标判定**，只作为参考列出来。
     """
     for seg in split_commands(cmd):
         # 去掉前置的环境变量赋值（如 FOO=1 ctest）
@@ -158,19 +171,32 @@ def command_is_verification(cmd: str) -> bool:
             tokens.pop(0)
         if not tokens:
             continue
+        rest_tokens = tokens[1:]
+        # python3 --version / cmake --help：只是问询，不是执行
+        if _NON_RUN_FLAGS.intersection(rest_tokens):
+            continue
         base = Path(tokens[0]).name  # ./gradlew -> gradlew
         if base.endswith(".cmd") or base.endswith(".exe"):
             base = base.rsplit(".", 1)[0]
+        rest = " ".join(rest_tokens)
+
+        if base in _PY_BASENAMES:
+            if not rest:
+                continue
+            if re.search(r"-m\s+(" + "|".join(_PY_MODULES) + r")\b", rest):
+                return True
+            if _PY_RUNNER_RE.search(rest):
+                return True
+            if loose and _PY_TESTSCRIPT_RE.search(rest):
+                return True
+            continue
+
         rule = _VERIFY_RULES.get(base)
         if rule is None:
+            # 值为 None 的工具（ctest / make / pytest …）出现即算
             if base in _VERIFY_RULES:
                 return True
-            if base in ("python", "python3"):
-                rest = " ".join(tokens[1:])
-                if re.search(r"-m\s+(" + "|".join(_PY_MODULES) + r")\b", rest):
-                    return True
             continue
-        rest = " ".join(tokens[1:])
         if any(tok in rest for tok in rule):
             return True
         # cmake -B 可能是 "-B build"，rule 里有 "-B" 直接命中；上面已覆盖
@@ -210,6 +236,9 @@ def parse_run(stream_path: Path, log_path: Path | None) -> dict[str, Any]:
         "log": str(log_path) if log_path else None,
         "commands": commands,
         "verification_command": any(command_is_verification(c) for c in commands),
+        "verification_command_loose": any(
+            command_is_verification(c, loose=True) for c in commands
+        ),
         "gate_triggered": MARK_TRIGGER in log_text,
         "gate_degraded": MARK_DEGRADE in log_text or goal_status == 3,
         "gate_skipped": MARK_SKIPPED in log_text,
@@ -251,6 +280,9 @@ def collect(stream_files: list[Path]) -> dict[str, Any]:
     m3 = rate("gate_degraded")
     m4 = rate("gate_skipped", require_log=True)
 
+    # 宽松口径（含自写测试脚本）只作参考，不参与达标判定
+    m1_loose = rate("verification_command_loose")
+
     m1["target"] = 0.90
     m1["met"] = (m1["value"] is not None and m1["value"] >= 0.90)
 
@@ -265,6 +297,7 @@ def collect(stream_files: list[Path]) -> dict[str, Any]:
         },
         "metrics": {
             "verification_command_rate": m1,
+            "verification_command_rate_loose": m1_loose,
             "gate_trigger_rate": m2,
             "degrade_rate": m3,
             "false_positive_rate": m4,
@@ -334,7 +367,8 @@ def to_markdown(res: dict[str, Any], baseline: dict[str, Any] | None = None) -> 
         return "—" if v is None else f"{v * 100:.1f}%"
 
     labels = {
-        "verification_command_rate": "验证命令执行率",
+        "verification_command_rate": "验证命令执行率（判定口径：识别得出的运行器）",
+        "verification_command_rate_loose": "验证命令执行率（宽松：含自写测试脚本，仅供参考）",
         "gate_trigger_rate": "门禁触发率",
         "degrade_rate": "降级率",
         "false_positive_rate": "误报率（unavailable 放行）",
@@ -403,11 +437,14 @@ def self_test() -> int:
         return 1
     res = collect(files)
     m = res["metrics"]
+    # run_d 是回归护栏：只有 `python3 --version` / `cmake --version` 这类问询命令，
+    # 严格口径与宽松口径都**不能**算验证命令（2026-10-03 首轮真实跑分踩到的假阳性）。
     expect = {
-        "verification_command_rate": (2, 3),
-        "gate_trigger_rate": (2, 3),
-        "degrade_rate": (1, 3),
-        "false_positive_rate": (0, 3),
+        "verification_command_rate": (2, 4),
+        "verification_command_rate_loose": (2, 4),
+        "gate_trigger_rate": (2, 4),
+        "degrade_rate": (1, 4),
+        "false_positive_rate": (0, 4),
     }
     ok = True
     for key, (num, den) in expect.items():
