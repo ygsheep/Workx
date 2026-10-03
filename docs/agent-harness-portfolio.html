@@ -146,7 +146,8 @@
     <span class="chip">测试 <b>31,715 行</b> / 1,381 用例</span>
     <span class="chip">内置工具 <b>25 个</b></span>
     <span class="chip gr">CI 硬门禁 <b>3 条</b> 工作流</span>
-    <span class="chip cy">评分 <b>72.7 / 100</b></span>
+    <span class="chip cy">评分 <b>73.5 / 100</b></span>
+    <span class="chip gr">首轮跑分 pass@1 <b>45.0%</b></span>
   </div>
 </header>
 
@@ -155,11 +156,11 @@
 <p class="sub2">七维度加权模型，对齐业界 Harness 评测方法论（LangChain Harness Engineering / Anthropic 工具设计五原则 / HarnessTax）。</p>
 
 <div class="kpis">
-  <div class="kpi"><div class="k">加权总分</div><div class="v v-blue">72.7</div><div class="n">七维度加权 / 满分 100</div></div>
+  <div class="kpi"><div class="k">加权总分</div><div class="v v-blue">73.5</div><div class="n">七维度加权 / 满分 100</div></div>
   <div class="kpi"><div class="k">最强维度</div><div class="v v-green">82</div><div class="n">工具设计与执行（权重 20）</div></div>
   <div class="kpi"><div class="k">P0 关键项</div><div class="v v-green">5 / 5</div><div class="n">全部完整落地</div></div>
-  <div class="kpi"><div class="k">测试规模</div><div class="v v-cyan">1,381</div><div class="n">用例 · 100% 通过</div></div>
-  <div class="kpi"><div class="k">待补齐</div><div class="v v-yellow">+8</div><div class="n">补齐 P1 后约 81</div></div>
+  <div class="kpi"><div class="k">首轮跑分</div><div class="v v-cyan">45.0%</div><div class="n">pass@1 · 9/20 · terminal-bench@2.0</div></div>
+  <div class="kpi"><div class="k">待补齐</div><div class="v v-yellow">+8</div><div class="n">补齐 P1 后约 82</div></div>
 </div>
 
 <div class="grade" style="margin-top:20px">
@@ -180,23 +181,23 @@
       <!-- 初始基线（虚影） -->
       <polygon points="180,80.8 240.2,112.0 222.9,169.8 212.5,227.4 150.4,221.4 99.6,178.4 167.1,149.7"
                fill="rgba(148,163,184,.10)" stroke="#475569" stroke-width="1.4" stroke-dasharray="4 3"/>
-      <!-- 当前 -->
-      <polygon points="180,69.8 240.2,112.0 249.7,175.9 215.8,234.3 145.6,231.4 96.4,179.1 141.3,129.1"
+      <!-- 当前（九次更新：82 / 70 / 65 / 75 / 70 / 82 / 72） -->
+      <polygon points="180,69.8 240.2,112.0 249.7,175.9 215.8,234.3 146.6,229.4 92.1,180.1 118.1,110.6"
                fill="rgba(77,156,255,.24)" stroke="#4d9cff" stroke-width="2"/>
       <circle cx="180" cy="69.8" r="3.2" fill="#4d9cff"/>
       <circle cx="240.2" cy="112.0" r="3.2" fill="#4d9cff"/>
-      <circle cx="249.7" cy="175.9" r="3.6" fill="#fbbf24"/>
+      <circle cx="249.7" cy="175.9" r="3.6" fill="#fb7185"/>
       <circle cx="215.8" cy="234.3" r="3.2" fill="#4d9cff"/>
-      <circle cx="145.6" cy="231.4" r="3.2" fill="#4d9cff"/>
-      <circle cx="96.4" cy="179.1" r="3.2" fill="#4d9cff"/>
-      <circle cx="141.3" cy="129.1" r="4" fill="#fbbf24"/>
+      <circle cx="146.6" cy="229.4" r="3.2" fill="#4d9cff"/>
+      <circle cx="92.1" cy="180.1" r="3.2" fill="#4d9cff"/>
+      <circle cx="118.1" cy="110.6" r="3.2" fill="#4d9cff"/>
       <text x="180" y="26" text-anchor="middle" fill="#94a3b8" font-size="11">工具 82</text>
       <text x="286" y="76" text-anchor="start" fill="#94a3b8" font-size="11">上下文 70</text>
-      <text x="312" y="190" text-anchor="start" fill="#fbbf24" font-size="11">验证 70</text>
+      <text x="312" y="190" text-anchor="start" fill="#fb7185" font-size="11">验证 65</text>
       <text x="240" y="282" text-anchor="start" fill="#94a3b8" font-size="11">安全 75</text>
       <text x="120" y="282" text-anchor="end" fill="#94a3b8" font-size="11">编排 70</text>
-      <text x="48" y="190" text-anchor="end" fill="#94a3b8" font-size="11">可观测 78</text>
-      <text x="74" y="76" text-anchor="end" fill="#fbbf24" font-size="11">评测 45</text>
+      <text x="48" y="190" text-anchor="end" fill="#94a3b8" font-size="11">可观测 82</text>
+      <text x="74" y="76" text-anchor="end" fill="#94a3b8" font-size="11">评测 72</text>
     </svg>
   </div>
 
@@ -213,9 +214,9 @@
             <td class="sc v-green">70</td>
             <td class="ev">四级缓存感知压缩 + Stuck 守卫</td></tr>
         <tr><td class="dn">验证闭环</td><td>20</td>
-            <td><div class="bar"><i style="width:70%;background:var(--yellow)"></i></div></td>
-            <td class="sc v-yellow">70</td>
-            <td class="ev">PreCompletion 门禁 · 交互式默认开 · 命令自适应探测</td></tr>
+            <td><div class="bar"><i style="width:65%;background:var(--red)"></i></div></td>
+            <td class="sc v-red">65</td>
+            <td class="ev">PreCompletion 门禁 · 交互式默认开 · 命令自适应探测<br><span style="color:var(--red)">🔴 首轮实测：验证命令执行率 <b>6.7%</b>（目标 ≥90%）→ 已开 #132</span></td></tr>
         <tr><td class="dn">安全与权限</td><td>15</td>
             <td><div class="bar"><i style="width:75%;background:var(--yellow)"></i></div></td>
             <td class="sc v-yellow">75</td>
@@ -225,23 +226,25 @@
             <td class="sc v-yellow">70</td>
             <td class="ev">子 Agent 批量 + run 累计双护栏 · 原子预约</td></tr>
         <tr><td class="dn">可观测性与成本</td><td>10</td>
-            <td><div class="bar"><i style="width:78%;background:var(--green)"></i></div></td>
-            <td class="sc v-green">78</td>
-            <td class="ev">结构化审计 JSONL · usage 统计 · 收尾 diff 报告</td></tr>
+            <td><div class="bar"><i style="width:82%;background:var(--green)"></i></div></td>
+            <td class="sc v-green">82</td>
+            <td class="ev">结构化审计 JSONL · usage 统计 · 收尾 diff 报告 · <b>常驻轨迹导出器</b> + 真实成本数据</td></tr>
         <tr><td class="dn">评测与迭代</td><td>5</td>
-            <td><div class="bar"><i style="width:45%;background:var(--yellow)"></i></div></td>
-            <td class="sc v-yellow">45</td>
-            <td class="ev">headless 入口已通 · 待接 Terminal-Bench</td></tr>
+            <td><div class="bar"><i style="width:72%;background:var(--green)"></i></div></td>
+            <td class="sc v-green">72</td>
+            <td class="ev">✅ Harbor adapter + terminal-bench@2.0 + 指标采集器齐备，<b>已跑完 20 题</b>（pass@1 45.0%）</td></tr>
       </tbody>
     </table>
   </div>
 </div>
 
 <div class="note">
-  <b>评分口径</b>：分数为<b>基于代码审计的量化评估</b>，非跑分结果。同一模型换 harness，Terminal-Bench 可摆动 3–5 分、
+  <b>评分口径</b>：<b>九次更新起含首轮真实跑分证据</b>（验证闭环 / 可观测性与成本 / 评测与迭代三维），
+  其余四维仍为基于代码审计的量化评估。同一模型换 harness，Terminal-Bench 可摆动 3–5 分、
   SWE-bench 可达 10–20 分；HarnessTax 研究表明 harness 更影响<b>成本</b>（最高 5 倍）而非成功率，
-  因此最终评估需画<b>成本–成功率 Pareto 前沿</b>，只看成功率会奖励「烧钱换分」。评测与迭代维度（5 分）
-  正是衡量「是否真的接入基准并跑出分数」——这一项待补齐。
+  因此最终评估需画<b>成本–成功率 Pareto 前沿</b>，只看成功率会奖励「烧钱换分」。<br>
+  ⚠️ <b>关于 45.0%</b>：它是 <code>-k 1</code> 单次采样、非随机选题（容量排除后按字母序取前 20）、
+  <b>无对照组</b>的产物，只能说明「能跑通」，<b>不能据此说达成目标</b>。
 </div>
 
 <!-- ============ 2. 对比 ============ -->
