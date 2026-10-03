@@ -466,6 +466,64 @@ failed to download https://github.com/astral-sh/uv/releases/download/0.9.5/...
 
 ⚠️ **评分卡暂不上调**：45.0% → 多少必须等复跑数据，不靠推理给分。
 
+#### 🔁 复跑验证：3 题被误杀的任务（2026-10-03，job `2026-10-03__21-05-15`）
+
+修复合入后重跑当初被 stall 分支杀掉的 3 题（同题、同模型、`-k 1 -n 3`，
+新二进制 `workx-linux-amd64` 10.0MB，glibc 2.35 配方）。
+
+| 题 | 首轮（旧） | 复跑（新） | reward |
+| --- | --- | --- | --- |
+| `build-cython-ext` | iteration=27 被 stall→wrap_up 杀 | iteration=37，**900s 墙钟超时** | 0 → **0** |
+| `custom-memory-heap-crash` | iteration=26 被杀 | iteration=34 **正常给出 final_answer**（202s / 43 次工具调用） | 0 → **0** |
+| `caffe-cifar-10` | iteration=34 被杀 | iteration=32，**1200s 墙钟超时** | 0 → **0** |
+
+**pass@1：0/3 → 0/3，没有变化。**
+
+##### ⚠️ 但这次复跑不能作为「修复有效」的证据
+
+日志里 `reviewer` 与 `stall` 的命中数**都是 0** —— 评审器一次都没被调用过。
+也就是说：
+
+- fail-open 路径**根本没被触发**；
+- 首轮那 3 次 stall 是**轨迹偶发**（LLM 每次跑法不同，这轮没出现重复工具调用）；
+- 因此 `build-cython-ext` 从「10 failed / 1 passed」变成「2 failed / 9 passed」
+  **不能归因于本次修复**，只能归因于跑法差异。
+
+能确证的只有三件事：
+
+1. ✅ **新二进制确实在用**：日志源码行号整体位移
+   （`react_loop.cpp:811 → 846`、`954 → 无`、`1334 → 1446`）。
+2. ✅ **没有任何任务再被评审器杀掉**；`custom-memory-heap-crash` 跑到了自然结束并给出真实 final_answer。
+3. ✅ 无崩溃、无回归，长跑（34/37 轮）稳定。
+
+##### 🔴 新暴露的瓶颈：墙钟超时取代了评审器终止
+
+3 题里 **2 题由 `AgentTimeoutError` 结束**（900s / 1200s）。
+fail-open 的代价很直接：以前评审器在第 27 轮就把任务掐了（省下时钟），
+现在任务会一直跑到**撞墙钟**为止。对注定做不出来的题，分数不变、时间变长。
+
+`build-cython-ext` 是最说明问题的一题：pytest **9/11 通过**（首轮只有 1/11），
+剩下的 2 个失败是 `test_repo_cloned` / `test_pyknotid_repository_tests`
+—— 要 `/app/pyknotid` 带 `.git`，即**需要联网 clone**。
+**它是被时钟和/或网络卡住的准成功题，不是能力题。**
+
+##### 方法论警告：verifier 环境不稳定，跨轮对比有噪声
+
+`custom-memory-heap-crash` 首轮 verifier 是正常 pytest（4 passed / 2 failed），
+**复跑时 verifier 自己装不上 `uv`**（`curl: (56) Failure when receiving data from the peer`，
+从 github 下载 uv 失败）→ 这一题在复跑里**根本不可能得分**。
+
+→ 「环境性不可解」不是固定集合，而是**每次跑都可能变**的噪声源。
+首轮剔除 3 题算出的 52.9% 同样受此影响，**不要把调整后的分数当硬结论**。
+
+##### 下一步建议
+
+1. **抬时钟而不是抬轮数**：现在卡点是墙钟，不是 `max_iterations`。
+   优先做「单轮更快」（并行工具、减少重复读文件）或按题调 `[agent] timeout_sec`。
+2. **复跑要 `-k 3`**：n=1 且评审器触发本身是偶发的，单次跑分无法区分
+   「修复有效」和「这次没撞上」。
+3. 见 **#137**（墙钟超时成为新瓶颈）。
+
 ---
 
 ## 3. 怎么给 Workx 真跑一次分（三步走）
