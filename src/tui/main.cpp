@@ -82,6 +82,8 @@ int main(int argc, char** argv) {
     std::string headless_task;
     std::string output_format = "text";
     std::string permission_mode;
+    // #126：headless 显式验证目标（覆盖 WORKX_GOAL / config.json）
+    std::string goal;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--mock") mock_mode = true;
@@ -95,6 +97,8 @@ int main(int argc, char** argv) {
             if (i + 1 < argc) output_format = argv[++i];
         } else if (arg == "--permission-mode") {
             if (i + 1 < argc) permission_mode = argv[++i];
+        } else if (arg == "--goal") {
+            if (i + 1 < argc) goal = argv[++i];
         }
         if (arg == "--version" || arg == "-v") {
             // 仅打印版本与简介后退出，不触发配置向导/索引/Island/TUI
@@ -114,7 +118,8 @@ int main(int argc, char** argv) {
                       << "用法:\n"
                       << "  workx                  启动 TUI\n"
                       << "  workx --version | -v  显示版本与简介\n"
-                      << "  workx -p \"<task>\"     非交互单次执行（headless）\n";
+                      << "  workx -p \"<task>\"     非交互单次执行（headless）\n"
+                      << "  workx -p \"<task>\" --goal \"cmd:<命令>\"   声明验证目标后执行\n";
             return 0;
         }
     }
@@ -216,6 +221,7 @@ int main(int argc, char** argv) {
         agent::HeadlessOptions opts;
         opts.output_format = output_format;
         opts.permission_mode = permission_mode;
+        opts.goal = goal;
         if (headless_task == "-") {
             opts.read_from_stdin = true;
             std::ostringstream ss;

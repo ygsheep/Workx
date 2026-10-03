@@ -136,12 +136,18 @@ void register_config_defaults(ConfigManager& cfg) {
          .type = ConfigSchema::Type::String});
 
     // 0.6.x：#31 目标导向 Agent 的目标声明（agent.active=goal-guarded/verify 时生效）
+    // #126：补 env 绑定。评测（Terminal-Bench / Harbor）跑在别人准备的工作目录里，
+    //       里面常常既没有 CMakeLists.txt 也没有 package.json —— detect_default_goal()
+    //       探测不到任何项目线索就会返回 None，门禁随之完全不介入。
+    //       有了 WORKX_GOAL 就能按题面显式声明（例如 WORKX_GOAL="cmd:python3 -m pytest"），
+    //       把「门禁是否介入」从「碰巧有没有项目标记文件」变成可控变量。
     cfg.register_schema({.key = keys::AGENT_GOAL,
                          .description =
                              "Goal for goal-guarded agent: tests_pass / build_clean / "
                              "lint_zero / file_exists:<path> / cmd:<command> (empty = no goal)",
                          .default_value = std::string(""),
-                         .type = ConfigSchema::Type::String});
+                         .type = ConfigSchema::Type::String,
+                         .env_var = "WORKX_GOAL"});
 
     // 0.6.x：ReAct 循环基础预算（最大迭代轮数）。默认 40（原硬编码 25）；
     // 预算耗尽或检测到重复工具调用时，内部评审器可评审"是否继续"并追加预算
@@ -185,7 +191,10 @@ void register_config_defaults(ConfigManager& cfg) {
                              "Unverified answers are fed back to the model to retry; after the "
                              "attempt cap the answer is emitted with a not-verified warning.",
                          .default_value = false,
-                         .type = ConfigSchema::Type::Bool});
+                         .type = ConfigSchema::Type::Bool,
+                         // #126：评测要做「开/关门禁」对照跑（#117 的成本增幅指标），
+                         //       只能改 config.json 就太笨重且无法按题切换。
+                         .env_var = "WORKX_VERIFY_BEFORE_FINISH"});
     cfg.register_schema({.key = keys::AGENT_VERIFY_MAX_ATTEMPTS,
                          .description =
                              "Cap on verification failures re-injected to the model within one "
@@ -193,7 +202,8 @@ void register_config_defaults(ConfigManager& cfg) {
                              "bounds the cost amplification of the verification gate.",
                          .default_value = 3,
                          .type = ConfigSchema::Type::Int,
-                         .int_range = std::make_pair<int64_t, int64_t>(1, 50)});
+                         .int_range = std::make_pair<int64_t, int64_t>(1, 50),
+                         .env_var = "WORKX_VERIFY_MAX_ATTEMPTS"});
 
     // === Plan Mode V2（#54：五阶段多 Agent 规划流程）===
     cfg.register_schema({.key = keys::PLAN_AUTO,
@@ -364,6 +374,7 @@ void load_from_env(ConfigManager& cfg) {
     //    覆盖：WORKX_API_KEY / WORKX_BASE_URL / WORKX_MODEL / WORKX_TIMEOUT
     //          / WORKX_LOG_LEVEL / WORKX_LOG_FILE
     //          / WORKX_AUDIT_ENABLED / WORKX_AUDIT_FILE（#121 补）
+    //          / WORKX_GOAL / WORKX_VERIFY_BEFORE_FINISH / WORKX_VERIFY_MAX_ATTEMPTS（#126 补）
     cfg.load_from_env();
 
     // 2. WORKX_NO_COLOR 采用 presence-only 语义（兼容 https://no-color.org 规范）：

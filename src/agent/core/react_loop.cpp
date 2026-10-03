@@ -604,8 +604,26 @@ ReActLoop::GateResult ReActLoop::run_verification_gate(
     // VF-03：开关未开 / 未声明目标 / 该目标类型没有可用验证器 → 一律放行，不执行任何命令。
     // has_checker 这一项是关键：没有验证手段时若照样判定失败，就会把"无法验证"
     // 误报成"验证失败"，反而污染结果。
-    if (!m_config.verify_before_finish || !m_config.goal.has_goal() ||
-        !has_checker(m_config.goal.type)) {
+    //
+    // #126：这三种"未激活"原先共用一个**静默** return —— 日志里一条 #78 标记都不会出现。
+    //       首轮 Terminal-Bench 真实跑分就踩到了：`regex-log` 的 453 行日志零 #78 标记，
+    //       采集器只能得出"门禁触发率 0/1"，却无法区分是**未激活**还是**不可用放行**，
+    //       指标因此失去诊断价值。现在拆开逐条记录原因，并在可补救的分支给出操作提示。
+    if (!m_config.verify_before_finish) {
+        LOG_INFO("[react_loop] #78 gate inactive (verify_before_finish disabled)");
+        return GateResult::Pass;
+    }
+    if (!m_config.goal.has_goal()) {
+        // 这是最常见的一种：工作目录里没有 CMakeLists.txt / Cargo.toml / go.mod /
+        // package.json / Makefile 之类的项目线索，detect_default_goal() 返回 None。
+        // 评测场景下可用 WORKX_GOAL（或 --goal）按题面显式声明，别让门禁白装。
+        LOG_INFO("[react_loop] #78 gate inactive (no goal under '{}'; set WORKX_GOAL/--goal)",
+                 m_cwd);
+        return GateResult::Pass;
+    }
+    if (!has_checker(m_config.goal.type)) {
+        LOG_INFO("[react_loop] #78 gate inactive (no checker for goal type {})",
+                 static_cast<int>(m_config.goal.type));
         return GateResult::Pass;
     }
 

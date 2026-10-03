@@ -28,6 +28,11 @@ struct HeadlessOptions {
     std::string output_format = "text";  ///< text / json / stream-json
     /// @brief 权限模式（accept-edits / bypass-permissions / default）
     std::string permission_mode;
+    /// @brief #126：显式声明验证目标（tests_pass / build_clean / cmd:<command> / ...）
+    /// @details 非空时覆盖配置与 `WORKX_GOAL`。评测跑在别人准备的目录里常常没有任何
+    ///          项目标记文件，目标探测会返回 None、门禁随之完全不介入；
+    ///          有这一项就能按题面指定"用什么命令算通过"。
+    std::string goal;
 };
 
 /// @brief Headless 执行结果

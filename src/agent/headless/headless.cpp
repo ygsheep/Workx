@@ -15,6 +15,7 @@
 
 #include "agent/api/chat_types.h"
 #include "agent/config/app_config.h"
+#include "agent/core/goal_verdict.h"  // #126：parse_goal（--goal 合法性校验）
 #include "agent/core/react_loop.h"
 #include "agent/factory.h"
 #include "agent/headless/headless_internal.h"  // #77：内部可测件声明（@internal）
@@ -24,6 +25,7 @@
 #include "agent/tool/context.h"
 #include "agent/tool/registry.h"
 #include "core/config/i_config_manager.h"
+#include "liblogger/logger.h"  // #126：--goal 覆盖生效时留一条可采集的证据
 #include "core/events/event_bus.h"
 #include "core/task/task_manager.h"
 #include "core/utils/result_v2.h"
@@ -212,6 +214,29 @@ HeadlessResult run_with_provider(IConfigManager& cfg, ITaskManager& task_manager
 
     const std::string user_prompt = cfg.get_or<std::string>(keys::SYSTEM_PROMPT, "");
     const std::string sys_prompt = build_system_prompt(user_prompt, *tool_registry);
+
+    // ---- 2.5 #126：--goal 覆盖目标声明 ----
+    // 必须在 build_loop()（内部调 apply_verification_gate 读 agent.goal）之前落盘，
+    // 否则显式指定的目标会被忽略，门禁依旧按"无目标"静默放行。
+    // 优先级：--goal > WORKX_GOAL > config.json —— 命令行在最后写入，天然最高。
+    if (!opts.goal.empty()) {
+        // 先解析再写入：拼错的目标（例如 "tests-pass"）会让 parse_goal 返回 None，
+        // 门禁随后按"无目标"静默放行 —— 那正是 #126 要消灭的静默失效，必须当场报错。
+        if (parse_goal(opts.goal).type == AgentGoal::None) {
+            result.exit_code = 2;
+            result.output = "error: 无法识别的 --goal '" + opts.goal +
+                            "'（可选 tests_pass / build_clean / lint_zero / "
+                            "file_exists:<path> / cmd:<command>）\n";
+            return result;
+        }
+        // ⚠️ ResultV2<void> 没有 operator bool，只有 is_ok()/is_err()
+        if (auto r = cfg.set(keys::AGENT_GOAL, opts.goal); r.is_err()) {
+            result.exit_code = 2;
+            result.output = "error: --goal 写入配置失败：" + r.error().message + "\n";
+            return result;
+        }
+        LOG_INFO("[headless] #126 goal overridden by --goal: {}", opts.goal);
+    }
 
     // ---- 3. 构造循环并执行 ----
     const std::string session_id = core::util::generate_uuid();

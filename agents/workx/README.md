@@ -8,11 +8,11 @@
 - 适配器本体：`__init__.py`（`WorkxAgent(BaseInstalledAgent)`）
 - 指标采集器：`scripts/harness/collect_metrics.py`
 
-> ✅ **install 链路已实测**（2026-10-03，Docker Desktop 29.6.1）：
-> `harbor run ... --install-only --force-build` 跑通 —— 容器内 `apt-get install` 成功、预构建
-> 二进制下载成功、`workx --version` 退出 0。
-> ⚠️ **但完整 run（agent 真的解题 + verifier 判分）还没跑过**，卡在缺少模型凭据。
-> 首次使用**务必按下面的顺序先 smoke 再放量**，任何一步失败都请先看「已知阻塞」。
+> ✅ **首轮 smoke 已跑通**（2026-10-03，Docker Desktop 29.6.1 + DeepSeek `deepseek-v4-flash`）：
+> `regex-log` 一题 **reward = 1.0**，verifier `1 passed / 0 failed`；agent 11 iterations /
+> 10 tool calls / 71s。三份产物（stream / log / audit）均已取回，#121 的日志修复确认生效。
+> ⚠️ **n=1 不构成结论**：#78 的行为统计口径（验证命令执行率 ≥90%）要跑有代表性的子集才判得动，
+> 放量前请先读「已知阻塞」第 2、5 条。
 
 ---
 
@@ -89,12 +89,20 @@ python scripts/harness/collect_metrics.py \
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `WORKX_AGENT_BINARY_URL` | 空 | 预构建 `workx` 二进制 URL。**给了就跳过源码构建**（推荐，快很多） |
+| `WORKX_AGENT_BINARY_URL` | 空 | 预构建 `workx` 二进制 URL。**给了就跳过源码构建** |
+| `WORKX_AGENT_BINARY_PATH` | 空 | 预构建二进制的**容器内**路径（配合 `harbor run --mounts` 挂卷）。 |
+|  |  | 与 URL 二选一，URL 优先。用它是因为宿主 `python -m http.server` 会被回收， |
+|  |  | 容器里 `curl` 直接 exit 7 —— **挂卷不依赖常驻服务** |
 | `WORKX_AGENT_REPO_URL` | `https://github.com/ygsheep/Workx.git` | 源码构建回退路径用 |
 | `WORKX_AGENT_REF` | `develop` | 构建分支 |
 | `WORKX_AGENT_CWD` | 空（沿用 Harbor 默认） | 强制 workx 的工作目录，任务文件不在默认 cwd 时必填 |
 | `WORKX_AGENT_PERMISSION_MODE` | `bypass-permissions` | 无人值守档 |
 | `WORKX_AGENT_MAX_ITERATIONS` | 空（配置默认 40） | 复杂题可上调 |
+| `WORKX_GOAL` | 空 | #126：显式声明验证目标（`tests_pass` / `cmd:<命令>` / `file_exists:<path>` …）。 |
+|  |  | **评测必读**：工作目录没有 `CMakeLists.txt` / `package.json` 之类的项目标记时， |
+|  |  | 目标探测返回 None、#78 门禁完全不介入 —— 这类题只能靠它显式指定 |
+| `WORKX_VERIFY_BEFORE_FINISH` | headless 下 `true` | #126：门禁开关，做「开/关对照跑」时用 |
+| `WORKX_VERIFY_MAX_ATTEMPTS` | `3` | #126：验证失败回灌上限 |
 
 所有 `WORKX_*` 变量都会透传进容器；缺 `WORKX_API_KEY` 时 `run()` 会直接抛错而不是静默空跑。
 
@@ -102,19 +110,31 @@ python scripts/harness/collect_metrics.py \
 
 源码构建要在容器里 bootstrap vcpkg + 全量编译，每题都来一遍代价极高。先构建一次：
 
+**基线必须压到 glibc 2.35**（= ubuntu 22.04）：terminal-bench@2.0 里大量题目跑在
+`python:3.13-slim-bookworm`（glibc 2.36）这类镜像上，24.04 产物要 `GLIBC_2.38`，一上去就
+`GLIBC_2.38 not found`。而在 22.04 上构建又要 GCC 13（代码用了 `<format>`），
+所以走 ubuntu-toolchain-r PPA。（实测：24.04 产物在 bookworm 上同时报
+`GLIBC_2.38` 与 `GLIBCXX_3.4.32` 缺失，换成下面的配方后 `--version` 正常退出。）
+
 ```bash
 export MSYS_NO_PATHCONV=1
 docker run --rm \
   -v "$PWD:/src" \
   -v "$PWD/build/vcpkg_installed/x64-windows/include/nlohmann:/opt/nlohmann" \
-  -v "$PWD:/out" -w /src ubuntu:24.04 bash -c '
+  -v "$PWD:/out" -w /src ubuntu:22.04 bash -c '
   apt-get update -qq
-  apt-get install -y --no-install-recommends build-essential cmake ninja-build \
-    pkg-config libcurl4-openssl-dev nlohmann-json3-dev ca-certificates
-  # ① apt 的 nlohmann 是 3.11.3，编不过 json.value(key, std::optional<T>)，
+  # ① gpg-agent 必须显式装：add-apt-repository 导入 PPA 签名时会 fork 它，
+  #    只装 software-properties-common 会报 "probably not installed" 并整个失败
+  apt-get install -y --no-install-recommends software-properties-common ca-certificates \
+    gnupg gpg-agent
+  add-apt-repository -y ppa:ubuntu-toolchain-r/test
+  apt-get update -qq
+  apt-get install -y --no-install-recommends build-essential cmake ninja-build g++-13 \
+    pkg-config libcurl4-openssl-dev nlohmann-json3-dev binutils
+  # ② apt 的 nlohmann 是 3.11.3，编不过 json.value(key, std::optional<T>)，
   #    必须换成 vcpkg baseline 的 3.12.0（直接复用本机已有的那一份头文件）
   rm -rf /usr/include/nlohmann && cp -r /opt/nlohmann /usr/include/nlohmann
-  # ② Ubuntu 的 libcurl-dev 不提供 CMake package config，而 CMakeLists 用的是
+  # ③ Ubuntu 的 libcurl-dev 不提供 CMake package config，而 CMakeLists 用的是
   #    find_package(CURL CONFIG REQUIRED) —— 自己造一个最小的
   mkdir -p /usr/local/lib/cmake/CURL
   cat > /usr/local/lib/cmake/CURL/CURLConfig.cmake <<CFG
@@ -127,7 +147,9 @@ if(NOT TARGET CURL::libcurl)
 endif()
 CFG
   cmake -S /src -B /tmp/wxbuild -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER=gcc-13 -DCMAKE_CXX_COMPILER=g++-13 \
     -DCURL_DIR=/usr/local/lib/cmake/CURL \
+    -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc" \
     -DWORKX_BUILD_TESTS=OFF -DWORKX_BUILD_EXAMPLES=OFF -DWORKX_BUILD_CONSUMER=OFF \
     -DWORKX_WITH_TREE_SITTER=OFF -DWORKX_FETCH_GRAMMARS=OFF
   cmake --build /tmp/wxbuild --target workx -j "$(nproc)"
@@ -135,11 +157,20 @@ CFG
 '
 ```
 
-约 3 分钟，产物 8 MB。然后把产物挂到任意**容器内可访问**的 URL：
+约 4 分钟，产物 10 MB。两个关键点：
+
+- `-static-libstdc++ -static-libgcc`：消掉 `GLIBCXX_3.4.32` 依赖
+  （GCC 13 的 libstdc++，jammy 只到 3.4.30；不静态链接的话旧镜像照样起不来）。
+  加完后 `NEEDED` 只剩 `libcurl.so.4 / libm.so.6 / libc.so.6 / ld-linux-x86-64.so.2`。
+- 产物体检：`objdump -T workx-linux-amd64 | grep -oE "GLIBC(XX)?_[0-9.]+" | sort -uV | tail -1`
+  应输出 `GLIBC_2.35`；出现 `GLIBC_2.38` 或任何 `GLIBCXX_` 说明配方没生效。
+
+把产物挂给 Harbor（**推荐挂卷，不要起 HTTP 服务** —— 宿主 `python -m http.server`
+的后台进程会被回收，容器里 `curl` 直接 exit 7）：
 
 ```bash
-cd <产物目录> && python -m http.server 8899 --bind 0.0.0.0
-# 容器侧用 http://host.docker.internal:8899/workx-linux-amd64
+export WORKX_AGENT_BINARY_PATH=/opt/workx-bin/workx-linux-amd64
+harbor run ... --mounts '[{"type":"bind","source":"<宿主产物目录>","target":"/opt/workx-bin","read_only":true}]'
 ```
 
 > 上面刻意**不用 vcpkg 装依赖**：容器内访问 github.com 常常不通，bootstrap vcpkg 会直接失败；
@@ -153,15 +184,26 @@ cd <产物目录> && python -m http.server 8899 --bind 0.0.0.0
    现在 headless 会在提前 return 之前调用 `init_logging_and_audit(allow_default_file=false)`，
    `WORKX_LOG_FILE` / `WORKX_AUDIT_FILE` 生效（headless 侧不回落 `~/.workx/logs`，避免并发跑题互相覆盖）。
 
-2. 🔴 **glibc 基线**：上面配方产出的二进制是 ubuntu 24.04（glibc 2.39 / libcurl 8.5）产物，
-   要求 `GLIBC_2.38`，**跑不了** `python:3.13-slim-bookworm`（2.36）和 `debian:bullseye-slim`（2.31）
-   的题 —— terminal-bench@2.0 的 89 题里有 **43 题**会直接 `GLIBC_2.38 not found`。
-   退到 ubuntu 22.04 也不行：代码用了 `<format>`（std::format），**至少要 GCC 13**，
-   而 jammy 默认只有 GCC 11/12。要覆盖全量子集，得先搞出 jammy + g++-13（toolchain PPA）或等价的低基线构建。
-   → **smoke 只挑 `ubuntu:24.04` 的题就绕得过去**（如 `regex-log`）。
+2. ✅ ~~**glibc 基线**~~ —— **已解（2026-10-03）**：预构建配方改成
+   `ubuntu:22.04 + ubuntu-toolchain-r PPA 的 g++-13 + -static-libstdc++ -static-libgcc`，
+   glibc 需求上限从 `GLIBC_2.38` 降到 **`GLIBC_2.35`**，`GLIBCXX_*` 依赖归零。
+   实测在 `debian:bookworm-slim`（glibc 2.36）上：旧二进制报
+   `GLIBC_2.38 not found` + `GLIBCXX_3.4.32 not found`，新二进制 `--version` 正常退出。
+   → 覆盖 ubuntu 22.04 / debian 12 / ubuntu 24.04 的题。
+   ⚠️ 仍跑不了 `debian:bullseye-slim`（glibc 2.31）—— 那需要把基线压到 20.04，暂时没做。
+   ⚠️ 试过但**走不通**的路线：在 24.04 上用 `-U_GNU_SOURCE` 消除 `__isoc23_strtol`（能把
+   glibc 需求降到 2.34），但 libstdc++ 依赖 `_GNU_SOURCE` 下的 `pthread_cond_clockwait`，
+   直接编译失败 —— 别再试。
 
 3. 🔴 **官方镜像拉取 403**：`alexgshaw/<task>:20251031` 在 daocloud 等加速器上返回 403
    （加速器只缓存 Docker Hub 官方 library 镜像）。必须 `--force-build` 走本地构建。
 
 4. ⚠️ **容器内 github.com 不通**（未显式设代理时）：源码构建回退路径里的
    `git clone vcpkg` 会失败，所以这条路径目前**只在有代理的环境可用**。预构建快路径不受影响。
+
+5. 🔴 **门禁在无项目线索的题上不介入（#126）**：`detect_default_goal()` 只认
+   `CMakeLists.txt+CTestTestfile.cmake` / `Cargo.toml` / `go.mod` / `package.json` /
+   `Makefile`，像 `regex-log` 这种 `/app` 空目录的题探测不到目标 → #78 门禁完全不生效
+   （首轮 453 行日志里 `#78` 标记 0 次）。
+   → 短期靠 `WORKX_GOAL` 按题面显式声明；修复前「门禁触发率」这一项**结构性偏低**，
+     不要拿它直接判达标/不达标。

@@ -108,3 +108,6 @@ imgui.ini
 # Harbor / Terminal-Bench 跑分产物（jobs/<job-id>/：reward.txt、ctrf.json、轨迹）
 # 每次跑分都会新建一个时间戳目录，体积随 trials 增长，不入库
 /jobs/
+
+# CTest 在仓库根跑时残留的临时产物（Testing/Temporary/），不入仓
+/Testing/
