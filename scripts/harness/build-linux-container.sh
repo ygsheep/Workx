@@ -72,15 +72,21 @@ echo "[4] 构建完成"
 find /build_local -maxdepth 4 -name workx -type f -perm -u+x | head -3
 '
 
-OUT="$REPO_ROOT/build/linux/workx-linux-amd64"
+OUT=build/linux/workx-linux-amd64
+# ⚠️ docker cp 的目标路径必须是**相对路径**：Windows 盘符 `D:` 里的冒号会和
+#    `docker cp <container>:<path>` 的冒号混淆，被解析成第二个 "容器源"，报
+#    `invalid output path: directory "D:\d\develop\..." does not exist`。
+#    相对路径不含冒号，且同样由 docker 按宿主 CWD 解析（已实测）。
+cd "$REPO_ROOT"
 mkdir -p "$(dirname "$OUT")"
 if [ -f "$OUT" ]; then
   cp "$OUT" "$OUT.old-$(date +%Y%m%d)"
   echo "[5] 旧二进制已备份 -> $(basename "$OUT").old-$(date +%Y%m%d)"
 fi
 MSYS_NO_PATHCONV=1 docker cp "$CT:/build_local/bin/workx" "$OUT"
-echo "[6] 产物已导出 -> $OUT"
+echo "[6] 产物已导出 -> $OUT（size=$(wc -c < "$OUT") bytes）"
 
 # ⚠️ 别跳过这一步：曾经拿着没编进改动的旧二进制跑了一整轮对照实验，
 #    得出「修复有效」的假结论。签名必须对得上源头。
-"$REPO_ROOT/scripts/harness/check_binary_signature.py" "$OUT"
+# --version 输出的 `-g<hash>` 应当等于当前 HEAD 的短 hash。
+python scripts/harness/check_binary_signature.py "$OUT"

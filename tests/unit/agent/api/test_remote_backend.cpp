@@ -11,6 +11,10 @@
 #include <set>
 #include <mutex>
 #include <functional>
+#include <thread>
+#include <atomic>
+#include <chrono>
+#include <memory>
 
 #include "agent/api/remote/remote_backend.h"
 #include "agent/api/backend_factory.h"
@@ -62,9 +66,29 @@ class FakeHttpClient : public IHttpClient {
     }
 
     void cancel_stream(SSEStreamReader* reader) override {
+        std::function<void()> cb;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            ++m_cancel_count;
+            m_cancelled.insert(reader);
+            // #139：真实 HttpClient::cancel_stream() 会同步走到 on_transfer_done →
+            // finish → on_complete。默认关闭以保持既有用例的"纯计数"语义，
+            // 由复现死锁的用例显式打开。
+            if (m_fire_on_complete_on_cancel) {
+                auto it = m_on_complete.find(reader);
+                if (it != m_on_complete.end()) {
+                    cb = std::move(it->second);
+                    m_on_complete.erase(it);
+                }
+            }
+        }
+        if (cb) cb();  // 必须在 Fake 自身锁外触发，与真实实现一致
+    }
+
+    /// @brief 打开后 cancel_stream 会同步触发 on_complete（复现 #139 自锁所需）
+    void set_fire_on_complete_on_cancel(bool on) {
         std::lock_guard<std::mutex> lock(m_mutex);
-        ++m_cancel_count;
-        m_cancelled.insert(reader);
+        m_fire_on_complete_on_cancel = on;
     }
 
     void shutdown() override {}
@@ -97,6 +121,7 @@ class FakeHttpClient : public IHttpClient {
     mutable std::map<IStreamReader*, std::function<void()>> m_on_complete;
     mutable std::set<IStreamReader*> m_cancelled;
     mutable size_t m_cancel_count = 0;
+    bool m_fire_on_complete_on_cancel = false;  // #139：cancel 时同步触发 on_complete
 };
 
 }  // namespace
@@ -602,4 +627,80 @@ TEST_CASE("RemoteBackend late on_complete after shutdown keeps Shutdown (M-N1)",
     fake_ptr->complete(r1.get());
     REQUIRE(backend.state() == BackendState::Shutdown);
     REQUIRE_FALSE(backend.is_ready());
+}
+
+// ============================================================================
+// #139：Generating 态下 shutdown / interrupt 不得自锁
+// ============================================================================
+
+namespace {
+
+/// @brief 后台线程执行 fn，超时未返回即判定为自锁
+/// @note 必须 detach + 轮询：死锁时 join / future 析构会跟着一起挂住，
+///       把"用例失败"升级成"整个测试进程挂死"。
+[[nodiscard]] bool returns_within(std::function<void()> fn, std::chrono::milliseconds budget) {
+    std::atomic<bool> done{false};
+    std::thread t([f = std::move(fn), &done] {
+        f();
+        done.store(true, std::memory_order_release);
+    });
+    t.detach();
+    const auto deadline = std::chrono::steady_clock::now() + budget;
+    while (!done.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return done.load(std::memory_order_acquire);
+}
+
+/// @brief 构造一个「已在飞一个请求」的 backend（#139 用例共用）
+/// @note 返回裸指针且不接管所有权：一旦复现自锁，析构会再次走 shutdown 自锁，
+///       那会把"用例失败"变成"CI 挂死"，故由用例自行决定是否 delete。
+[[nodiscard]] RemoteBackend* make_generating_backend(FakeHttpClient*& fake_out) {
+    auto* backend = new RemoteBackend(nullptr);
+    auto fake = std::make_unique<FakeHttpClient>();
+    fake_out = fake.get();
+    fake_out->set_fire_on_complete_on_cancel(true);  // 还原真实 HttpClient 的同步回调
+    backend->set_http_client_for_testing(std::move(fake));
+    backend->initialize(make_remote_config());
+    CompletionRequest req;
+    backend->submit_completion(req);
+    return backend;
+}
+
+}  // namespace
+
+TEST_CASE("RemoteBackend shutdown while generating does not self-deadlock (#139)",
+          "[backend][remote][issue139]") {
+    // #139 复现：shutdown() 曾全程持有 m_active_mutex 并在锁内调 interrupt_locked() →
+    // cancel_stream() → on_complete 回调 → 回调再次 lock(m_active_mutex)，
+    // 同线程二次加锁非递归 mutex = 永久阻塞。
+    // 线上表现：跑分里任务 293s 就做完（verifier 11/11），进程却挂到 1800s 被判超时。
+    FakeHttpClient* fake_ptr = nullptr;
+    auto* backend = make_generating_backend(fake_ptr);
+    REQUIRE(backend->is_generating());
+
+    const bool returned =
+        returns_within([backend] { backend->shutdown(); }, std::chrono::seconds(3));
+
+    REQUIRE(returned);  // 自锁时这里失败（而不是挂死整个测试进程）
+    REQUIRE(backend->state() == BackendState::Shutdown);
+    REQUIRE(fake_ptr->cancel_count() == 1);
+    delete backend;  // 仅在确认未死锁后才析构
+}
+
+TEST_CASE("RemoteBackend interrupt while generating does not self-deadlock (#139)",
+          "[backend][remote][issue139]") {
+    // #139：interrupt()（Ctrl+C 中断路径）走的是同一条 interrupt_locked()，
+    // 修复前同样会在持锁状态下触发 on_complete 回调而自锁。
+    FakeHttpClient* fake_ptr = nullptr;
+    auto* backend = make_generating_backend(fake_ptr);
+    REQUIRE(backend->is_generating());
+
+    const bool returned =
+        returns_within([backend] { backend->interrupt(); }, std::chrono::seconds(3));
+
+    REQUIRE(returned);
+    REQUIRE(backend->is_ready());  // interrupt 后回到 Ready（非终态）
+    REQUIRE(fake_ptr->cancel_count() == 1);
+    delete backend;
 }
