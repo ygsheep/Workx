@@ -1688,3 +1688,164 @@ TEST_CASE_METHOD(ReActLoopFixture, "#144: 退避等待期间可被取消打断",
     REQUIRE_FALSE(result.was_error);
     REQUIRE(provider->submit_count == 1);
 }
+
+// ============================================================================
+// Issue #147 — 思维链失控 与 空答复（交白卷）
+//
+// 背景（Terminal-Bench 20 题实测）：
+//   ① 模型会生成 1.5 万~6.5 万 token 思维链而 content 为空，占掉全部思考时间的 49%；
+//      `adaptive-rejection-sampler` 三次失控吃掉 761/900 秒预算，直接超时判 0。
+//   ② 旧逻辑把"空 content + 无 tool_use"当成 LLM 主动结束，`cancel-async-tasks`
+//      在生成 65536 token 思维链后提交了一个**空 final_answer** 就结束了任务。
+// 策略：推理字符超预算即流式中断；无效答复回灌提示后重试，且都不消耗迭代预算。
+// ============================================================================
+
+namespace {
+
+/// @brief 构造一个"思维链失控"的 reader：只有 reasoning、没有 content、没有工具调用
+/// @param chars reasoning 字符总量（按 chunk 切分，模拟真实流式）
+std::shared_ptr<MockStreamReader> make_runaway_reasoning_reader(int chars, int chunk_size = 64) {
+    auto reader = std::make_shared<MockStreamReader>();
+    int written = 0;
+    while (written < chars) {
+        const int n = std::min(chunk_size, chars - written);
+        reader->add_reasoning_chunk(std::string(static_cast<size_t>(n), 'x'));
+        written += n;
+    }
+    reader->set_usage(10, 60000);
+    return reader;
+}
+
+/// @brief 构造一个"空答复"reader：既没有 content 也没有 tool_use（模拟交白卷）
+std::shared_ptr<MockStreamReader> make_empty_reader() {
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->set_usage(10, 0);
+    return reader;
+}
+
+}  // namespace
+
+TEST_CASE_METHOD(ReActLoopFixture,
+                 "#147: 思维链超出预算时流式中断，回灌提示后重试并最终拿到答复",
+                 "[react_loop][issue147]") {
+    ReActLoop::Config config;
+    config.reasoning_budget_chars = 256;  // 测试用小预算，避免构造 3 万字符
+    config.empty_answer_max_retries = 2;
+    auto loop = make_loop(config);
+
+    // 第一次：思维链失控（只产出 reasoning，content 为空）
+    provider->set_next_reader(make_runaway_reasoning_reader(4096));
+    // 第二次：被回灌提示后直接给出结论
+    make_text_reader("答案是 42。");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("请解题")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE_FALSE(result.was_error);
+    REQUIRE(result.final_answer == "答案是 42。");
+    // 中断发生在工具执行之前，重试不该吃掉迭代预算
+    REQUIRE(result.total_iterations == 1);
+    REQUIRE(provider->submit_count == 2);
+    // 回灌的提示必须进入上下文，否则模型会重蹈覆辙
+    const auto& sent = provider->last_messages;
+    REQUIRE(std::any_of(sent.begin(), sent.end(), [](const ChatMessage& m) {
+        return m.role == ChatMessage::Role::User && m.content.find("reasoning") != std::string::npos;
+    }));
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#147: 空答复不再被当成 FinalAnswer 直接交白卷",
+                 "[react_loop][issue147]") {
+    ReActLoop::Config config;
+    config.empty_answer_max_retries = 2;
+    auto loop = make_loop(config);
+
+    provider->set_next_reader(make_empty_reader());  // 交白卷
+    make_text_reader("这是我真正的答复。");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("继续任务")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE_FALSE(result.was_error);
+    REQUIRE(result.final_answer == "这是我真正的答复。");
+    REQUIRE(result.total_iterations == 1);
+    REQUIRE(provider->submit_count == 2);
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#147: 重试预算用尽后兜底收尾，不会无限循环",
+                 "[react_loop][issue147]") {
+    ReActLoop::Config config;
+    config.empty_answer_max_retries = 1;  // 只允许重试 1 次
+    auto loop = make_loop(config);
+
+    provider->set_next_reader(make_empty_reader());
+    provider->set_next_reader(make_empty_reader());
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("继续任务")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    // 1 次原始 + 1 次重试 = 2 次提交，之后必须停止
+    REQUIRE(provider->submit_count == 2);
+    REQUIRE(result.final_answer.empty());
+    // 属 LLM 主动结束（无内容），不是硬预算错误
+    REQUIRE_FALSE(result.was_error);
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#147: 有效答复不受影响（有文本则不重试）",
+                 "[react_loop][issue147]") {
+    ReActLoop::Config config;
+    config.reasoning_budget_chars = 256;
+    config.empty_answer_max_retries = 2;
+    auto loop = make_loop(config);
+
+    // 正常的短思维链 + 正常答复，不该被误伤
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->add_reasoning_chunk(std::string(100, 'r'));
+    reader->add_content_chunk("正常答复");
+    reader->set_usage(10, 50);
+    provider->set_next_reader(reader);
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("继续任务")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.final_answer == "正常答复");
+    REQUIRE(provider->submit_count == 1);  // 没有多余重试
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#147: 带工具调用的空 content 不算白卷（不重试）",
+                 "[react_loop][issue147]") {
+    ReActLoop::Config config;
+    config.empty_answer_max_retries = 2;
+    auto loop = make_loop(config);
+
+    // 模型只调用工具、不输出文本 —— 这是完全正常的，绝不能当成无效答复
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->add_tool_use_start("t1", "Echo");
+    reader->add_tool_use_delta("t1", R"({"text":"hi"})");
+    reader->set_usage(10, 20);
+    provider->set_next_reader(reader);
+    // 工具执行后给出最终答复
+    make_text_reader("完成。");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("用工具打个招呼")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.final_answer == "完成。");
+    REQUIRE(echo_tool->call_count == 1);
+    REQUIRE(provider->submit_count == 2);  // 1 次工具轮 + 1 次最终答复，没有多余重试
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#147: reasoning_budget_chars=0 恢复旧行为（不中断）",
+                 "[react_loop][issue147]") {
+    ReActLoop::Config config;
+    config.reasoning_budget_chars = 0;  // 关闭上限
+    config.empty_answer_max_retries = 0;
+    auto loop = make_loop(config);
+
+    provider->set_next_reader(make_runaway_reasoning_reader(4096));
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("请解题")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    // 不中断、不重试：单次提交后按"LLM 主动结束"收尾
+    REQUIRE(provider->submit_count == 1);
+}

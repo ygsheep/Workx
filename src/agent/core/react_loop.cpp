@@ -254,6 +254,22 @@ ReActLoop::ThoughtResult ReActLoop::execute_thought(const CompletionRequest& req
                 if (on_token) {
                     on_token(chunk.content_delta, chunk.reasoning_delta);
                 }
+
+                // #147：思维链失控防护 —— 推理字符数超预算时主动中断本次请求。
+                // 实测模型会生成 1.5 万~6.5 万 token 思维链而 content 为空（占全部思考时间
+                // 的 49%）。此时继续等待只会烧掉整轮预算，不如尽早中断让上层回灌提示重试。
+                // 中断发生在任何工具执行之前，未产生状态变更，故重试是安全的。
+                if (m_config.reasoning_budget_chars > 0 &&
+                    static_cast<int64_t>(result.reasoning.size()) >
+                        m_config.reasoning_budget_chars) {
+                    LOG_WARN(
+                        "[react_loop] thought reasoning budget exceeded ({} chars > {}), "
+                        "aborting stream before any tool execution",
+                        result.reasoning.size(), m_config.reasoning_budget_chars);
+                    reader->cancel();
+                    result.reasoning_budget_exceeded = true;
+                    break;
+                }
             }
 
             // tool_use content_block 开始
@@ -806,6 +822,9 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
     // #144：Thought 阶段连续失败计数。成功一次即清零 —— 它是"同一轮请求"的重试预算，
     // 不是整轮任务的失败配额，否则长任务里一次早期抖动会把后半程的重试机会提前用光。
     int thought_error_retries = 0;
+    // #147：无效答复（无 tool_use 且 content 为空 / 思维链超预算）连续重试计数。
+    // 同样在取得有效答复后清零，避免被早期一次抖动用光后半程的机会。
+    int invalid_answer_retries = 0;
     bool graceful_stop = false;        ///< 内部评审 wrap_up 的优雅收尾（非硬错误）
     bool hard_budget_reached = false;  ///< 预算(含追加)真正耗尽且未产出 final_answer
     int verify_attempts = 0;  ///< #78：本 run 已发生的验证失败次数（跨迭代累计，用于重试封顶）
@@ -934,6 +953,10 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
         }
 
         // 走到这里说明本轮 Thought 成功取得有效结果：重试预算理应重新计数
+        // ⚠️ #147：这里**不能**顺手清 invalid_answer_retries —— 本行在"Thought 取得响应"时
+        // 就会执行，而空答复同样是有响应（只是没有内容）。若在此清零，无效答复计数永远
+        // 归零，重试判断恒成立，循环会一直重试到 provider 无响应为止。
+        // 该计数只在主循环体末尾（++iteration 处）清零，即"本轮真正推进了"才重置。
         thought_error_retries = 0;
 
         // --- 记录 Thought 步骤 ---
@@ -967,6 +990,45 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
         // ================================================================
 
         if (thought.tool_uses.empty()) {
+            // === #147：拦截"无效答复"，别把白卷当 FinalAnswer ===
+            // 旧逻辑只看"有没有 tool_use"，于是空 content 也被当成 LLM 主动结束 ——
+            // 实测 cancel-async-tasks 就是这样交了一个空 final_answer 结束任务的。
+            // 两种无效情形：①content 为空白 ②思维链超预算被中断（content 通常也为空）。
+            // 二者都发生在任何工具执行之前，无状态变更，重试安全且不消耗迭代预算。
+            const bool blank_content =
+                std::all_of(thought.content.begin(), thought.content.end(),
+                            [](unsigned char c) { return std::isspace(c); });
+            const bool budget_hit = thought.reasoning_budget_exceeded;
+
+            if ((blank_content || budget_hit) &&
+                invalid_answer_retries < std::max(0, m_config.empty_answer_max_retries)) {
+                ++invalid_answer_retries;
+                const std::string hint =
+                    budget_hit
+                        ? std::format(
+                              "Your previous response was cut off because the reasoning process "
+                              "exceeded the budget ({} characters). Stop the long deliberation and "
+                              "act now: either call a tool to make progress, or state your final "
+                              "answer directly and concisely.",
+                              m_config.reasoning_budget_chars)
+                        : "Your previous response contained no text and no tool call, so nothing "
+                          "was accomplished. Respond now: either call a tool to make progress, or "
+                          "state your final answer directly.";
+                LOG_WARN(
+                    "[react_loop] iteration={} invalid answer (blank={}, reasoning_budget_hit={}), "
+                    "retrying ({}/{}) without consuming budget",
+                    iteration, blank_content, budget_hit, invalid_answer_retries,
+                    m_config.empty_answer_max_retries);
+
+                // ⚠️ 重试时**不回灌** reasoning：这段推理要么是已经失控的长链，要么是空转，
+                // 回灌等于让模型"沿着原链条接着想"，实测三次重试全部重蹈覆辙
+                // （adaptive-rejection-sampler / feal-linear-cryptanalysis 均如此）。
+                // 只留一条空 assistant 占位 + 强提示，让模型从干净状态重新决策。
+                messages.push_back(ChatMessage::assistant(thought.content));
+                messages.push_back(ChatMessage::user(hint));
+                continue;
+            }
+
             // LLM 给出最终回复，无需工具调用
             LOG_INFO("[react_loop] iteration={} final_answer, content_len={}", iteration,
                      thought.content.size());
@@ -1481,6 +1543,10 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
         }
 
         ++iteration;
+        // #147：本轮真正推进了（执行了工具或产出了有效答复）→ 无效答复计数归零。
+        // 放在这里而非 Thought 返回处，是因为重试走 continue 会跳过本行，
+        // 从而保住"连续无效答复"的计数语义。
+        invalid_answer_retries = 0;
         // 预算（含追加）耗尽且评审未授予继续 → 供循环后判硬错误
         hard_budget_reached = (budget <= 0);
     }
