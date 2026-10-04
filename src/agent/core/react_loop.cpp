@@ -998,9 +998,19 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
             const bool blank_content =
                 std::all_of(thought.content.begin(), thought.content.end(),
                             [](unsigned char c) { return std::isspace(c); });
+            const bool blank_reasoning =
+                std::all_of(thought.reasoning.begin(), thought.reasoning.end(),
+                            [](unsigned char c) { return std::isspace(c); });
             const bool budget_hit = thought.reasoning_budget_exceeded;
 
-            if ((blank_content || budget_hit) &&
+            // ⚠️ 只有"想了但没产出"才算异常：content 空 **且 reasoning 非空**，
+            // 或思维链超预算被中断。若 content 与 reasoning **都空**，那是模型主动
+            // 结束（不发一语的收尾），属正常语义，必须保持旧行为直接收尾 ——
+            // 否则会误伤把空响应当作正常结束的调用方（实测破坏 ChatSession 的
+            // 队列自动发送用例：重试会额外消耗一次 provider reader）。
+            const bool invalid_answer = budget_hit || (blank_content && !blank_reasoning);
+
+            if (invalid_answer &&
                 invalid_answer_retries < std::max(0, m_config.empty_answer_max_retries)) {
                 ++invalid_answer_retries;
                 const std::string hint =

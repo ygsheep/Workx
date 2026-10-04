@@ -1716,8 +1716,19 @@ std::shared_ptr<MockStreamReader> make_runaway_reasoning_reader(int chars, int c
     return reader;
 }
 
-/// @brief 构造一个"空答复"reader：既没有 content 也没有 tool_use（模拟交白卷）
+/// @brief 构造一个"想了但没产出"的 reader：有 reasoning、无 content、无 tool_use
+/// @details 这正是 #147 要拦截的白卷：模型推理了半天却什么都没输出。
+///          注意 content 与 reasoning **都空**不属于此类——那是模型主动结束，
+///          必须保持旧行为（见"content 与 reasoning 都空视为主动结束"用例）。
 std::shared_ptr<MockStreamReader> make_empty_reader() {
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->add_reasoning_chunk("让我想想……");
+    reader->set_usage(10, 500);
+    return reader;
+}
+
+/// @brief 构造一个"完全空响应"reader：content 与 reasoning 都没有
+std::shared_ptr<MockStreamReader> make_void_reader() {
     auto reader = std::make_shared<MockStreamReader>();
     reader->set_usage(10, 0);
     return reader;
@@ -1769,6 +1780,24 @@ TEST_CASE_METHOD(ReActLoopFixture, "#147: 空答复不再被当成 FinalAnswer �
     REQUIRE(result.final_answer == "这是我真正的答复。");
     REQUIRE(result.total_iterations == 1);
     REQUIRE(provider->submit_count == 2);
+}
+
+TEST_CASE_METHOD(ReActLoopFixture,
+                 "#147: content 与 reasoning 都空视为模型主动结束，不重试",
+                 "[react_loop][issue147]") {
+    ReActLoop::Config config;
+    config.empty_answer_max_retries = 2;
+    auto loop = make_loop(config);
+
+    // 一个字都没说（既无 content 也无 reasoning）—— 这是"主动结束"而非白卷，
+    // 必须保持旧行为直接收尾，否则会误伤把空响应当作正常结束的调用方。
+    provider->set_next_reader(make_void_reader());
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("继续任务")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(provider->submit_count == 1);  // 不得额外重试
+    REQUIRE_FALSE(result.was_error);
 }
 
 TEST_CASE_METHOD(ReActLoopFixture, "#147: 重试预算用尽后兜底收尾，不会无限循环",
