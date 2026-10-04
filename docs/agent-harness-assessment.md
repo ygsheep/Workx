@@ -4,6 +4,9 @@
 > 方法：**静态代码审计 + 业界 Harness 评测方法论对齐 + 首轮真实跑分**。
 > ✅ **九次更新起，本文不再只是「预估分」**：已真的跑过一次基准 —— `terminal-bench@2.0` **20 题 × 1 次**，
 > **pass@1 = 45.0%（9/20）**，墙钟 1h49m；#117 的五项行为统计指标已实测（**验证命令执行率 6.7%（1/15），未达 ≥90%**）。
+> 🔴 **十次更新（2026-10-04）校准上面这个 45.0%**：它是 **harbor 的原始口径**，分母里混着 **5 个根本没有有效判定的 trial**
+> （3 个 verifier 装不上 `uv`、1 个 verifier 超时、1 个环境容器起不来）。
+> **只统计真正被判定过的 15 题，pass@1 = 60.0%（9/15）** —— 详见 **§2.6**。以下各处出现 45.0% 均指 harbor 原始口径。
 > ⚠️ 但**只有三个维度拿到了实测证据**（验证闭环 / 可观测性与成本 / 评测与迭代），
 > 其余四维仍是基于代码的评估 —— 一次 20 题、单次采样、无对照组的跑分**不足以支撑全表重估**。
 > 详见 §2.4 与 §3 Step 2c。**P0 五项已全部完整落地**（含 **P0-2 #78 的 P1/P2/P3/P4 + VF-01~VF-11**，PR #116 `49d0ca4` 收尾，**issue 已于 2026-10-02 关闭**）。
@@ -253,6 +256,10 @@ Anthropic 的补充（工具设计五原则）：少而精（工具多了反而�
 > 以下全部取自 `harbor run` 的**真实产物**（`jobs/2026-10-03__13-45-16/`），不是代码审计推断。
 > 这是 Workx **历史上第一次跑完评测基准**。
 
+> 🔴 **引用本节数字前请先读 §2.7**：这批数据是在「数据集被 CRLF 污染」的条件下跑出来的，
+> 其中至少 2 题（`custom-memory-heap-crash` / `financial-document-processor`）是**结构性必挂** ——
+> 无论 agent 做得多正确都拿不到分。本节数字只反映**历史**，不代表 Workx 的实际水平。
+
 **跑分条件**
 
 | 项 | 值 |
@@ -263,7 +270,11 @@ Anthropic 的补充（工具设计五原则）：少而精（工具多了反而�
 | workx | 0.10.1，构建自 develop `1587fd0` |
 | 墙钟 | **1h49m39s**，`HARBOR_EXIT=0` |
 
-**结果：pass@1 = 45.0%（9 / 20）**
+**结果：pass@1 = 45.0%（9 / 20）** ← harbor 原始口径，含 5 个无有效判定的 trial
+
+> 🔴 **校准（2026-10-04，#142）**：上表的 9 题「失败」里有 3 题是 verifier 自己崩了（装不上 `uv`），
+> 另有 2 题「异常」分别是 verifier 超时和环境容器起不来。**真正被判定过的只有 15 题**：
+> **pass@1 = 60.0%（9 / 15）**，verifier 失效率 **25.0%（5/20）**。详见 **§2.6**。
 
 | 结果 | 题数 | 题目 |
 | --- | --- | --- |
@@ -524,7 +535,17 @@ fail-open 的代价很直接：以前评审器在第 27 轮就把任务掐了（
    「修复有效」和「这次没撞上」。
 3. 见 **#137**（墙钟超时成为新瓶颈）。
 
-#### 2.6 三组对照实验：时间、轮数、封顶到底谁在起作用（2026-10-04）
+#### 2.5.1 三组对照实验：时间、轮数、封顶到底谁在起作用（2026-10-04）
+
+> 🔴 **2026-10-04 后续核查：本节所有对照实验的效力需打折。**
+> 容器内挂的 `workx-linux-amd64` mtime 是 **10-03 13:18**，而 #133 合入（`84334aa`）是
+> 10-03 **20:47**、#137（`6ac4242`）是 10-04 14:45 —— **比这两次修复早 7 个半小时**。
+> 二进制里搜不到 `wall_clock`（#137）、也搜不到 `Strict`（#85）。
+> ⇒ 几组实验跑的是**同一份旧二进制**，除 LLM 采样随机性外**没有任何受控变量改变**。
+> 本节记录的差异（含 `build-cython-ext`「1/11 → 9/11」）**只能归因于跑法波动，
+> 不能归因于任何一次修复**。
+> ⚠️ 制度化教训：交叉编译产物不会随 `develop` 更新，每次复跑前**必须先在产物二进制里
+> 搜新改动的字符串字面量**，确认代码真的进去了。
 
 上一节的「下一步建议」在 2026-10-04 全部执行了，得到了比预想更细的结论。
 同一 3 题（`build-cython-ext` / `financial-document-processor` / `configure-git-webserver`），
@@ -578,10 +599,159 @@ failed to download .../uv-x86_64-unknown-linux-gnu.tar.gz
 这些 trial 的 `reward.txt` 写的是 **0**，于是被统计成「agent 失败」。
 **实际上 agent 什么都没被判定过。** 首轮 `custom-memory-heap-crash` 也是同一病症。
 
-→ 「45.0%」这个数字里有多少是此类假失败，**目前无法回溯**。
-→ 已开 **#142**：给采集器加 verifier 有效性检查（判定测试是否真的跑过，
-   无效 trial 单独标记而非计入分母）。**这是当前 ROI 最高的一项** ——
-   在它修好之前，任何跑分对比都建立在噪声上。
+→ 这句「无法回溯」已被推翻：**#142 的采集器做出来了，噪音已能量化**。
+   详见 **§2.6** —— 首轮 20 题里 **5 题（25.0%）没有被真正判定过**，
+   去噪后 **45.0% → 60.0%（9/15）**。
+
+### 2.6 分数去噪：到底有多少分是被「没判定」坑掉的（十次更新，2026-10-04）
+
+#142 的产物 `scripts/harness/trial_metrics.py`（`--self-test` 26 项自检全绿）。
+
+**判定方法**：不看 `reward.txt`（那是 harbor 的结论），而是看 **verifier 有没有真的跑完** ——
+以 `verifier/ctrf.json` 为第一判据，辅以 pytest 摘要行、`uv` 安装失败串、超时标记。
+`reward.txt = 0` 且 verifier 没跑完的 trial，标记为**无有效判定**，从分母里剔除。
+
+> ⚠️ 关键设计：**「无有效判定」≠「verifier 坏了」**。它进一步分成两类归因，
+> 因为「容器压根没起来」时 agent 可能**根本没跑**，把它记在 verifier 账上会让诊断跑偏。
+
+#### 首轮 20 题 job（`2026-10-03__13-45-16`）去噪结果
+
+| 口径 | 值 | 计数 |
+| --- | --- | --- |
+| pass@1（全部 trial，**= harbor 原始口径**） | 45.0% | 9 / 20 |
+| **pass@1（有效 trial）** | **60.0%** | **9 / 15** |
+| 无有效判定率 | 25.0% | 5 / 20 |
+| ├ `verifier` 类（依赖装不上 / 没跑完） | 20.0% | 4 / 20 |
+| └ `environment` 类（容器起不来 / 启动超时） | 5.0% | 1 / 20 |
+
+**45.0% 与 60.0% 都是真的**，差别只在分母：前者是 harbor 的原始口径（含 5 个从未被判定的 trial），
+后者是「真正做过判定的题」里的通过率。**对外沟通用哪个必须先说清口径。**
+
+#### 全部 11 个 job（52 trial）汇总
+
+| 类别 | trial 数 | 占比 |
+| --- | --- | --- |
+| `ok`（verifier 真跑完并给分） | 29 | 55.8% |
+| `verifier` 类失效 | 12 | 23.1% |
+| `environment` 类失效 | 11 | 21.2% |
+| `unknown`（需人工看日志） | 0 | 0.0% |
+
+| 口径 | 值 | 计数 |
+| --- | --- | --- |
+| pass@1（全部 trial，原始口径） | 21.2% | 11 / 52 |
+| **pass@1（有效 trial）** | **37.9%** | **11 / 29** |
+
+> 跨 job 的 52 题**不能当成一次跑分看**：里面是 11 次不同目的的作业（smoke / 复跑 / 对照组），
+> 同一道题重复出现。它只说明「失真现象普遍存在」，**不代表 workx 的真实水平**。
+
+#### 🔴 一个可直接行动的发现
+
+`verifier` 类失效里最大单项是 **`verifier_infra:uv_download`（7 次）** —— 全部是同一个错：
+
+```
+failed to download https://github.com/astral-sh/uv/releases/download/0.9.5/uv-x86_64-unknown-linux-gnu.tar.gz
+curl: (7) Failed to connect to github.com port 443 after 21081 ms
+```
+
+**这是宿主机网络问题，不是 workx 的问题，也不是 verifier 脚本的问题。**
+2026-10-04 15:45 复测：宿主机到 github 已完全恢复（代理与直连均 10/10 通过，
+`pypi.org` 2.97MB 抓取正常）。→ **复跑时这 7 个 trial 应当自动转为有效**，
+预期「`verifier` 类失效率」会显著下降，这是验证修复是否生效的最直接观测点。
+
+#### 用法
+
+```bash
+python scripts/harness/trial_metrics.py jobs/<job-时间戳> [--md out.md] [-o out.json]
+python scripts/harness/trial_metrics.py --self-test   # 合成样例自检
+```
+
+后续跑分**必须先跑它再去对比数字**，否则是在噪声上做决策。
+
+---
+
+### 2.7 评测环境的两个硬坑：CRLF 数据集污染 + LLM 请求硬超时（十一次更新，2026-10-04）
+
+§2.6 解决的是「把没判定的 trial 分清」。继续往下挖，发现还有两个**更靠上游**的噪声源，
+它们的特点是：**让 agent 显得失败，但根因完全不在 agent**。
+
+#### 硬坑一：数据集被整体转成 CRLF，checksum 校验题必然失败
+
+本机 `git config core.autocrlf=true`，harbor 拉下来的 Terminal-Bench 数据集
+（`.cache/tb2/terminal-bench`，该目录归 `/.cache/` gitignore 管）在落盘时被整体转成 CRLF ——
+实测 **736 / 759 个文件被污染**。
+
+后果有两个层次：
+
+1. **硬编码 checksum 的题必然挂**。容器的 `/app` 由 `COPY program/ /app/` 得来，
+   装进去的就是 CRLF 版本，而测试里写死的是 LF 版本的 md5。
+2. **容器里 `*.sh` 会 `bad interpreter`**，表现为「verifier 没跑完」——
+   在 §2.6 的归因里会被算进 verifier / unknown，进一步污染归因。
+
+最要命的一点是：**它看起来完全不像环境问题**。
+
+| | 观测 |
+| --- | --- |
+| `custom-memory-heap-crash` 报错 | `File /app/main.cpp has been modified! Expected 53cc24…, Actual 424ded…` |
+| 直觉结论 | agent 违抗了题面「只准改 `/app/user.cpp`」的指令 |
+| 实际 | 两次 `Write` 都落在 `/app/user.cpp`，**所有 Bash 命令都只是编译**，没碰过 `main.cpp` |
+| 决定性验证 | 数据集里 `main.cpp` 的 md5 就是 `424ded…`；**把它还原成 LF 后精确等于期望值 `53cc24…`** |
+
+即：这 4849 字节的文件在**没有任何人修改的情况下**就不匹配期望值，
+是容器基线本身与测试期望不一致 —— 与 agent 行为无关。
+
+**因果闭环**（同一道题，唯一变量是行尾）：
+
+| 数据集状态 | `custom-memory-heap-crash` 结果 |
+| --- | --- |
+| CRLF（污染） | 5/6 通过，挂在 checksum → **reward = 0** |
+| LF（修复后） | **6/6 通过 → reward = 1** |
+
+全库范围内，依赖硬编码 checksum 的题有 **11 个**，首轮 20 题命中 **2 个**（另一题是
+`financial-document-processor`）。也就是说 45% 这个数字里至少有 10% 是白丢的。
+
+→ 修复：`scripts/harness/fix_dataset_lineendings.py`（`--check` / `--fix`，含 NUL 的二进制不动），
+已作为**卡口 ③** 接进 `run-harbor-replay.sh`。
+→ **根治**需要 `git config --global core.autocrlf false`（涉及其他项目，未擅自改动）。
+
+#### 硬坑二：LLM 请求 120 秒硬超时，且失败后直接终止整轮
+
+`http_client.cpp:394` 把总超时写成 `max(timeout_ms, 120000)`。默认值 `timeout_ms = 30000`
+看着是 30 秒，实际总超时被抬到 **120 秒**。
+
+thinking 模型 + 长任务到中后段（上下文已 35KB+）单次生成很容易超过两分钟，于是：
+
+```
+[WARN]  [http_client] total timeout exceeded, cancelling session
+[ERROR] [react_loop] iteration=5 thought stream error, error=Total request timeout exceeded
+```
+
+而 `react_loop.cpp:869` 对 `ThoughtResult::Error` 的处理是**直接 `break`，没有任何重试**：
+
+```cpp
+if (thought.status == ThoughtResult::Error) {
+    result.was_error = true;
+    result.error_message = ...;
+    break;                      // ← 整轮就到这里为止
+}
+```
+
+实测 `adaptive-rejection-sampler` 就死在这里：只走了 5 轮、13 个事件就终止，
+核心产物 `/app/ars.R` 压根没写出来，verifier 判 **0/9**。
+
+**这不是能力问题，是一次网络抖动／一次慢请求就废掉整个 trial。**
+
+→ 缓解：`WORKX_TIMEOUT=600000`（已配在 `run-harbor-replay.sh` 里，`self.max()` 逻辑允许覆盖）。
+→ 待办（值得单开 issue）：**Thought 失败应当有退避重试**，至少区分「可重试的网络错误」
+与「不该重试的 4xx」，此外 log 里那个 `timeout=30000ms` 与实际生效的 120s 不一致，
+属于会误导排查的显示问题。
+
+#### 这一节的教训
+
+两个坑的共同点：**出问题时第一现场都不在真正的原因那里**。
+checksum 报错指向 agent，reward=0 指向模型，而真相分别在 Git 的行尾配置和 HTTP 超时常量里。
+
+验证却都很便宜：`md5sum` 对一下测试源码里写死的期望值；去 `workx-run.log` 里 grep
+`Total request timeout`。**分数异常时，先怀疑评测环境本身，别急着给 agent 定罪。**
 
 ---
 
