@@ -294,6 +294,16 @@ ResultV2<ToolResult> BashTool::call(const nlohmann::json& input, const ToolConte
         if (timeout_ms <= 0) timeout_ms = kDefaultTimeoutMs;
         if (timeout_ms > kMaxTimeoutMs) timeout_ms = kMaxTimeoutMs;
     }
+    // #137：按剩余墙钟封顶（未注入预算时 ctx.remaining_wall_clock_ms < 0，行为不变）
+    if (ctx.remaining_wall_clock_ms >= 0) {
+        const int clamped = shell_common::clamp_timeout_by_wall_clock(
+            timeout_ms, ctx.remaining_wall_clock_ms);
+        if (clamped != timeout_ms) {
+            LOG_WARN("[bash_tool] timeout {}ms -> {}ms (remaining wall clock {}ms)", timeout_ms,
+                     clamped, ctx.remaining_wall_clock_ms);
+            timeout_ms = clamped;
+        }
+    }
 
     bool run_in_background = false;
     if (input.contains("run_in_background") && input["run_in_background"].is_boolean()) {

@@ -26,6 +26,7 @@
 
 #include "agent/tool/BashTool/bash_tool.h"
 #include "agent/tool/ShellTool/shell_detector.h"  // detect()：按实际 shell 选命令
+#include "agent/tool/ShellTool/shell_tool_common.h"  // #137 clamp_timeout_by_wall_clock
 #include "agent/tool/context.h"
 #include "agent/tool/result.h"
 #include "core/task/task_manager.h"
@@ -314,6 +315,50 @@ TEST_CASE("BashTool clamps timeout to max", "[tool][bash][timeout]") {
     auto r = tool.call(input, ctx);
     REQUIRE(r.is_ok());
     REQUIRE(r.value().text.find("max_timeout") != std::string::npos);
+}
+
+// ============================================================
+// Issue #137：按剩余墙钟封顶单次命令超时
+// ============================================================
+
+TEST_CASE("#137: clamp_timeout_by_wall_clock 边界", "[tool][bash][wallclock]") {
+    using agent::tool::shell_common::clamp_timeout_by_wall_clock;
+
+    // 未注入预算（<0）或预算充裕：行为与注入前完全一致
+    REQUIRE(clamp_timeout_by_wall_clock(600'000, -1) == 600'000);
+    REQUIRE(clamp_timeout_by_wall_clock(600'000, 900'000) == 600'000);
+    // 剩余 30s：扣掉 20s 收尾余量，封顶到 10s
+    REQUIRE(clamp_timeout_by_wall_clock(600'000, 30'000) == 10'000);
+    // 请求值本就低于封顶值：不放大
+    REQUIRE(clamp_timeout_by_wall_clock(5'000, 30'000) == 5'000);
+    // 剩余不足以留出收尾余量：退到下限 5s（而非 0/负值）
+    REQUIRE(clamp_timeout_by_wall_clock(600'000, 22'000) == 5'000);
+    REQUIRE(clamp_timeout_by_wall_clock(600'000, 0) == 5'000);
+}
+
+TEST_CASE("#137: BashTool 按剩余墙钟封顶——卡住的命令不再独吞整轮预算",
+          "[tool][bash][wallclock]") {
+    BashTool tool;
+    ToolContext ctx;
+    fill_ctx(ctx);
+    // 剩余 25s：请求 600s 会被封顶到 5s（25s - 20s 余量 < 5s 下限）
+    ctx.remaining_wall_clock_ms = 25'000;
+
+    const auto t0 = std::chrono::steady_clock::now();
+    // 命令远超封顶值：应在 ~5s 失败返回，而不是跑满命令时长或 600s
+#ifdef _WIN32
+    nlohmann::json input = {{"command", "ping -n 30 127.0.0.1"}, {"timeout", 600'000}};
+#else
+    nlohmann::json input = {{"command", "sleep 30"}, {"timeout", 600'000}};
+#endif
+    auto r = tool.call(input, ctx);
+    const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - t0)
+                                .count();
+
+    REQUIRE(r.is_ok());
+    REQUIRE(r.value().text.find("timed out") != std::string::npos);
+    REQUIRE(elapsed_ms < 9'000);  // 封顶生效（未封顶会跑满 10s）
 }
 
 // ============================================================

@@ -1106,6 +1106,15 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
         ctx.git_repo_root = turn_env_probe.git_repo_root;
         // #30：注入只读历史摘要，工具可见用户早先约束（无修改历史的通道）
         ctx.history_summary = turn_history_summary;
+        // #137：注入剩余墙钟（未配置 wall_clock_budget_sec 时为 -1，工具侧行为不变）
+        if (m_config.wall_clock_budget_sec > 0) {
+            const double elapsed_s =
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - loop_start)
+                    .count();
+            const int remaining_ms =
+                static_cast<int>((m_config.wall_clock_budget_sec - elapsed_s) * 1000.0);
+            ctx.remaining_wall_clock_ms = remaining_ms > 0 ? remaining_ms : 0;
+        }
         // 2.3 修复：将外部取消信号绑定到 ToolContext，工具可即时感知中断
         ctx.cancel_flag = &should_cancel;
         // H-5：注入配置管理器（非空），工具通过 ctx.config_manager() 访问

@@ -58,6 +58,10 @@ constexpr const char* AGENT_GOAL = "agent.goal";
 /// ReAct 循环每轮基础预算（最大迭代轮数）。预算耗尽时若启用内部评审器
 /// （agent.max_iterations + 停滞恢复），会评审"是否继续"并追加额外预算。
 constexpr const char* AGENT_MAX_ITERATIONS = "agent.max_iterations";
+/// #137：本次 run 可用的总墙钟预算（秒）。0 = 不限（默认）。
+/// 用于按剩余时间封顶单次 shell 命令超时，避免一条卡住的命令独吞整轮预算。
+/// 评测/无人值守场景也可用环境变量 WORKX_AGENT_TIMEOUT_SEC 注入（优先用配置项）。
+constexpr const char* AGENT_WALL_CLOCK_BUDGET_SEC = "agent.wall_clock_budget_sec";
 
 // ---- #78：FinalAnswer 前强制验证闭环（PreCompletion 门禁）----
 /// 是否在给出 FinalAnswer 前用 agent.goal 声明的目标做强制验证。

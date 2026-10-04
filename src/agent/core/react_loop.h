@@ -214,6 +214,11 @@ class WORKX_API ReActLoop {
         /// @details 200 太小：reasoning 模型会把预算全花在思维链上，content 空返回。
         ///          评审器只需输出一行 JSON，但要给推理链留出余量，故默认 512。
         int review_max_tokens = 512;
+        /// @brief #137：本次 run 可用的总墙钟预算（秒）；0 = 不限（默认，行为不变）
+        /// @details 用于把「剩余墙钟」注入 ToolContext，让 shell 工具按剩余预算封顶
+        ///          单次命令超时。无人值守/评测场景下由宿主（如 WORKX_AGENT_TIMEOUT_SEC）
+        ///          注入；不注入则完全关闭，避免影响交互式场景。
+        int wall_clock_budget_sec = 0;
         CacheAwareCompactor::Config compactor_cfg;  ///< DS_CACHE: 缓存感知压缩配置
 
         /// @brief Issue #50：通用 Hook 事件系统（可空；空则全部跳过，零开销）
