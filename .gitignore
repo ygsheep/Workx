@@ -47,6 +47,10 @@ install_manifest.txt
 workx_session.json
 config.json
 *.env
+# Harbor 本地跑分用的密钥文件（`--env-file .env.harbor`），切勿提交；
+# 模板见 .env.harbor.example（那个是要提交的）。
+# ⚠️ 上面的 `*.env` 匹配不了 `.env.harbor` —— 后缀在前不成立，必须单独列。
+.env.harbor
 
 # Runtime-generated history file (created by Terminal in home dir)
 .workx_history
