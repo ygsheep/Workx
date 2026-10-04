@@ -276,6 +276,16 @@ struct ReActLoopFixture {
         provider->set_next_reader(reader);
         return reader;
     }
+
+    /// @brief #144：创建带 HTTP 状态码的流式错误 reader（可不可重试由 status 决定）
+    std::shared_ptr<MockStreamReader> make_error_reader(int http_status, std::string message) {
+        auto reader = std::make_shared<MockStreamReader>();
+        reader->add_content_chunk("partial");
+        reader->set_error_at(1);
+        reader->set_error_payload(http_status, std::move(message));
+        provider->set_next_reader(reader);
+        return reader;
+    }
 };
 
 }  // namespace
@@ -622,7 +632,10 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop propagates 429 from stream error",
     provider->set_next_reader(reader);
 
     std::vector<ChatMessage> messages = {ChatMessage::user("q")};
-    auto loop = make_loop();
+    // #144：本用例只验证透传，关闭重试（429 现在会先退避重试，见 [issue144] 组）
+    ReActLoop::Config config;
+    config.thought_max_retries = 0;
+    auto loop = make_loop(config);
     auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
 
     REQUIRE(result.was_error);
@@ -640,7 +653,9 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop propagates 4xx so it is distinguis
     provider->set_next_reader(reader);
 
     std::vector<ChatMessage> messages = {ChatMessage::user("q")};
-    auto loop = make_loop();
+    ReActLoop::Config config;
+    config.thought_max_retries = 0;  // 同上：只测透传
+    auto loop = make_loop(config);
     auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
 
     REQUIRE(result.was_error);
@@ -657,7 +672,9 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop keeps http_status 0 when no HTTP r
     provider->set_next_reader(reader);
 
     std::vector<ChatMessage> messages = {ChatMessage::user("q")};
-    auto loop = make_loop();
+    ReActLoop::Config config;
+    config.thought_max_retries = 0;  // 网络错误同样可重试，这里只关心透传
+    auto loop = make_loop(config);
     auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
 
     REQUIRE(result.was_error);
@@ -1543,4 +1560,131 @@ TEST_CASE_METHOD(ReActLoopFixture, "#83: 预算充裕时完全不注入（零开
 
     REQUIRE(result.final_answer == "做完了。");
     CHECK_FALSE(budget_hint_seen(messages, "预算提醒"));
+}
+
+// ============================================================================
+// Issue #144 — Thought 阶段 LLM 请求失败的重试策略
+//
+// 背景：一次网络抖动/慢请求就会让整个任务在第 5 轮终止（Real case:
+// adaptive-rejection-sampler 死于 Total request timeout exceeded，核心产物没写出来）。
+// 策略：可重试错误（网络/超时/429/5xx）指数退避后重发同一个请求，
+//       **不消耗迭代预算**；不可重试错误（4xx）保持原样快速失败。
+// ============================================================================
+
+TEST_CASE_METHOD(ReActLoopFixture,
+                 "#144: 可重试错误会退避重试并最终成功，且不消耗迭代预算",
+                 "[react_loop][issue144]") {
+    ReActLoop::Config config;
+    config.thought_max_retries = 2;
+    config.thought_base_delay_ms = 1;  // 测试里不真的等待
+    auto loop = make_loop(config);
+
+    // 第一次：典型的网络/O超时错误（http_status=0 且详情非空 → 可重试）
+    make_error_reader(0, "Total request timeout exceeded");
+    // 第二次：正常完成
+    make_text_reader("恢复了。");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("继续任务")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE_FALSE(result.was_error);
+    REQUIRE_FALSE(result.was_interrupted);
+    REQUIRE(result.final_answer == "恢复了。");
+    // 失败的那一次没有任何状态变更，重试等价于重发同一请求，不该吃掉预算
+    REQUIRE(result.total_iterations == 1);
+    REQUIRE(provider->submit_count == 2);
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#144: 不可重试的 4xx 保持快速失败（不重试）",
+                 "[react_loop][issue144]") {
+    ReActLoop::Config config;
+    config.thought_max_retries = 2;
+    config.thought_base_delay_ms = 1;
+    auto loop = make_loop(config);
+
+    make_error_reader(401, "Unauthorized");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("继续任务")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.was_error);
+    REQUIRE(result.http_status == 401);
+    REQUIRE(provider->submit_count == 1);  // 重试无益，一次就放弃
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#144: 429 视为可重试", "[react_loop][issue144]") {
+    ReActLoop::Config config;
+    config.thought_max_retries = 1;
+    config.thought_base_delay_ms = 1;
+    auto loop = make_loop(config);
+
+    make_error_reader(429, "Rate limited");
+    make_text_reader("限速后成功。");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("继续任务")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE_FALSE(result.was_error);
+    REQUIRE(result.final_answer == "限速后成功。");
+    REQUIRE(provider->submit_count == 2);
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#144: 重试预算耗尽后才放弃", "[react_loop][issue144]") {
+    ReActLoop::Config config;
+    config.thought_max_retries = 2;
+    config.thought_base_delay_ms = 1;
+    auto loop = make_loop(config);
+
+    // 1 次原始 + 2 次重试 = 3 个错误 reader，全部失败
+    make_error_reader(503, "upstream temporarily down");
+    make_error_reader(503, "upstream temporarily down");
+    make_error_reader(503, "upstream temporarily down");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("继续任务")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.was_error);
+    REQUIRE(result.http_status == 503);
+    REQUIRE(result.error_message.find("upstream") != std::string::npos);
+    REQUIRE(provider->submit_count == 3);
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#144: thought_max_retries=0 恢复旧行为（失败即终止）",
+                 "[react_loop][issue144]") {
+    ReActLoop::Config config;
+    config.thought_max_retries = 0;  // 显式关闭
+    config.thought_base_delay_ms = 1;
+    auto loop = make_loop(config);
+
+    make_error_reader(0, "network unreachable");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("继续任务")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.was_error);
+    REQUIRE(provider->submit_count == 1);
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#144: 退避等待期间可被取消打断", "[react_loop][issue144]") {
+    ReActLoop::Config config;
+    config.thought_max_retries = 2;
+    config.thought_base_delay_ms = 3000;  // 足够长的窗口，确保取消发生在退避中
+    auto loop = make_loop(config);
+
+    make_error_reader(0, "Total request timeout exceeded");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("继续任务")};
+    ReActResult result;
+    std::thread runner([&] {
+        result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+    });
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    should_cancel.store(true);
+    runner.join();
+
+    // 退避不该把 Ctrl-C 卡住：收到取消后应立即走中断分支，而不是继续重试
+    REQUIRE(result.was_interrupted);
+    REQUIRE_FALSE(result.was_error);
+    REQUIRE(provider->submit_count == 1);
 }

@@ -111,6 +111,11 @@ ReActLoop::Config QueryEngine::make_react_config() const {
             }
         }
     }
+    // #144：Thought 阶段 LLM 请求失败重试次数。默认已在 ReActLoop::Config 里给 2；
+    // 设为 0 可恢复旧行为（失败即终止）。该键已在 schema 里绑定
+    // WORKX_THOUGHT_MAX_RETRIES，由 ConfigManager::load_from_env() 统一覆盖，此处无需再读 env。
+    cfg.thought_max_retries = m_deps.config_manager->get_or<int>(
+        agent::keys::AGENT_THOUGHT_MAX_RETRIES, cfg.thought_max_retries);
     // Issue #78 阶段 P3：FinalAnswer 前验证门禁，交互式入口也默认开启。
     // P1 只接了 headless（评测入口），真实用户路径仍是「写完即停」——
     // 而 issue 的验收口径（结束前实际跑过测试/构建命令的比例）正是

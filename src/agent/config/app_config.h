@@ -62,6 +62,10 @@ constexpr const char* AGENT_MAX_ITERATIONS = "agent.max_iterations";
 /// 用于按剩余时间封顶单次 shell 命令超时，避免一条卡住的命令独吞整轮预算。
 /// 评测/无人值守场景也可用环境变量 WORKX_AGENT_TIMEOUT_SEC 注入（优先用配置项）。
 constexpr const char* AGENT_WALL_CLOCK_BUDGET_SEC = "agent.wall_clock_budget_sec";
+/// #144：Thought 阶段 LLM 请求失败后的最大重试次数（默认 2，0 = 失败即终止）。
+/// 仅对可重试错误生效（网络错误 / 超时 / 429 / 5xx）；4xx 保持快速失败。
+/// 评测/无人值守场景也可用环境变量 WORKX_THOUGHT_MAX_RETRIES 覆盖。
+constexpr const char* AGENT_THOUGHT_MAX_RETRIES = "agent.thought_max_retries";
 
 // ---- #78：FinalAnswer 前强制验证闭环（PreCompletion 门禁）----
 /// 是否在给出 FinalAnswer 前用 agent.goal 声明的目标做强制验证。

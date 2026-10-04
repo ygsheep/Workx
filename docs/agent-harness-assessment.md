@@ -740,10 +740,12 @@ if (thought.status == ThoughtResult::Error) {
 
 **这不是能力问题，是一次网络抖动／一次慢请求就废掉整个 trial。**
 
-→ 缓解：`WORKX_TIMEOUT=600000`（已配在 `run-harbor-replay.sh` 里，`self.max()` 逻辑允许覆盖）。
-→ 待办（值得单开 issue）：**Thought 失败应当有退避重试**，至少区分「可重试的网络错误」
-与「不该重试的 4xx」，此外 log 里那个 `timeout=30000ms` 与实际生效的 120s 不一致，
-属于会误导排查的显示问题。
+→ 缓解：`WORKX_TIMEOUT=600000`（已配在 `run-harbor-replay.sh` 里，`max()` 逻辑允许覆盖）。
+→ **已修（Issue #144）**：Thought 失败不再一律 `break`。现在用现成的
+`agent::HttpRetryPolicy::is_retryable()` 判定——网络超时 / 429 / 5xx 退避重试，
+且**不消耗迭代预算**（失败没产生任何状态变更，重试等价于重发同一请求）；
+401/400 等 4xx 保持快速失败；`agent.thought_max_retries` 默认 2、`0` 恢复旧行为。
+→ 仍待办：日志里 `timeout=30000ms` 与实际生效的 120s 不一致，属会误导排查的显示问题。
 
 #### 这一节的教训
 
