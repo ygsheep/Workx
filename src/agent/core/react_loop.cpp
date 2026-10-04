@@ -9,6 +9,7 @@
 #include "agent/core/react_loop.h"
 #include "agent/core/react_observer.h"
 #include "agent/api/i_stream_reader.h"
+#include "agent/api/retry.h"            // #144：Thought 失败按 HTTP 重试策略判定
 #include "agent/compact/prefix_shape.h"  // DS_CACHE M-2: normalize_tools_schema
 #include "agent/config/app_config.h"     // #30：agent::keys::MODEL_NAME / #78：验证门禁键
 #include "agent/core/verdict.h"          // #78：check_goal / has_checker（#31 验证原语）
@@ -22,7 +23,9 @@
 #include "liblogger/logger.h"
 
 #include <cctype>
+#include <atomic>
 #include <cassert>
+#include <chrono>
 #include <deque>
 #include <stdexcept>
 #include <filesystem>
@@ -40,6 +43,25 @@ namespace agent {
 // ============================================================
 
 namespace {
+
+/// @brief #144：可被取消打断的退避等待
+/// @details 分片 sleep（≤100ms 一片）而非一次睡到底 —— 否则退避期间按 Ctrl-C 要等到
+///          退避结束才响应，用户体验上等同于"卡住"。
+/// @return true 表示期间收到取消信号（调用方应据此走中断分支）
+bool sleep_cancellable(std::chrono::milliseconds total, const std::atomic<bool>& cancel) {
+    constexpr std::chrono::milliseconds kSlice{100};
+    const auto deadline = std::chrono::steady_clock::now() + total;
+    while (true) {
+        if (cancel.load()) {
+            return true;
+        }
+        const auto left = deadline - std::chrono::steady_clock::now();
+        if (left <= std::chrono::milliseconds::zero()) {
+            return false;
+        }
+        std::this_thread::sleep_for(left < kSlice ? left : kSlice);
+    }
+}
 
 /// @brief 执行 git 命令，返回去尾空白的 stdout；失败/非零退出码返回空串
 /// @details 限时但不设取消回调（turnt 级探测，1500ms 内完成；git 命令通常 <100ms）
@@ -781,6 +803,9 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
     // #133：评审器连续失效计数（熔断）——连续失败达到阈值后不再调用，直接 fail-open，
     // 避免"评审器坏掉"时每个停滞点都白烧一次 LLM 调用（实测 9/9 失效）。
     int reviewer_failures = 0;
+    // #144：Thought 阶段连续失败计数。成功一次即清零 —— 它是"同一轮请求"的重试预算，
+    // 不是整轮任务的失败配额，否则长任务里一次早期抖动会把后半程的重试机会提前用光。
+    int thought_error_retries = 0;
     bool graceful_stop = false;        ///< 内部评审 wrap_up 的优雅收尾（非硬错误）
     bool hard_budget_reached = false;  ///< 预算(含追加)真正耗尽且未产出 final_answer
     int verify_attempts = 0;  ///< #78：本 run 已发生的验证失败次数（跨迭代累计，用于重试封顶）
@@ -868,6 +893,36 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
             // is_retryable(0, msg) 判定，导致 4xx 也被当成网络错误重试。
             LOG_ERROR("[react_loop] iteration={} thought stream error, http_status={}, error={}",
                       iteration, thought.http_status, thought.error_message);
+
+            // #144：先看值不值得重试，而不是一律 break。
+            // 失败发生在任何工具执行之前 —— 没有产生任何可观察的状态变更，
+            // 重试等价于**重发同一个请求**，所以不消耗 iteration / budget。
+            HttpRetryPolicy policy{.max_retries = m_config.thought_max_retries,
+                                   .base_delay_ms = m_config.thought_base_delay_ms};
+            const bool may_retry =
+                thought_error_retries < std::max(0, m_config.thought_max_retries) &&
+                policy.is_retryable(static_cast<unsigned int>(std::max(0, thought.http_status)),
+                                    thought.error_message);
+            if (may_retry) {
+                ++thought_error_retries;
+                const int delay_ms = policy.delay_ms(thought_error_retries - 1);
+                LOG_WARN(
+                    "[react_loop] iteration={} thought error is retryable ({}/{}), "
+                    "backoff {}ms then retry (budget not consumed)",
+                    iteration, thought_error_retries, m_config.thought_max_retries, delay_ms);
+                if (sleep_cancellable(std::chrono::milliseconds(delay_ms), should_cancel)) {
+                    LOG_WARN("[react_loop] iteration={} cancelled during retry backoff", iteration);
+                    result.was_interrupted = true;
+                    result.partial_content = thought.content;
+                    result.partial_reasoning = thought.reasoning;
+                    break;
+                }
+                continue;
+            }
+            LOG_ERROR("[react_loop] iteration={} giving up: not retryable (http_status={}) or "
+                      "retry budget exhausted ({}/{})",
+                      iteration, thought.http_status, thought_error_retries,
+                      m_config.thought_max_retries);
             result.was_error = true;
             result.http_status = thought.http_status;
             result.error_message = thought.error_message.empty()
@@ -877,6 +932,9 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
             result.partial_reasoning = thought.reasoning;
             break;
         }
+
+        // 走到这里说明本轮 Thought 成功取得有效结果：重试预算理应重新计数
+        thought_error_retries = 0;
 
         // --- 记录 Thought 步骤 ---
         {

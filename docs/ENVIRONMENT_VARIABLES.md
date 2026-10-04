@@ -12,6 +12,7 @@
 | `WORKX_BASE_URL` | `backend.remote_url` | String | 原值 | 远程 API 基础 URL（OpenAI 兼容） |
 | `WORKX_MODEL` | `backend.model_name` | String | 原值 | 远程模型名 |
 | `WORKX_TIMEOUT` | `backend.timeout_ms` | Int | `std::stoi`，范围 [1, 86400000] | HTTP 超时（毫秒） |
+| `WORKX_THOUGHT_MAX_RETRIES` | `agent.thought_max_retries` | Int | 范围 [0, 10]，默认 2 | Thought 阶段 LLM 请求失败后的重试次数（#144，`0` = 失败即终止） |
 | `WORKX_LOG_LEVEL` | `logging.level` | Enum | 必须为 `trace`/`debug`/`info`/`warn`/`error`/`fatal` | 日志级别 |
 | `WORKX_LOG_FILE` | `logging.file` | String | 原值 | 日志文件路径（空禁用文件日志） |
 

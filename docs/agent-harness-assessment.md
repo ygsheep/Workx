@@ -740,10 +740,12 @@ if (thought.status == ThoughtResult::Error) {
 
 **这不是能力问题，是一次网络抖动／一次慢请求就废掉整个 trial。**
 
-→ 缓解：`WORKX_TIMEOUT=600000`（已配在 `run-harbor-replay.sh` 里，`self.max()` 逻辑允许覆盖）。
-→ 待办（值得单开 issue）：**Thought 失败应当有退避重试**，至少区分「可重试的网络错误」
-与「不该重试的 4xx」，此外 log 里那个 `timeout=30000ms` 与实际生效的 120s 不一致，
-属于会误导排查的显示问题。
+→ 缓解：`WORKX_TIMEOUT=600000`（已配在 `run-harbor-replay.sh` 里，`max()` 逻辑允许覆盖）。
+→ **已修（Issue #144）**：Thought 失败不再一律 `break`。现在用现成的
+`agent::HttpRetryPolicy::is_retryable()` 判定——网络超时 / 429 / 5xx 退避重试，
+且**不消耗迭代预算**（失败没产生任何状态变更，重试等价于重发同一请求）；
+401/400 等 4xx 保持快速失败；`agent.thought_max_retries` 默认 2、`0` 恢复旧行为。
+→ 仍待办：日志里 `timeout=30000ms` 与实际生效的 120s 不一致，属会误导排查的显示问题。
 
 #### 这一节的教训
 
@@ -752,128 +754,6 @@ checksum 报错指向 agent，reward=0 指向模型，而真相分别在 Git 的
 
 验证却都很便宜：`md5sum` 对一下测试源码里写死的期望值；去 `workx-run.log` 里 grep
 `Total request timeout`。**分数异常时，先怀疑评测环境本身，别急着给 agent 定罪。**
-
----
-
-### 2.6 评测环境硬坑：二进制 glibc 版本把一半题目挡在门外（十次更新，2026-10-04）
-
-**结论先行：20 题跑分 job `2026-10-04__20-25-24` 不能作为 #133/#137/#144 的对照证据。**
-分数从基线的 45.0%（9/20）掉到 15.0%（3/20），其中 **45% 的跌幅来自「二进制装不上」，与代码无关**。
-
-#### 现象
-
-9 个 trial 在 **agent 安装阶段**就失败，报错完全一致：
-
-```
-Command failed (exit 1): install -m 0755 /opt/workx-bin/workx-linux-amd64 /usr/local/bin/workx && workx --version
-  /usr/local/bin/workx: libstdc++.so.6: version `GLIBCXX_3.4.32' not found
-  /usr/local/bin/workx: libstdc++.so.6: version `GLIBCXX_3.4.31' not found
-  /usr/local/bin/workx: libc.so.6:      version `GLIBC_2.38' not found
-```
-
-同一份二进制换个基础镜像实测，对照干净：
-
-| 基础镜像 | glibc | 结果 |
-| --- | --- | --- |
-| `ubuntu:24.04` | 2.39 | `EXIT=0`，正常输出 `workx 0.10.1 (build ...-g3a4e6c6f)` |
-| `python:3.13-slim-bookworm` | 2.36 | `EXIT=1`，上面三行报错 |
-
-20 题按基础镜像正好对半开：**10 题 `ubuntu:24.04`（可跑）/ 9 题 Debian 12（跑不了）**，
-外加 `fix-code-vulnerability`（`python:3.11-slim`）实测可跑 → 实际失效 **9 题**。
-
-#### 根因
-
-构建容器 `workx-build-linux` 是 **2026-10-04 11:39 UTC 才新建的**，镜像是 `ubuntu:24.04`
-（`docker inspect` 实证），产物因此带上 glibc 2.38 / GLIBCXX 3.4.31+ 的符号版本。
-而基线那次跑分（2026-10-03 13:45）用的二进制并非出自这个容器。
-
-对照证据：基线 20 个 trial 的异常分布是 `(none) 15 / AgentTimeoutError 3 /
-VerifierTimeoutError 1 / EnvironmentStartTimeoutError 1` —— **`NonZeroAgentExitCodeError` 为 0**；
-且基线在这 9 题上 agent 全都跑完了，例如 `build-cython-ext`
-`loop end total_duration_ms=328918.8`、`cobol-modernization` `469605.5`、
-`feal-linear-cryptanalysis` `124462.4`。本轮这三题连 `workx --version` 都过不去。
-
-#### 归因口径：别信自动分类
-
-`trial_metrics.py` 在本轮有两处确认偏差，已改用 harbor `exception_info.exception_type` 为准：
-
-1. 9 个 glibc 故障被打成 `environment_failed`，证据只显示 `stderr: None`，**看不到真正的报错**；
-2. `caffe-cifar-10` / `chess-best-move` 实为 `AgentTimeoutError`，却被判成
-   `verifier_infra:uv_download`（脚本扫到了 verifier 日志里的 uv 报错，掩盖了真实原因）。
-
-权威归因：**A 类 agent 从未启动 9 题 / B 类 harbor 外层超时 3 题 / C 类编排故障 1 题 /
-D 类正常出分 7 题**（其中 3 题的 verifier 自身还不可信，真正干净的只有 4 题）。
-
-#### #144 的真实效果
-
-| 观测项 | 基线 | 本轮 |
-| --- | --- | --- |
-| `Total request timeout exceeded` | 1 次 | **0 次** ✅ |
-| `thought stream error`（400 / status 0） | 2 次 | **0 次** ✅ |
-| `AgentTimeoutError` trial 数 | 3/20 | 3/20 ❌（真跑过的 11 题里占 27%，高于基线 15%） |
-
-**直接症状消失了，但「整轮跑不完」没消失，只是换成了外层超时。**
-另外新暴露一条路径值得单独立项：`chess-best-move` 的 ReAct 循环 **614.7 秒**就正常结束
-（`graceful_stop=false`），但**进程不退出**，一直挂到 harbor 900 秒上限被杀；
-基线同题循环 413.4 秒结束后进程立即退出，本轮其余正常 trial 的退出间隔也只有 1.6~3.1 秒，
-唯独这一题是 **285.3 秒**。
-
-#### #78 行为口径
-
-验证命令执行率 **14.3%（1/7）**，基线 6.7%（1/15），同一量级，**未达 90% 门槛**。
-日志里再次出现 `#78 gate inactive (no goal under '/app'; set WORKX_GOAL/--goal)`
-—— 门禁在容器里压根没激活，修 #78 之前得先确认跑分配置是否下发 `--goal`。
-
-#### 教训（写进跑前卡口）
-
-**二进制不能只在「它能跑的那个容器」里验证。** `--version` 在构建容器（glibc 2.39）通过，
-不代表在任务镜像（glibc 2.36）上能起来。跑前卡口应加一条：
-**拿任务镜像清单里 glibc 最老的那个镜像实测一次 `--version`**
-（本轮就是 `python:3.13-slim-bookworm`），而不是只查二进制里的特征字符串。
-
-#### 修复：不用换构建容器
-
-1. `objdump -T <bin> | grep GLIBC_2.3[4-9]` 定位抬高版本的符号 —— 实测只有 4 个：
-   `__isoc23_strtol / strtoll / strtoul / strtoull`（glibc 2.38 引入的 C23 变体）。
-2. 触发链：`g++` 在 Linux 上**默认预定义 `_GNU_SOURCE`** → `features.h` 打开 `_ISOC2X_SOURCE`
-   → `__GLIBC_USE(C2X_STRTOL)=1` → `stdlib.h` 用 `__REDIRECT_NTH` 把 `strtol` 改名成 `__isoc23_strtol`。
-   ⚠️ `-D__GLIBC_USE_C2X_STRTOL=0` 无效（`features.h` 会 `#undef` 后重新定义）。
-3. 解法 = **shim + 静态 libstdc++**，两者缺一不可：
-   - `shim.c` 定义这 4 个 `__isoc23_*` 转发给旧 `strtol` 家族（要用 `gcc` 而不是 `g++` 编译，
-     因为 gcc 不预定义 `_GNU_SOURCE`，才能绑到 `strtol@GLIBC_2.2.5`）；
-   - `-static-libstdc++ -static-libgcc` 消掉 `GLIBCXX_3.4.31/3.4.32`
-     （**只做这步不够**：`libstdc++.a` 内部又会引回 `__isoc23_*`，必须配 shim）。
-4. 接入方式没有改动仓库：
-   `cmake -DCMAKE_EXE_LINKER_FLAGS="/compat/shim.o -static-libstdc++ -static-libgcc" .`
-   + `cmake --build /build_local --target workx`（只重链接，74 秒）。
-
-| 项 | 修复前 | 修复后 |
-| --- | --- | --- |
-| GLIBC 最高需求 | 2.38 | **2.36** |
-| GLIBCXX 需求 | 3.4.31 / 3.4.32 | **无** |
-| `ldd` 依赖 | — | 仅 `libc` / `libm` |
-| `python:3.13-slim-bookworm` | `EXIT=1` | **EXIT=0** |
-| 体积 | 16.9 MB | 18.8 MB |
-
-源码版本仍为 `-g3a4e6c6f`，`check_binary_signature.py` 四项特征签名全绿 —— **代码一字未改，只换了链接方式**。
-
-#### 修复后的真实分数（补跑 9 题 + 首轮 11 题，合并口径）
-
-| 口径 | 基线 | 本轮 | 变化 |
-| --- | --- | --- | --- |
-| pass@1（全部 20 题） | 45.0%（9/20） | **35.0%（7/20）** | −10.0 pt |
-| 判定率（拿到 reward 的题） | 90.0%（18/20） | 90.0%（18/20） | 持平 |
-
-补跑 9 题单独看：pass@1 **44.4%（4/9）**，无有效判定率从首轮的 100% 降到 **11.1%**。
-
-**glibc 障碍排除后仍低 10 个百分点，且这是真实的**（判定率两边都是 90%，不存在分母塌缩）。
-置换明细：升 4 / 降 5 / 持平 7 / 无判定 2。
-
-🔴 **真正的头号丢分原因已经换人**：`AgentTimeoutError` 从基线 **3/20 涨到 5/20**。
-#144 让 Thought 阶段不再一失败就终止，轮次跑得更久，于是更多题撞上 harbor 的外层 agent 预算
-（900 / 1200 / 1800 秒，因题而异）。**修复有效，但它把「早死」换成了「慢死」** ——
-要兑现收益，必须同时抬高外层预算或让轮次在逼近预算时主动收尾。
-单题异常：`feal-linear-cryptanalysis` 基线仅 124 秒，本轮撞 1800 秒上限，需单独查轨迹。
 
 ---
 

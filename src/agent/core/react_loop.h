@@ -4,10 +4,14 @@
  * @details 实现 Thought/Action/Observation 三阶段显式分离的 agent 循环，
  *          替代 ChatSession 中的扁平 while 循环。
  *          使用原生 function calling（Anthropic/OpenAI），不依赖文本解析。
- * @version 1.3.0
+ * @version 1.4.0
  * @date 2026-07
  *
  * @par 版本沿革
+ * - 1.4.0（Issue #144）：Thought 阶段的 LLM 请求失败不再立刻终止整轮。
+ *   新增 `Config::thought_max_retries` / `thought_base_delay_ms`，按错误类型
+ *   区分：可重试错误（网络/超时/429/5xx）指数退避后重试，且**不消耗迭代预算**；
+ *   不可重试错误（401/400 等 4xx）保持原行为快速失败。
  * - 1.3.0（Issue #133）：评审器失效不再终止任务。
  *   `ReviewerDecision::valid` 区分"明确裁决"与"评审器不可信"，后者一律 fail-open；
  *   新增 `Config::review_max_tokens`（原硬编码 200），`review_stall_window` 默认 4→8。
@@ -219,6 +223,20 @@ class WORKX_API ReActLoop {
         ///          单次命令超时。无人值守/评测场景下由宿主（如 WORKX_AGENT_TIMEOUT_SEC）
         ///          注入；不注入则完全关闭，避免影响交互式场景。
         int wall_clock_budget_sec = 0;
+        /// @brief #144：Thought 阶段 LLM 请求失败后的最大重试次数（0 = 保持旧行为立即终止）
+        /// @details 失败发生在 Tool 执行之前，**没有任何状态被改变**，重试只是重发同一个请求，
+        ///          因此重试不消耗 `max_iterations` / budget。
+        ///          是否重试由错误类型决定（见 `agent::HttpRetryPolicy::is_retryable`）：
+        ///          - 可重试：`http_status == 0` 的网络错误与超时、429、5xx
+        ///          - 不可重试：401/400 等其余 4xx —— 重试无益，保持快速失败
+        ///          实测价值：Terminal-Bench `adaptive-rejection-sampler` 因一次
+        ///          `Total request timeout exceeded` 在第 5 轮就终止，核心产物没写出来，
+        ///          verifier 判 0/9，而分数被记在 agent 头上。
+        int thought_max_retries = 2;
+        /// @brief #144：Thought 重试的初始退避延迟（毫秒），按 `base * 2^attempt` 指数增长
+        /// @details 上限由 `agent::HttpRetryPolicy::max_delay_ms`（60s）兜住。
+        ///          退避等待期间会响应取消信号，不会把 Ctrl-C 卡住。
+        int thought_base_delay_ms = 1000;
         CacheAwareCompactor::Config compactor_cfg;  ///< DS_CACHE: 缓存感知压缩配置
 
         /// @brief Issue #50：通用 Hook 事件系统（可空；空则全部跳过，零开销）

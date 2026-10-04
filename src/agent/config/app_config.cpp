@@ -160,6 +160,19 @@ void register_config_defaults(ConfigManager& cfg) {
                          .type = ConfigSchema::Type::Int,
                          .int_range = std::make_pair<int64_t, int64_t>(1, 2000)});
 
+    // #144：Thought 阶段 LLM 请求失败后的重试次数。仅对**可重试错误**生效
+    // （网络错误/超时/429/5xx），401/400 等 4xx 仍保持快速失败。
+    // 0 = 恢复旧行为（失败即终止整轮）。重试不消耗迭代预算。
+    cfg.register_schema({.key = keys::AGENT_THOUGHT_MAX_RETRIES,
+                         .description =
+                             "Max retries after a failed Thought-phase LLM request (#144). "
+                             "Applies only to retryable errors (network timeout, 429, 5xx); "
+                             "4xx fails fast. 0 restores the legacy fail-immediately behavior.",
+                         .default_value = 2,
+                         .type = ConfigSchema::Type::Int,
+                         .int_range = std::make_pair<int64_t, int64_t>(0, 10),
+                         .env_var = "WORKX_THOUGHT_MAX_RETRIES"});
+
     // #79：子 Agent 派生护栏。防递归已由"子 Agent 工具集不含 Agent 工具"保证，
     // 剩余风险是规模失控（一次传入上百个 tasks，或多轮累计派生），故设两级上限：
     // 单次批量规模 + 单次 run 累计总量。超限时 AgentTool 整批拒绝并回灌可读错误，
