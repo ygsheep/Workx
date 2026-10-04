@@ -8,7 +8,7 @@
  *          - 共享常量（kMaxOutputChars / kDefaultTimeoutMs / kMaxTimeoutMs）
  *
  *          BashOutputRegistry 等工具专属逻辑不在此处，由各工具自行维护。
- * @version 1.0.0
+ * @version 1.1.0
  * @date 2026-07
  */
 
@@ -28,6 +28,27 @@ constexpr int kDefaultTimeoutMs = 120'000;
 constexpr int kMaxTimeoutMs = 600'000;
 /// 输出截断阈值（对齐 ToolExecutor::MAX_TOOL_RESULT_LENGTH）
 constexpr size_t kMaxOutputChars = 8'000;
+
+/// #137：墙钟预算封顶——单次命令执行后仍要留给收尾的时间（安全余量）
+constexpr int kWallClockReserveMs = 20'000;
+/// #137：封顶后的超时下限（低于此值干脆让命令快速失败，避免 0/负值）
+constexpr int kMinClampedTimeoutMs = 5'000;
+
+/// @brief #137：按「本次 run 的剩余墙钟」封顶单次命令超时
+/// @details 单条命令默认可占 600s，而评测/无人值守场景整轮预算可能只有 900s：
+///          一旦某条命令（典型是网络下载、apt/pip 拉取）卡住，它会独吞整轮预算，
+///          agent 再也没机会换路径 —— 实测 `financial-document-processor` 正是
+///          一条 130 字符的命令跑满 600s、只回传 45 字符输出，随后被墙钟杀死。
+///          封顶后命令会尽早失败并把控制权交回模型。
+/// @param requested_ms 已按 kMaxTimeoutMs 封顶的请求超时
+/// @param remaining_ms 本次 run 的剩余墙钟毫秒；< 0 表示未知/不限
+/// @return 封顶后的超时（毫秒）；remaining 未知时原样返回 requested_ms
+inline int clamp_timeout_by_wall_clock(int requested_ms, int remaining_ms) {
+    if (remaining_ms < 0) return requested_ms;  // 未注入预算：行为完全不变
+    const int allowed = remaining_ms - kWallClockReserveMs;
+    if (allowed < kMinClampedTimeoutMs) return kMinClampedTimeoutMs;
+    return requested_ms > allowed ? allowed : requested_ms;
+}
 
 /// @brief 截断输出到指定字符数，保留头尾
 /// @details 对齐 ToolExecutor::finalize_result 的截断逻辑。

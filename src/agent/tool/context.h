@@ -3,7 +3,7 @@
  * @brief ToolContext — 工具执行上下文
  * @details 在工具执行过程中传递的运行时信息：会话 ID、工作目录、权限模式、取消信号、
  *          任务管理器、进度回调
- * @version 1.4.0
+ * @version 1.5.0
  * @date 2026-07
  */
 
@@ -202,6 +202,12 @@ struct ToolContext {
     std::string git_branch;            ///< 当前分支（非仓库则为空）
     bool git_has_uncommitted = false;  ///< 是否有未提交改动
     std::string git_repo_root;         ///< 仓库根目录（非仓库则为空）
+
+    /// @brief #137：本次 run 的剩余墙钟（毫秒），由 ReActLoop 在每轮执行工具前注入
+    /// @details 用于让 shell 工具按剩余预算封顶单次命令超时，避免一条卡住的命令
+    ///          独吞整轮预算（实测一条命令跑满 600s 吃掉 900s 题目的 2/3 时钟）。
+    ///          -1 表示未注入/不限，此时工具行为与注入前完全一致（默认不启用）。
+    int remaining_wall_clock_ms = -1;
 
     /// @brief #30：只读历史摘要（当前 turn 前用户指令/约束的文本摘要）
     /// @details 由 ReActLoop 在 turn 开始时从对话历史构建（最近若干条 user 消息，

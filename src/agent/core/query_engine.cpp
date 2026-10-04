@@ -98,6 +98,19 @@ ReActLoop::Config QueryEngine::make_react_config() const {
     ReActLoop::Config cfg;
     cfg.max_iterations =
         m_deps.config_manager->get_or<int>(agent::keys::AGENT_MAX_ITERATIONS, cfg.max_iterations);
+    // #137：墙钟预算（秒）。默认 0=不限；无人值守/评测场景用环境变量注入
+    // （harbor adapter 会透传所有 WORKX_* 变量，见 agents/workx/__init__.py）。
+    cfg.wall_clock_budget_sec =
+        m_deps.config_manager->get_or<int>(agent::keys::AGENT_WALL_CLOCK_BUDGET_SEC, 0);
+    if (cfg.wall_clock_budget_sec <= 0) {
+        if (const char* env = std::getenv("WORKX_AGENT_TIMEOUT_SEC")) {
+            try {
+                cfg.wall_clock_budget_sec = std::stoi(env);
+            } catch (...) {
+                cfg.wall_clock_budget_sec = 0;  // 非法值：视为不限，不因配置错误改变行为
+            }
+        }
+    }
     // Issue #78 阶段 P3：FinalAnswer 前验证门禁，交互式入口也默认开启。
     // P1 只接了 headless（评测入口），真实用户路径仍是「写完即停」——
     // 而 issue 的验收口径（结束前实际跑过测试/构建命令的比例）正是
