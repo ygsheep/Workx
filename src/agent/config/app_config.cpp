@@ -173,6 +173,31 @@ void register_config_defaults(ConfigManager& cfg) {
                          .int_range = std::make_pair<int64_t, int64_t>(0, 10),
                          .env_var = "WORKX_THOUGHT_MAX_RETRIES"});
 
+    // #147：思维链失控防护。默认 64000 字符（≈18k token）—— 取自 Terminal-Bench
+    // 20 题 1055 次 Thought 的实测分桶：[48000,64000) 空答复 0%、平均 71s（健康区）；
+    // [64000,∞) 空答复率 20%、平均 158.9s（失控区）。取 64000 作为分界。
+    // ⚠️ 别再往下调：32000 实测会截断本来能成功的请求（基线成功样本 reasoning_len
+    // 可达 49602 / 80745），把"慢但能过"变成"必败"。0 = 不限，恢复旧行为。
+    cfg.register_schema({.key = keys::AGENT_REASONING_BUDGET_CHARS,
+                         .description =
+                             "Per-Thought reasoning character budget (#147). Streaming is aborted "
+                             "once accumulated reasoning exceeds it. 0 disables the cap.",
+                         .default_value = 64000,
+                         .type = ConfigSchema::Type::Int,
+                         .int_range = std::make_pair<int64_t, int64_t>(0, 10000000),
+                         .env_var = "WORKX_REASONING_BUDGET_CHARS"});
+
+    // #147：空答复重试上限。防止"思考几万 token 然后交白卷"被当成 LLM 主动结束。
+    // 重试不消耗迭代预算（失败发生在任何工具执行之前，无状态变更）。
+    cfg.register_schema({.key = keys::AGENT_EMPTY_ANSWER_MAX_RETRIES,
+                         .description =
+                             "Max retries when a Thought yields neither text nor tool calls (#147). "
+                             "0 restores the legacy behavior of finishing with an empty answer.",
+                         .default_value = 2,
+                         .type = ConfigSchema::Type::Int,
+                         .int_range = std::make_pair<int64_t, int64_t>(0, 10),
+                         .env_var = "WORKX_EMPTY_ANSWER_MAX_RETRIES"});
+
     // #79：子 Agent 派生护栏。防递归已由"子 Agent 工具集不含 Agent 工具"保证，
     // 剩余风险是规模失控（一次传入上百个 tasks，或多轮累计派生），故设两级上限：
     // 单次批量规模 + 单次 run 累计总量。超限时 AgentTool 整批拒绝并回灌可读错误，

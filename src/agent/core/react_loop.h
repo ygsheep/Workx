@@ -4,10 +4,17 @@
  * @details 实现 Thought/Action/Observation 三阶段显式分离的 agent 循环，
  *          替代 ChatSession 中的扁平 while 循环。
  *          使用原生 function calling（Anthropic/OpenAI），不依赖文本解析。
- * @version 1.4.0
+ * @version 1.5.0
  * @date 2026-07
  *
  * @par 版本沿革
+ * - 1.5.0（Issue #147）：思维链失控与空答复不再让整轮白跑。
+ *   新增 `Config::reasoning_budget_chars`（单次 Thought 的推理字符预算，流式超限即中断）
+ *   与 `Config::empty_answer_max_retries`（无 tool_use 且 content 为空时的重试上限）。
+ *   实测（Terminal-Bench 20 题）模型会生成 1.5 万~6.5 万 token 思维链而 content 为空，
+ *   吃掉全部思考时间的 49%，且旧逻辑把"空 content + 无 tool_use"当成 LLM 主动结束，
+ *   直接提交一个空 final_answer 结束任务。
+ *   预算默认 64000 字符（分桶实测的健康/失控分界，详见字段注释）。
  * - 1.4.0（Issue #144）：Thought 阶段的 LLM 请求失败不再立刻终止整轮。
  *   新增 `Config::thought_max_retries` / `thought_base_delay_ms`，按错误类型
  *   区分：可重试错误（网络/超时/429/5xx）指数退避后重试，且**不消耗迭代预算**；
@@ -237,6 +244,23 @@ class WORKX_API ReActLoop {
         /// @details 上限由 `agent::HttpRetryPolicy::max_delay_ms`（60s）兜住。
         ///          退避等待期间会响应取消信号，不会把 Ctrl-C 卡住。
         int thought_base_delay_ms = 1000;
+        /// @brief #147：单次 Thought 的推理（reasoning）字符预算；0 = 不限（旧行为）
+        /// @details 流式累积超过该值时**主动中断本次请求**，避免思维链失控吃光整轮预算。
+        ///          默认 64000 字符（≈18k token），取自 Terminal-Bench 20 题 1055 次 Thought
+        ///          实测分桶——**分桶比简单分位数更能定位"失控分界线"**：
+        ///          [48000,64000) 区间 7 次、空答复 0%、平均 71s（仍健康，不能截断）；
+        ///          [64000,∞) 区间 15 次、空答复率跳升到 20%、平均 158.9s（真失控区）。
+        ///          ⚠️ 曾用 32000（P95 附近）实测：**误伤了本来能成功的请求**
+        ///          （feal-linear 基线通过时 reasoning_len=49602、adaptive-rejection-sampler
+        ///          达 80745），模型被截断后永远得不出结论，反而从"慢但能过"变成"必败"。
+        ///          中断时未执行任何工具，无状态变更，故可安全重试。
+        int reasoning_budget_chars = 64000;
+        /// @brief #147：无效答复（无 tool_use 且 content 为空 / 思维链超限）的重试上限
+        /// @details 旧逻辑把"空 content + 无 tool_use"当作 LLM 主动结束，直接提交一个
+        ///          空 final_answer —— 实测 `cancel-async-tasks` 就是这样交白卷结束的。
+        ///          重试不消耗迭代预算（与 #144 同理：失败发生在任何工具执行之前）。
+        ///          0 = 恢复旧行为（空答复直接收尾）。
+        int empty_answer_max_retries = 2;
         CacheAwareCompactor::Config compactor_cfg;  ///< DS_CACHE: 缓存感知压缩配置
 
         /// @brief Issue #50：通用 Hook 事件系统（可空；空则全部跳过，零开销）
@@ -437,6 +461,11 @@ class WORKX_API ReActLoop {
         ///          429（可重试、可降级）与 401（重试无益）。
         int http_status = 0;
         std::string error_message;  ///< 错误详情（status == Error 时有效）
+
+        /// @brief #147：本次请求是否因思维链超出 `reasoning_budget_chars` 被主动中断
+        /// @details 中断发生在工具执行之前，未产生任何状态变更；此时 content 通常为空
+        ///          （推理预算被思维链占满），调用方应回灌提示后重试而非直接收尾。
+        bool reasoning_budget_exceeded = false;
     };
 
     /// @brief 内部评审器决定（停滞检测 / 达上限时判断"是否继续"）

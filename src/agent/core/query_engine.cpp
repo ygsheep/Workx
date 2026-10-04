@@ -116,6 +116,13 @@ ReActLoop::Config QueryEngine::make_react_config() const {
     // WORKX_THOUGHT_MAX_RETRIES，由 ConfigManager::load_from_env() 统一覆盖，此处无需再读 env。
     cfg.thought_max_retries = m_deps.config_manager->get_or<int>(
         agent::keys::AGENT_THOUGHT_MAX_RETRIES, cfg.thought_max_retries);
+    // #147：思维链字符预算与空答复重试上限。两者都已在 schema 里绑定环境变量
+    // （WORKX_REASONING_BUDGET_CHARS / WORKX_EMPTY_ANSWER_MAX_RETRIES），
+    // 由 ConfigManager::load_from_env() 统一覆盖，此处无需再读 env。
+    cfg.reasoning_budget_chars = m_deps.config_manager->get_or<int>(
+        agent::keys::AGENT_REASONING_BUDGET_CHARS, cfg.reasoning_budget_chars);
+    cfg.empty_answer_max_retries = m_deps.config_manager->get_or<int>(
+        agent::keys::AGENT_EMPTY_ANSWER_MAX_RETRIES, cfg.empty_answer_max_retries);
     // Issue #78 阶段 P3：FinalAnswer 前验证门禁，交互式入口也默认开启。
     // P1 只接了 headless（评测入口），真实用户路径仍是「写完即停」——
     // 而 issue 的验收口径（结束前实际跑过测试/构建命令的比例）正是

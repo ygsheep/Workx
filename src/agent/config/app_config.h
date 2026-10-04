@@ -66,6 +66,13 @@ constexpr const char* AGENT_WALL_CLOCK_BUDGET_SEC = "agent.wall_clock_budget_sec
 /// 仅对可重试错误生效（网络错误 / 超时 / 429 / 5xx）；4xx 保持快速失败。
 /// 评测/无人值守场景也可用环境变量 WORKX_THOUGHT_MAX_RETRIES 覆盖。
 constexpr const char* AGENT_THOUGHT_MAX_RETRIES = "agent.thought_max_retries";
+/// #147：单次 Thought 的推理（reasoning）字符预算（默认 32000，0 = 不限）。
+/// 流式累积超限时主动中断本次请求，避免思维链失控吃光整轮预算。
+/// 评测/无人值守场景也可用环境变量 WORKX_REASONING_BUDGET_CHARS 覆盖。
+constexpr const char* AGENT_REASONING_BUDGET_CHARS = "agent.reasoning_budget_chars";
+/// #147：无效答复（无 tool_use 且 content 为空 / 思维链超限）的重试上限（默认 2，0 = 旧行为）。
+/// 评测/无人值守场景也可用环境变量 WORKX_EMPTY_ANSWER_MAX_RETRIES 覆盖。
+constexpr const char* AGENT_EMPTY_ANSWER_MAX_RETRIES = "agent.empty_answer_max_retries";
 
 // ---- #78：FinalAnswer 前强制验证闭环（PreCompletion 门禁）----
 /// 是否在给出 FinalAnswer 前用 agent.goal 声明的目标做强制验证。
