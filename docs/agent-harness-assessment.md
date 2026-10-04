@@ -661,6 +661,50 @@ D 类正常出分 7 题**（其中 3 题的 verifier 自身还不可信，真正
 **拿任务镜像清单里 glibc 最老的那个镜像实测一次 `--version`**
 （本轮就是 `python:3.13-slim-bookworm`），而不是只查二进制里的特征字符串。
 
+#### 修复：不用换构建容器
+
+1. `objdump -T <bin> | grep GLIBC_2.3[4-9]` 定位抬高版本的符号 —— 实测只有 4 个：
+   `__isoc23_strtol / strtoll / strtoul / strtoull`（glibc 2.38 引入的 C23 变体）。
+2. 触发链：`g++` 在 Linux 上**默认预定义 `_GNU_SOURCE`** → `features.h` 打开 `_ISOC2X_SOURCE`
+   → `__GLIBC_USE(C2X_STRTOL)=1` → `stdlib.h` 用 `__REDIRECT_NTH` 把 `strtol` 改名成 `__isoc23_strtol`。
+   ⚠️ `-D__GLIBC_USE_C2X_STRTOL=0` 无效（`features.h` 会 `#undef` 后重新定义）。
+3. 解法 = **shim + 静态 libstdc++**，两者缺一不可：
+   - `shim.c` 定义这 4 个 `__isoc23_*` 转发给旧 `strtol` 家族（要用 `gcc` 而不是 `g++` 编译，
+     因为 gcc 不预定义 `_GNU_SOURCE`，才能绑到 `strtol@GLIBC_2.2.5`）；
+   - `-static-libstdc++ -static-libgcc` 消掉 `GLIBCXX_3.4.31/3.4.32`
+     （**只做这步不够**：`libstdc++.a` 内部又会引回 `__isoc23_*`，必须配 shim）。
+4. 接入方式没有改动仓库：
+   `cmake -DCMAKE_EXE_LINKER_FLAGS="/compat/shim.o -static-libstdc++ -static-libgcc" .`
+   + `cmake --build /build_local --target workx`（只重链接，74 秒）。
+
+| 项 | 修复前 | 修复后 |
+| --- | --- | --- |
+| GLIBC 最高需求 | 2.38 | **2.36** |
+| GLIBCXX 需求 | 3.4.31 / 3.4.32 | **无** |
+| `ldd` 依赖 | — | 仅 `libc` / `libm` |
+| `python:3.13-slim-bookworm` | `EXIT=1` | **EXIT=0** |
+| 体积 | 16.9 MB | 18.8 MB |
+
+源码版本仍为 `-g3a4e6c6f`，`check_binary_signature.py` 四项特征签名全绿 —— **代码一字未改，只换了链接方式**。
+
+#### 修复后的真实分数（补跑 9 题 + 首轮 11 题，合并口径）
+
+| 口径 | 基线 | 本轮 | 变化 |
+| --- | --- | --- | --- |
+| pass@1（全部 20 题） | 45.0%（9/20） | **35.0%（7/20）** | −10.0 pt |
+| 判定率（拿到 reward 的题） | 90.0%（18/20） | 90.0%（18/20） | 持平 |
+
+补跑 9 题单独看：pass@1 **44.4%（4/9）**，无有效判定率从首轮的 100% 降到 **11.1%**。
+
+**glibc 障碍排除后仍低 10 个百分点，且这是真实的**（判定率两边都是 90%，不存在分母塌缩）。
+置换明细：升 4 / 降 5 / 持平 7 / 无判定 2。
+
+🔴 **真正的头号丢分原因已经换人**：`AgentTimeoutError` 从基线 **3/20 涨到 5/20**。
+#144 让 Thought 阶段不再一失败就终止，轮次跑得更久，于是更多题撞上 harbor 的外层 agent 预算
+（900 / 1200 / 1800 秒，因题而异）。**修复有效，但它把「早死」换成了「慢死」** ——
+要兑现收益，必须同时抬高外层预算或让轮次在逼近预算时主动收尾。
+单题异常：`feal-linear-cryptanalysis` 基线仅 124 秒，本轮撞 1800 秒上限，需单独查轨迹。
+
 ---
 
 ## 3. 怎么给 Workx 真跑一次分（三步走）
