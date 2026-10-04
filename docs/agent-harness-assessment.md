@@ -256,6 +256,10 @@ Anthropic 的补充（工具设计五原则）：少而精（工具多了反而�
 > 以下全部取自 `harbor run` 的**真实产物**（`jobs/2026-10-03__13-45-16/`），不是代码审计推断。
 > 这是 Workx **历史上第一次跑完评测基准**。
 
+> 🔴 **引用本节数字前请先读 §2.7**：这批数据是在「数据集被 CRLF 污染」的条件下跑出来的，
+> 其中至少 2 题（`custom-memory-heap-crash` / `financial-document-processor`）是**结构性必挂** ——
+> 无论 agent 做得多正确都拿不到分。本节数字只反映**历史**，不代表 Workx 的实际水平。
+
 **跑分条件**
 
 | 项 | 值 |
@@ -662,6 +666,92 @@ python scripts/harness/trial_metrics.py --self-test   # 合成样例自检
 ```
 
 后续跑分**必须先跑它再去对比数字**，否则是在噪声上做决策。
+
+---
+
+### 2.7 评测环境的两个硬坑：CRLF 数据集污染 + LLM 请求硬超时（十一次更新，2026-10-04）
+
+§2.6 解决的是「把没判定的 trial 分清」。继续往下挖，发现还有两个**更靠上游**的噪声源，
+它们的特点是：**让 agent 显得失败，但根因完全不在 agent**。
+
+#### 硬坑一：数据集被整体转成 CRLF，checksum 校验题必然失败
+
+本机 `git config core.autocrlf=true`，harbor 拉下来的 Terminal-Bench 数据集
+（`.cache/tb2/terminal-bench`，该目录归 `/.cache/` gitignore 管）在落盘时被整体转成 CRLF ——
+实测 **736 / 759 个文件被污染**。
+
+后果有两个层次：
+
+1. **硬编码 checksum 的题必然挂**。容器的 `/app` 由 `COPY program/ /app/` 得来，
+   装进去的就是 CRLF 版本，而测试里写死的是 LF 版本的 md5。
+2. **容器里 `*.sh` 会 `bad interpreter`**，表现为「verifier 没跑完」——
+   在 §2.6 的归因里会被算进 verifier / unknown，进一步污染归因。
+
+最要命的一点是：**它看起来完全不像环境问题**。
+
+| | 观测 |
+| --- | --- |
+| `custom-memory-heap-crash` 报错 | `File /app/main.cpp has been modified! Expected 53cc24…, Actual 424ded…` |
+| 直觉结论 | agent 违抗了题面「只准改 `/app/user.cpp`」的指令 |
+| 实际 | 两次 `Write` 都落在 `/app/user.cpp`，**所有 Bash 命令都只是编译**，没碰过 `main.cpp` |
+| 决定性验证 | 数据集里 `main.cpp` 的 md5 就是 `424ded…`；**把它还原成 LF 后精确等于期望值 `53cc24…`** |
+
+即：这 4849 字节的文件在**没有任何人修改的情况下**就不匹配期望值，
+是容器基线本身与测试期望不一致 —— 与 agent 行为无关。
+
+**因果闭环**（同一道题，唯一变量是行尾）：
+
+| 数据集状态 | `custom-memory-heap-crash` 结果 |
+| --- | --- |
+| CRLF（污染） | 5/6 通过，挂在 checksum → **reward = 0** |
+| LF（修复后） | **6/6 通过 → reward = 1** |
+
+全库范围内，依赖硬编码 checksum 的题有 **11 个**，首轮 20 题命中 **2 个**（另一题是
+`financial-document-processor`）。也就是说 45% 这个数字里至少有 10% 是白丢的。
+
+→ 修复：`scripts/harness/fix_dataset_lineendings.py`（`--check` / `--fix`，含 NUL 的二进制不动），
+已作为**卡口 ③** 接进 `run-harbor-replay.sh`。
+→ **根治**需要 `git config --global core.autocrlf false`（涉及其他项目，未擅自改动）。
+
+#### 硬坑二：LLM 请求 120 秒硬超时，且失败后直接终止整轮
+
+`http_client.cpp:394` 把总超时写成 `max(timeout_ms, 120000)`。默认值 `timeout_ms = 30000`
+看着是 30 秒，实际总超时被抬到 **120 秒**。
+
+thinking 模型 + 长任务到中后段（上下文已 35KB+）单次生成很容易超过两分钟，于是：
+
+```
+[WARN]  [http_client] total timeout exceeded, cancelling session
+[ERROR] [react_loop] iteration=5 thought stream error, error=Total request timeout exceeded
+```
+
+而 `react_loop.cpp:869` 对 `ThoughtResult::Error` 的处理是**直接 `break`，没有任何重试**：
+
+```cpp
+if (thought.status == ThoughtResult::Error) {
+    result.was_error = true;
+    result.error_message = ...;
+    break;                      // ← 整轮就到这里为止
+}
+```
+
+实测 `adaptive-rejection-sampler` 就死在这里：只走了 5 轮、13 个事件就终止，
+核心产物 `/app/ars.R` 压根没写出来，verifier 判 **0/9**。
+
+**这不是能力问题，是一次网络抖动／一次慢请求就废掉整个 trial。**
+
+→ 缓解：`WORKX_TIMEOUT=600000`（已配在 `run-harbor-replay.sh` 里，`self.max()` 逻辑允许覆盖）。
+→ 待办（值得单开 issue）：**Thought 失败应当有退避重试**，至少区分「可重试的网络错误」
+与「不该重试的 4xx」，此外 log 里那个 `timeout=30000ms` 与实际生效的 120s 不一致，
+属于会误导排查的显示问题。
+
+#### 这一节的教训
+
+两个坑的共同点：**出问题时第一现场都不在真正的原因那里**。
+checksum 报错指向 agent，reward=0 指向模型，而真相分别在 Git 的行尾配置和 HTTP 超时常量里。
+
+验证却都很便宜：`md5sum` 对一下测试源码里写死的期望值；去 `workx-run.log` 里 grep
+`Total request timeout`。**分数异常时，先怀疑评测环境本身，别急着给 agent 定罪。**
 
 ---
 

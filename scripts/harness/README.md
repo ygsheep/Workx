@@ -1,9 +1,82 @@
 # 跑分工具集（Issue #117）
 
-| 脚本 | 作用 |
-| --- | --- |
-| [`collect_metrics.py`](collect_metrics.py) | 采集**行为统计指标**（验证命令执行率等五项），判断 #78 是否达标 |
-| [`export_run.py`](export_run.py) | 把一整轮跑分导出成**可读轨迹 Markdown** + **可导入的 workx 原生会话** |
+> 一句话原则：**分数异常时先怀疑评测环境本身，别急着归因到 agent 或模型。**
+> 本目录的多数脚本都是为了把这个验证做便宜——每一份都是从一次真实翻车里长出来的。
+
+| 脚本 | 作用 | 对应的翻车 |
+| --- | --- | --- |
+| [`run-harbor-replay.sh`](run-harbor-replay.sh) | 复跑一轮 Harbor（含**四道跑前卡口**） | 拿旧二进制/坏模型跑满一小时才发现白跑 |
+| [`build-linux-container.sh`](build-linux-container.sh) | 在 Docker 里重建 Linux 二进制的完整配方 | 构建配方没留过档；不同潜意识复用错了 IOC 配置 |
+| [`check_binary_signature.py`](check_binary_signature.py) | 校验产物二进制是否含目标改动 | 用没编进 #133 的二进制得出「#133 有效」的假结论 |
+| [`fix_dataset_lineendings.py`](fix_dataset_lineendings.py) | 数据集行尾守卫（CRLF → LF） | Windows `autocrlf=true` 让 checksum 校验题**必然失败** |
+| [`trial_metrics.py`](trial_metrics.py) | trial 成绩去噪采集（区分「真失败」与「没被判定」） | 45% 这个数字里混着大量根本没跑过的 trial |
+| [`collect_metrics.py`](collect_metrics.py) | 采集**行为统计指标**（验证命令执行率等五项），判断 #78 是否达标 | — |
+| [`export_run.py`](export_run.py) | 把一整轮跑分导出成**可读轨迹 Markdown** + **可导入的 workx 原生会话** | — |
+
+---
+
+## 跑一轮 Harbor：`run-harbor-replay.sh`
+
+唯一变量是**二进制**：用 `--config` 喂 JobConfig，datasets / agents / mounts / 并发数
+全部与基准轮对齐。跑前四道卡口缺一不可：
+
+```bash
+MSYS_NO_PATHCONV=1 bash scripts/harness/run-harbor-replay.sh          # 全量 20 题
+MSYS_NO_PATHCONV=1 bash scripts/harness/run-harbor-replay.sh smoke    # 3 题，约 20~36 分钟
+```
+
+| 卡口 | 检查什么 | 不过会发生什么 |
+| --- | --- | --- |
+| ① 二进制签名 | `WORKX_AGENT_TIMEOUT_SEC` 等特征串，及 `-g<hash>` | 跑的是旧代码，结论全假 |
+| ② 模型连通 | 真打一次 `/chat/completions` | 整轮 trial 全 0 且看不出错在哪 |
+| ③ 数据集行尾 | `.cache/tb2/terminal-bench` 是否 LF | checksum 题必挂、`*.sh` bad interpreter |
+| ④ 模型名对齐 | JobConfig 的 `model_name` = `WORKX_MODEL` | 产物元信息与实际调用不符，无法追溯 |
+
+前提：仓库根有 `.env.harbor`（`WORKX_API_KEY=...`，已被 gitignore，模板见
+`.env.harbor.example`）。Windows/Git Bash 下三个必踩的坑已在脚本注释里写明：
+`MSYS_NO_PATHCONV=1`、`PATH` 要含 `~/.local/bin`、`PYTHONPATH` 必须 `$(pwd -W)`。
+
+## 重建 Linux 二进制：`build-linux-container.sh`
+
+本机 WSL 被安全策略拉黑，只能在容器里编。配方对齐 CI 的 `build-test.yml`，
+只编 `workx` 主程序。**两个关键约束**（详见脚本头部注释）：
+
+1. 镜像 ≥ `ubuntu:24.04` —— `logger.h` 用了 `<format>`，22.04 的 GCC 11 没有这个头。
+2. **构建目录必须是容器本地路径**（`/build_local`），挂 Windows bind mount 会让
+   CMake 探测不到编译器。只有 vcpkg 目录适合挂出来复用。
+
+产物落到 `build/linux/workx-linux-amd64`，旧版自动备份成 `.old-<日期>`，结尾自动跑
+`check_binary_signature.py` 验签名。
+
+## 去噪采集：`trial_metrics.py`
+
+Harbor 的原始 `reward.txt` 只有 0/1，会把「verifier 压根没跑起来」也算成 agent 失败。
+本脚本按轨迹把它拆成 `verifier` / `environment` / `unknown` / `ok` 四类，
+并给出 `pass_rate_all`（须等于 Harbor 原始口径，用来自证采集无误）与 `pass_rate_valid`。
+
+```bash
+python scripts/harness/trial_metrics.py --self-test          # 自检，26+ 项
+python scripts/harness/trial_metrics.py jobs/<job-id> --md out.md
+```
+
+## 数据集行尾：`fix_dataset_lineendings.py`
+
+```bash
+python scripts/harness/fix_dataset_lineendings.py --check    # 体检，非 0 退出
+python scripts/harness/fix_dataset_lineendings.py --fix      # 就地 CRLF -> LF
+```
+
+含 NUL 的文件视为二进制，**绝不改写**（图片 / 压缩包里出现 `\r\n` 是正常的）。
+
+## 二进制签名：`check_binary_signature.py`
+
+```bash
+python scripts/harness/check_binary_signature.py build/linux/workx-linux-amd64
+python scripts/harness/check_binary_signature.py <bin> --only-version
+```
+
+⚠️ 新增特征串前**必须先在真实产物里 grep 到再写进 MARKS**：`WORKX_TIMEOUT` 明明写死在
+`app_config.cpp` 的 env_var 里，产物中却搜不到（字符串表优化），列为必选项就会误报。
 
 ---
 
