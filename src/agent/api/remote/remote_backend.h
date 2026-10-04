@@ -66,11 +66,23 @@ class RemoteBackend : public IBackend {
     //      消除"m_ready=false 但 m_generating=true"等非法组合，原子读写保证状态一致
     std::atomic<BackendState> m_state{BackendState::Idle};
 
-    /// @brief 中断全部在飞请求（调用方必须已持有 m_active_mutex）
+    /// @brief 摘下全部在飞请求（调用方必须已持有 m_active_mutex）
     /// @details 拆出 interrupt_locked 以便 shutdown() 在持锁状态下复用清理逻辑，
     ///          避免 interrupt() 内部再次加锁导致死锁，并消除 shutdown 与 interrupt 间的 TOCTOU
     ///          竞态。
-    void interrupt_locked();
+    ///          #139：**本函数只摘集合 + 复位状态，绝不触发取消**。
+    ///          HttpClient::cancel_stream() 会同步走到 on_complete 回调，而该回调的
+    ///          第一件事就是 lock(m_active_mutex)（见 submit_completion）——持锁触发
+    ///          等于同线程二次加锁非递归 mutex，表现为永久阻塞（进程做完不退出）。
+    ///          取消动作必须由调用方在**锁外**用 cancel_readers_out_of_lock() 完成。
+    /// @return 被摘下的在飞 reader 集合，供调用方在锁外取消
+    [[nodiscard]] std::vector<std::shared_ptr<SSEStreamReader>> interrupt_locked();
+
+    /// @brief 在 m_active_mutex **锁外**取消给定 reader（#139）
+    /// @details 仅被 interrupt() / shutdown() 在释放锁之后调用；调用方需保证
+    ///          此时不再持有 m_active_mutex，否则 cancel_stream 触发的 on_complete
+    ///          回调会再次加锁而自锁。
+    void cancel_readers_out_of_lock(const std::vector<std::shared_ptr<SSEStreamReader>>& readers);
 
     /// @brief Provider 特定协议适配器
     std::unique_ptr<IProviderAdapter> m_adapter;
