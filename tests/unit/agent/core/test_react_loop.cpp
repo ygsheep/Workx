@@ -1878,3 +1878,21 @@ TEST_CASE_METHOD(ReActLoopFixture, "#147: reasoning_budget_chars=0 恢复旧行�
     // 不中断、不重试：单次提交后按"LLM 主动结束"收尾
     REQUIRE(provider->submit_count == 1);
 }
+
+TEST_CASE_METHOD(ReActLoopFixture, "#147: 思维链熔断默认关闭（实测净效应为负）",
+                 "[react_loop][issue147]") {
+    // 完整 20 题实测（job 2026-10-05__11-50-58）：触发中断的 6 题 0/6 通过，
+    // 同批题在关闭熔断的基线里 3/5 通过。故默认必须保持关闭，
+    // 这条用例是防止有人把默认值改回 64000 却不跑分验证。
+    ReActLoop::Config config;
+    REQUIRE(config.reasoning_budget_chars == 0);
+
+    // 默认配置下：思维链远超曾经的 64000 阈值也不中断。
+    // 关掉空答复重试，单独隔离"不中断"这一点（否则会走 #147 的重试分支）。
+    config.empty_answer_max_retries = 0;
+    auto loop = make_loop(config);
+    provider->set_next_reader(make_runaway_reasoning_reader(70000));
+    std::vector<ChatMessage> messages = {ChatMessage::user("请解题")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+    REQUIRE(provider->submit_count == 1);  // 未被中断，故也没有触发重试
+}
