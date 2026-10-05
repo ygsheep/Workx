@@ -4,10 +4,15 @@
  * @details 实现 Thought/Action/Observation 三阶段显式分离的 agent 循环，
  *          替代 ChatSession 中的扁平 while 循环。
  *          使用原生 function calling（Anthropic/OpenAI），不依赖文本解析。
- * @version 1.5.0
+ * @version 1.6.0
  * @date 2026-07
  *
  * @par 版本沿革
+ * - 1.6.0（Issue #147 回归修正）：`reasoning_budget_chars` 默认值 64000 → 0（关闭熔断）。
+ *   完整 20 题实测（job 2026-10-05__11-50-58）显示熔断净效应为负：
+ *   触发熔断的 6 道题 **0/6 通过**（其中 3 道基线是 PASS），未触发的 14 道 4/14。
+ *   根因是中断会丢弃整个 turn，而重试无法让模型收敛（三次都一样跑到 64000+），
+ *   最后以空 final_answer 收尾。故默认关闭，保留配置项供按需开启与调参。
  * - 1.5.0（Issue #147）：思维链失控与空答复不再让整轮白跑。
  *   新增 `Config::reasoning_budget_chars`（单次 Thought 的推理字符预算，流式超限即中断）
  *   与 `Config::empty_answer_max_retries`（无 tool_use 且 content 为空时的重试上限）。
@@ -253,8 +258,14 @@ class WORKX_API ReActLoop {
         ///          ⚠️ 曾用 32000（P95 附近）实测：**误伤了本来能成功的请求**
         ///          （feal-linear 基线通过时 reasoning_len=49602、adaptive-rejection-sampler
         ///          达 80745），模型被截断后永远得不出结论，反而从"慢但能过"变成"必败"。
-        ///          中断时未执行任何工具，无状态变更，故可安全重试。
-        int reasoning_budget_chars = 64000;
+        ///          🔴 但**默认 0 = 关闭熔断**（1.6.0 起）。完整 20 题实测证明：
+        ///          一旦触发中断，本轮产出即为 0（content 空），而重试并不能让模型收敛——
+        ///          三次重试全部重蹈覆辙跑到 64000+，最终以空 final_answer 收尾。
+        ///          结果是「慢但可能做对」被强制变成「必然失败」：触发熔断的 6 题 0/6 通过，
+        ///          而同样这批题在关闭熔断的基线里是 3/5 通过。
+        ///          → 熔断的代价是丢弃整个 turn，期望值为负，故默认关闭。
+        ///          想开启时设一个远大于 64000 的值，并务必先验证「触发组成功率是否高于不触发组」。
+        int reasoning_budget_chars = 0;
         /// @brief #147：无效答复（无 tool_use 且 content 为空 / 思维链超限）的重试上限
         /// @details 旧逻辑把"空 content + 无 tool_use"当作 LLM 主动结束，直接提交一个
         ///          空 final_answer —— 实测 `cancel-async-tasks` 就是这样交白卷结束的。

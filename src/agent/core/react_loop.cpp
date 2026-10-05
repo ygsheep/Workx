@@ -257,8 +257,11 @@ ReActLoop::ThoughtResult ReActLoop::execute_thought(const CompletionRequest& req
 
                 // #147：思维链失控防护 —— 推理字符数超预算时主动中断本次请求。
                 // 实测模型会生成 1.5 万~6.5 万 token 思维链而 content 为空（占全部思考时间
-                // 的 49%）。此时继续等待只会烧掉整轮预算，不如尽早中断让上层回灌提示重试。
-                // 中断发生在任何工具执行之前，未产生状态变更，故重试是安全的。
+                // 的 49%）。中断发生在任何工具执行之前，未产生状态变更，故重试是安全的。
+                // ⚠️ 但**默认关闭**（reasoning_budget_chars = 0）：完整 20 题实测显示
+                // 中断会把「慢但可能做对」变成「必然失败」—— 中断即丢弃整个 turn，
+                // 而重试三次都原样再跑到预算上限，最终以空 final_answer 收尾。
+                // 触发中断的 6 题 0/6 通过，同批题基线（未开启）3/5 通过。
                 if (m_config.reasoning_budget_chars > 0 &&
                     static_cast<int64_t>(result.reasoning.size()) >
                         m_config.reasoning_budget_chars) {

@@ -173,16 +173,22 @@ void register_config_defaults(ConfigManager& cfg) {
                          .int_range = std::make_pair<int64_t, int64_t>(0, 10),
                          .env_var = "WORKX_THOUGHT_MAX_RETRIES"});
 
-    // #147：思维链失控防护。默认 64000 字符（≈18k token）—— 取自 Terminal-Bench
-    // 20 题 1055 次 Thought 的实测分桶：[48000,64000) 空答复 0%、平均 71s（健康区）；
-    // [64000,∞) 空答复率 20%、平均 158.9s（失控区）。取 64000 作为分界。
-    // ⚠️ 别再往下调：32000 实测会截断本来能成功的请求（基线成功样本 reasoning_len
-    // 可达 49602 / 80745），把"慢但能过"变成"必败"。0 = 不限，恢复旧行为。
+    // #147：思维链失控防护。**默认 0 = 关闭**（1.6.0 起）。
+    // 64000 这个阈值取自 Terminal-Bench 20 题 1055 次 Thought 的实测分桶
+    // （[48000,64000) 空答复 0%/平均 71s；[64000,∞) 空答复率 20%/平均 158.9s），
+    // 但**分桶只能定位"哪里开始失控"，不能证明"截断它是对的"**。完整 20 题实测：
+    // 触发中断的 6 道题 0/6 通过（同批题基线 3/5 通过），未触发的 14 道 4/14。
+    // 根因：中断 = 丢弃整个 turn（content 空），而重试三次都原样再跑到 64000+，
+    // 最终以空 final_answer 收尾 → 把"慢但可能做对"强制变成"必然失败"。
+    // ⚠️ 若要开启：阈值务必远大于 64000，且判据是"触发组成功率 ≥ 不触发组"，
+    //    而不是"省了多少 token"。
     cfg.register_schema({.key = keys::AGENT_REASONING_BUDGET_CHARS,
                          .description =
                              "Per-Thought reasoning character budget (#147). Streaming is aborted "
-                             "once accumulated reasoning exceeds it. 0 disables the cap.",
-                         .default_value = 64000,
+                             "once accumulated reasoning exceeds it. 0 disables the cap "
+                             "(default: aborted turns produce empty answers and were measured to "
+                             "lower the task pass rate, so the cap is off by default).",
+                         .default_value = 0,
                          .type = ConfigSchema::Type::Int,
                          .int_range = std::make_pair<int64_t, int64_t>(0, 10000000),
                          .env_var = "WORKX_REASONING_BUDGET_CHARS"});
