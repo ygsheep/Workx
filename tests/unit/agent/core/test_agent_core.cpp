@@ -410,10 +410,50 @@ TEST_CASE("VF-10: CMake 项目须真的生成过 CTest 入口才算有测试",
     REQUIRE(detect_goal_command(AgentGoal::TestsPass, bare).empty());
     drop(bare);
 
-    // 已生成 CTestTestfile（顶层或 build 子目录）→ 可用
-    const std::string ready = make_project({"CMakeLists.txt", "build/CTestTestfile.cmake"});
-    REQUIRE(detect_goal_command(AgentGoal::TestsPass, ready) == "ctest --output-on-failure");
+    // 已生成 CTestTestfile（顶层 = in-source）→ 原地 ctest 即可
+    const std::string in_src = make_project({"CMakeLists.txt", "CTestTestfile.cmake"});
+    REQUIRE(detect_goal_command(AgentGoal::TestsPass, in_src) == "ctest --output-on-failure");
+    drop(in_src);
+
+    // #129：out-of-source（构建目录 build/ 已 configure）→ 命令须带 --test-dir，
+    // 否则 ctest 在 CWD 找不到 CTestTestfile 必然失败
+    const std::string ready = make_project(
+        {"CMakeLists.txt", "build/CMakeCache.txt", "build/CTestTestfile.cmake"});
+    REQUIRE(detect_goal_command(AgentGoal::TestsPass, ready) ==
+            "ctest --test-dir build -C Debug --output-on-failure");
     drop(ready);
+}
+
+TEST_CASE("#129: BuildClean 命令指向真实构建目录，未 configure 给自举命令",
+          "[agent][verify][issue129]") {
+    // out-of-source：构建命令指向 build/，不再返回必然失败的 `cmake --build .`
+    const std::string built = make_project({"CMakeLists.txt", "build/CMakeCache.txt"});
+    REQUIRE(detect_goal_command(AgentGoal::BuildClean, built) ==
+            "cmake --build build --config Debug");
+    // 有缓存但没有 CTest 入口 → TestsPass 探测不到，走 unavailable 放行
+    REQUIRE(detect_goal_command(AgentGoal::TestsPass, built).empty());
+    drop(built);
+
+    // in-source（CWD 下有缓存）→ 维持原地构建
+    const std::string in_src =
+        make_project({"CMakeLists.txt", "CMakeCache.txt", "CTestTestfile.cmake"});
+    REQUIRE(detect_goal_command(AgentGoal::BuildClean, in_src) ==
+            "cmake --build . --config Debug");
+    drop(in_src);
+
+    // 从未 configure：给自举命令（能真跑通），绝不返回必然失败的命令
+    const std::string bare = make_project({"CMakeLists.txt"});
+    REQUIRE(detect_goal_command(AgentGoal::BuildClean, bare) ==
+            "cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug");
+    drop(bare);
+}
+
+TEST_CASE("#129: 新默认命令全部通过 guard_command 白名单",
+          "[agent][verify][issue129]") {
+    // 生成的命令均不含 shell 元字符，且首 token 在白名单内
+    REQUIRE_FALSE(guard_command("ctest --test-dir build -C Debug --output-on-failure").empty());
+    REQUIRE_FALSE(guard_command("cmake --build build --config Debug").empty());
+    REQUIRE_FALSE(guard_command("cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug").empty());
 }
 
 TEST_CASE("VF-10: 各技术栈探测出对应的测试/构建命令", "[agent][verify][issue78]") {

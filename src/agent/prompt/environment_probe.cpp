@@ -170,26 +170,36 @@ std::optional<std::string> preset_binary_dir(const std::filesystem::path& cwd) {
     }
 }
 
-/// @brief 推导 CMake 项目的构建命令
-/// @details #78 的 BuildClean 对 CMake 是硬编码的 `cmake --build .`，对构建目录
-///          不在 CWD 的项目（本仓就是 build/）必然失败。故这里按 presets 或已
-///          生成的缓存拿真实构建目录；从未配置过时给一条能自举的命令。
-/// @return 构建命令；不是 CMake 项目返回 nullopt
-std::optional<std::string> detect_cmake_build(const std::filesystem::path& cwd) {
-    std::string binary_dir;
+}  // namespace
+
+std::optional<std::string> detect_cmake_binary_dir(const std::filesystem::path& cwd) {
     if (const auto preset = preset_binary_dir(cwd)) {
-        binary_dir = *preset;
-    } else if (has_file(cwd / "build" / "CMakeCache.txt")) {
-        binary_dir = "build";
-    } else if (has_file(cwd / "CMakeLists.txt")) {
-        return std::string("cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug");
-    } else {
-        return std::nullopt;
+        return preset;
     }
-    return std::format("cmake --build {} --config Debug", binary_dir);
+    if (has_file(cwd / "build" / "CMakeCache.txt")) {
+        return std::string("build");
+    }
+    if (has_file(cwd / "CMakeCache.txt")) {
+        return std::string(".");
+    }
+    return std::nullopt;
 }
 
-}  // namespace
+std::optional<std::string> detect_cmake_build(const std::filesystem::path& cwd) {
+    if (const auto dir = detect_cmake_binary_dir(cwd)) {
+        // preset 只说明「声明了构建目录」，不保证真的 configure 过——目录内
+        // 没有 CMakeCache.txt 时直接 --build 必然失败（#129），落到自举分支。
+        const std::filesystem::path p =
+            std::filesystem::path(*dir).is_relative() ? cwd / *dir : std::filesystem::path(*dir);
+        if (has_file(p / "CMakeCache.txt")) {
+            return std::format("cmake --build {} --config Debug", *dir);
+        }
+    }
+    if (has_file(cwd / "CMakeLists.txt")) {
+        return std::string("cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug");
+    }
+    return std::nullopt;
+}
 
 std::vector<std::string> probe_directory_skeleton(const std::filesystem::path& cwd) {
     std::vector<std::string> out;
