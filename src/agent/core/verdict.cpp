@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "agent/prompt/environment_probe.h"  // #129：与提示词侧共用构建目录口径
 #include "core/process/exec_output.h"
 #include "core/process/subprocess.h"
 #include "liblogger/logger.h"
@@ -106,8 +107,9 @@ std::string command_exec_token(std::string_view line) {
 /// @brief 命令串是否含 shell 链接/分隔/重定向/命令替换元字符（P1-1 硬阻塞修复）
 /// @details guard_command 必须在字符串级拒绝这些字符，而非仅校验首个 token：
 ///          即使首命令在白名单内（如 cmake），`&&` 之后的任意命令仍会被包装
-///          shell（sh -c / cmd /c）执行 → RCE。默认命令（kTestCmd/kBuildCmd/
-///          kLintCmd）是项目硬编码可信串，不含这些字符，放行不受影响。
+///          shell（sh -c / cmd /c）执行 → RCE。默认命令（kTestCmd 及
+///          detect_goal_command 生成的构建/测试命令）是内部可信串，不含这些
+///          字符，放行不受影响。
 bool contains_separator(std::string_view s) noexcept {
     for (const char c : s) {
         switch (c) {
@@ -132,9 +134,9 @@ bool contains_separator(std::string_view s) noexcept {
 
 /// @brief 命令是否在白名单内（仅校验真实落地的 exec token）
 bool is_command_allowed(std::string_view line) noexcept {
-    // P1-1：构建/测试/包管理/常见脚本工具白名单。默认命令（kTestCmd/kBuildCmd
-    //       等）是项目硬编码的可信串，不在此校验范围内；此处只拦截 goal.command
-    //       里的任意命令。
+    // P1-1：构建/测试/包管理/常见脚本工具白名单。默认命令（kTestCmd 及
+    //       detect_goal_command 生成的命令）是内部可信串，不在此校验范围内；
+    //       此处只拦截 goal.command 里的任意命令。
     static constexpr std::string_view kAllowed[] = {
         // 构建
         "cmake",
@@ -234,10 +236,9 @@ int run_exit_code(const std::string& cmd, const std::string& cwd) {
     return res.value().exit_code;
 }
 
-/// @brief 默认测试命令（可被 goal.command 覆盖）
+/// @brief 默认测试命令（in-source 场景；out-of-source 由 detect_goal_command
+///        按 #129 的构建目录推导生成，可被 goal.command 覆盖）
 const char* kTestCmd = "ctest --output-on-failure";
-/// 默认编译（Windows 用 cmake --build；非 Windows 同，CMake 跨平台）
-const char* kBuildCmd = "cmake --build . --config Debug";
 
 /// @brief 校验一条待执行命令（默认命令白名单直通；覆盖命令需在白名单内）
 /// @return 允许则返回原命令；被拦截则返回空
@@ -294,9 +295,27 @@ std::string detect_goal_command(AgentGoal::Type type, const std::string& cwd) {
             // CMake：必须真的生成过 CTest 入口才算「有测试」——
             // 只有 CMakeLists.txt 而没有 CTestTestfile，说明尚未 configure，
             // 跑 ctest 必然报错，属于「无法验证」，不该当成「测试失败」。
-            if (has("CMakeLists.txt") &&
-                (has("CTestTestfile.cmake") || has("build/CTestTestfile.cmake"))) {
-                return kTestCmd;
+            if (has("CMakeLists.txt")) {
+                // #129：构建目录未必是 CWD（本仓就是 build/）。
+                //   - CWD 里有 CTestTestfile（in-source configure）→ 原地 ctest 即可；
+                //   - 否则按 presets / build 缓存推导构建目录，目录里有
+                //     CTestTestfile 才算「有测试」，命令带 --test-dir 指过去；
+                //   - 都没有 = 未 configure → 返回空走 unavailable 放行，
+                //     绝不返回一条必然失败的命令。
+                if (has("CTestTestfile.cmake")) {
+                    return kTestCmd;
+                }
+                if (const auto dir = prompt::detect_cmake_binary_dir(base);
+                    dir && !dir->empty()) {
+                    const std::filesystem::path p = std::filesystem::path(*dir).is_relative()
+                                                        ? base / *dir
+                                                        : std::filesystem::path(*dir);
+                    if (fs::exists(p / "CTestTestfile.cmake", ec)) {
+                        return std::format(
+                            "ctest --test-dir {} -C Debug --output-on-failure", *dir);
+                    }
+                }
+                return {};
             }
             if (has("Cargo.toml")) {
                 return "cargo test";
@@ -317,8 +336,13 @@ std::string detect_goal_command(AgentGoal::Type type, const std::string& cwd) {
             return {};
 
         case AgentGoal::BuildClean:
+            // #129：CMake 构建目录未必是 CWD（本仓就是 build/），旧的硬编码
+            // `cmake --build .` 在 out-of-source 项目必然失败。改用与提示词侧
+            // 同源的推导（presets → build 缓存 → in-source 缓存 → 未 configure
+            // 时自举），不会返回一条必然失败的命令。
             if (has("CMakeLists.txt")) {
-                return kBuildCmd;
+                const auto cmd = prompt::detect_cmake_build(base);
+                return cmd.value_or(std::string{});
             }
             if (has("Cargo.toml")) {
                 return "cargo build";

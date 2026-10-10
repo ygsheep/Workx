@@ -19,6 +19,7 @@
 #pragma once
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -64,6 +65,26 @@ std::vector<ToolchainInfo> probe_toolchain();
 /// @param cwd 项目根目录
 /// @return 推导不出时对应字段为空
 ProjectCommands probe_project_commands(const std::filesystem::path& cwd);
+
+/// @brief 推导 CMake 项目的构建目录（不含自举）
+/// @details #129：presets 的 binaryDir（${sourceDir} 已展开为相对路径）优先，
+///          其次 build/CMakeCache.txt（out-of-source 惯例），再次 CWD 下的
+///          CMakeCache.txt（in-source，返回 "."）。供验证门禁（verdict.cpp）
+///          与提示词侧共用同一口径——门禁实际执行的命令必须与提示词给模型
+///          看的命令指向同一个构建目录。
+/// @param cwd 项目根目录
+/// @return 构建目录（相对 cwd 或 presets 给出的原始路径）；推导不出返回 nullopt
+std::optional<std::string> detect_cmake_binary_dir(const std::filesystem::path& cwd);
+
+/// @brief 推导 CMake 项目的构建命令（构建目录指向真实 binary dir）
+/// @details #129：presets / build 缓存 / in-source 缓存推导出构建目录后给
+///          `cmake --build <dir> --config Debug`；目录只是声明了但从未
+///          configure（无 CMakeCache.txt）或整个项目未 configure 时，给一条
+///          能自举的 `cmake -S . -B build ...`——绝不返回必然失败的命令。
+///          验证门禁（verdict.cpp 的 BuildClean 探测）与提示词侧共用。
+/// @param cwd 项目根目录
+/// @return 构建命令；不是 CMake 项目返回 nullopt
+std::optional<std::string> detect_cmake_build(const std::filesystem::path& cwd);
 
 /// @brief 把探测结果渲染为注入系统提示的文本块
 /// @param probe 探测结果
