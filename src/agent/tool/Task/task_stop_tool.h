@@ -2,7 +2,7 @@
  * @file task_stop_tool.h
  * @brief TaskStopTool — 停止后台任务工具
  * @details 停止 AgentTool 启动的子 Agent 等后台任务（对齐 TS TaskStopTool 契约）
- * @version 1.0.0
+ * @version 1.1.0
  * @date 2026-08
  */
 

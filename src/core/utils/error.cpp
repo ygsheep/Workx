@@ -48,6 +48,10 @@ std::string_view Error::code_string() const noexcept {
             return "NotImplemented";
         case Code::ToolExecutionFailed:
             return "ToolExecutionFailed";
+        case Code::InvalidTaskState:
+            return "InvalidTaskState";
+        case Code::UnsupportedTaskType:
+            return "UnsupportedTaskType";
         case Code::ConfigInvalid:
             return "ConfigInvalid";
         case Code::ConfigMissing:

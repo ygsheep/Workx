@@ -3,7 +3,7 @@
  * @brief 统一错误类型（V2）
  * @details 携带错误码 + 消息 + 上下文，替代 Result<T, std::string> 中的字符串错误。
  *          按"错误来源"分类，不按 HTTP 状态码分类（避免业务层依赖 HTTP 细节）。
- * @version 1.0.0
+ * @version 1.1.0
  * @date 2026-07
  */
 
@@ -47,6 +47,8 @@ struct Error {
         InternalError = 501,        ///< 内部错误（不变量违反、不应到达的状态）
         NotImplemented = 502,       ///< 功能未实现（TODO 工具）
         ToolExecutionFailed = 503,  ///< 工具执行失败（工具内部异常）
+        InvalidTaskState = 504,     ///< 任务状态不满足操作前提（如对已结束任务执行停止）
+        UnsupportedTaskType = 505,  ///< 任务类型不支持该操作（如 Critical 系统任务不可停止）
 
         // === 配置类（6xx）===
         ConfigInvalid = 600,      ///< 配置值无效（Schema 校验失败）
