@@ -7,6 +7,7 @@
  */
 
 #include "agent/core/react_loop.h"
+#include "agent/core/agent_task_id.h"  // #157：链根 id 生成
 #include "agent/core/react_observer.h"
 #include "agent/api/i_stream_reader.h"
 #include "agent/api/retry.h"            // #144：Thought 失败按 HTTP 重试策略判定
@@ -824,6 +825,12 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
     auto loop_start = std::chrono::steady_clock::now();
     int step_counter = 0;
 
+    // #157：链根生成——顶层 run 无注入链 id 时在此生成（'q'+8 随机）；
+    //       子 Agent 由 AgentTool 经 set_query_chain 注入父链 id，不会走到这里。
+    if (m_chain_id.empty()) {
+        m_chain_id = generate_agent_task_id('q');
+    }
+
     // #155：运行期守护。直接构造 Config 的入口若漏调 apply_react_knobs()，
     //      四个旋钮恒为结构体默认值且 env/config 都改不动（PR #154 前的评测路径就是这样），
     //      在这里打 WARN 让问题进日志可查，而不是静默吞掉。
@@ -1278,6 +1285,10 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
         ctx.request_id = turn_request_id;
         // #30：注入当前模型名（来自 provider 配置），工具可按模型能力调整策略
         ctx.model = turn_model;
+        // #157：注入调用链（链根在 run() 开始生成；子 Agent 继承父链 + depth 已由
+        //       AgentTool 经 set_query_chain 设置），供 AgentTool 透传与审计关联
+        ctx.chain_id = m_chain_id;
+        ctx.chain_depth = m_chain_depth;
         // #30：注入 git 环境字段，工具改前可做分支/未提交风险提示
         ctx.git_branch = turn_env_probe.git_branch;
         ctx.git_has_uncommitted = turn_env_probe.git_has_uncommitted;

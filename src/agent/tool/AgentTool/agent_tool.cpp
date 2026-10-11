@@ -2,7 +2,7 @@
  * @file agent_tool.cpp
  * @brief AgentTool 实现
  * @details 子 Agent 调度工具的具体实现
- * @version 1.4.0
+ * @version 1.5.0
  * @date 2026-07
  */
 
@@ -126,6 +126,8 @@ std::shared_ptr<agent::Task> launch_sub_agent(const SubAgentLaunchOptions& optio
                            options.session_id);
             // 评审 #1：子 Agent 继承父会话权限模式，避免 Plan 只读边界被绕过
             loop.set_permission_mode(options.permission_mode);
+            // #157：子 Agent 继承父调用链，深度 = 父 + 1（链根由顶层 run() 生成）
+            loop.set_query_chain(options.chain_id, options.chain_depth);
             if (have_mcp_scope) {
                 loop.set_mcp_manager(mcp_scope.scope);
             }
@@ -175,7 +177,10 @@ std::shared_ptr<agent::Task> launch_sub_agent(const SubAgentLaunchOptions& optio
                                 step.tool_input.is_null() ? std::string{} : step.tool_input.dump(),
                             .observation = step.observation,
                             .is_error = step.is_error,
-                            .duration_ms = step.duration_ms});
+                            .duration_ms = step.duration_ms,
+                            // #157 调用链字段
+                            .chain_id = options.chain_id,
+                            .chain_depth = options.chain_depth});
                     }
                 });
 
@@ -212,7 +217,10 @@ std::shared_ptr<agent::Task> launch_sub_agent(const SubAgentLaunchOptions& optio
                     .task_id = options.task_id,
                     .final_answer = summary,
                     .was_error = result.was_error,
-                    .duration_ms = static_cast<double>(result.total_duration_ms)});
+                    .duration_ms = static_cast<double>(result.total_duration_ms),
+                    // #157 调用链字段
+                    .chain_id = options.chain_id,
+                    .chain_depth = options.chain_depth});
             }
 
             // #56 方案 D：子 Agent 收尾清理 inline 私有 MCP client（引用复用 client 不在此列）
@@ -442,6 +450,11 @@ ResultV2<ToolResult> AgentTool::call(const nlohmann::json& input, const ToolCont
             .mcp_servers = spec.mcp_servers,  // #56 方案 D：子 Agent MCP 作用域配置
             .parent_mcp_manager =
                 ctx.mcp_manager_ptr,  // #56 方案 D：父全局 manager（引用复用来源）
+            // #157：调用链透传——父 ctx 无链 id（如测试/非 loop 路径）时在此生成链根，
+            //       保证派生链总有 id；子 Agent 深度 = 父 depth + 1
+            .chain_id =
+                ctx.chain_id.empty() ? generate_agent_task_id('q') : ctx.chain_id,
+            .chain_depth = ctx.chain_depth + 1,
         }));
     }
 

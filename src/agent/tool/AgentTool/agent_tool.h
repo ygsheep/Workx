@@ -2,7 +2,7 @@
  * @file agent_tool.h
  * @brief AgentTool — 子 Agent 调度工具
  * @details 启动子 Agent 执行复杂任务
- * @version 1.3.1
+ * @version 1.4.0
  * @date 2026-07
  */
 
@@ -97,6 +97,9 @@ struct SubAgentLaunchOptions {
     nlohmann::json mcp_servers;  ///< #56 方案 D：mcpServers 数组（字符串引用 / inline 对象）
     mcp::McpClientManager* parent_mcp_manager =
         nullptr;  ///< #56 方案 D：父全局 MCP 管理器（复用来源，非拥有）
+    // --- v1.4.0 #157 调用链透传 ---
+    std::string chain_id;  ///< 父调用链 id（来自父 ToolContext；空=无链路上下文）
+    int chain_depth = 0;   ///< 本子 Agent 链路深度（AgentTool::call 填充父 depth + 1）
 };
 
 /// @brief 启动单个子 Agent 任务

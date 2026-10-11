@@ -122,6 +122,34 @@ class StubAgentTool : public ITool {
     }
 };
 
+/// @brief #157：链路探针工具（捕获工具执行时看到的调用链字段）
+class ChainProbeTool : public ITool {
+   public:
+    const std::string& name() const override {
+        static const std::string n{"ChainProbe"};
+        return n;
+    }
+    const std::string& description() const override {
+        static const std::string d{"probe"};
+        return d;
+    }
+    const std::string& prompt() const override {
+        static const std::string p;
+        return p;
+    }
+    nlohmann::json input_schema() const override { return {{"type", "object"}}; }
+    bool is_read_only() const override { return true; }
+    ResultV2<ToolResult> call(const nlohmann::json&, const ToolContext& ctx) const override {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        seen_chain_id = ctx.chain_id;
+        seen_depth = ctx.chain_depth;
+        return ResultV2<ToolResult>::ok(ToolResult::ok(std::string("probe-ok")));
+    }
+    mutable std::mutex m_mutex;
+    mutable std::string seen_chain_id;
+    mutable int seen_depth = -1;
+};
+
 }  // namespace
 
 // ============================================================
@@ -226,6 +254,9 @@ TEST_CASE_METHOD(TaskToolsFixture,
     reader->add_content_chunk("auto feedback result");
     provider->set_next_reader(reader);
     fill_ctx(ctx, bus, tm, cfg, provider.get());
+    // #157：父 ctx 携带链路（顶层 run 由 ReActLoop 注入，这里模拟已注入状态）
+    ctx.chain_id = "qchain01";
+    ctx.chain_depth = 0;
 
     AgentTool tool;
     auto r = tool.call(nlohmann::json{{"prompt", "background task"}}, ctx);
@@ -242,6 +273,83 @@ TEST_CASE_METHOD(TaskToolsFixture,
     REQUIRE(completions[0].task_id == tasks[0]->getName());
     REQUIRE(completions[0].final_answer.find("Final: auto feedback result") != std::string::npos);
     REQUIRE_FALSE(completions[0].was_error);
+    // #157：完成事件携带调用链（继承父链 id，深度 +1）
+    REQUIRE(completions[0].chain_id == "qchain01");
+    REQUIRE(completions[0].chain_depth == 1);
+}
+
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool generates chain root when parent has no chain",
+                 "[agent_tool][chain157]") {
+    MockEventBus bus;
+    bus.set_dispatch_enabled(true);
+
+    std::vector<SubAgentCompletedEvent> completions;
+    bus.subscribe<SubAgentCompletedEvent>(
+        [&completions](const SubAgentCompletedEvent& e) { completions.push_back(e); });
+
+    auto& tm = TaskManager::instance();
+    MockConfigManager cfg;
+    ToolContext ctx;
+
+    auto provider = std::make_shared<MockCompletionProvider>();
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->add_content_chunk("root gen result");
+    provider->set_next_reader(reader);
+    fill_ctx(ctx, bus, tm, cfg, provider.get());
+    // 父 ctx 无链路（如未走 ReActLoop 的测试路径）→ AgentTool 生成链根
+
+    AgentTool tool;
+    auto r = tool.call(nlohmann::json{{"prompt", "root gen task"}}, ctx);
+    REQUIRE(r.is_ok());
+
+    auto tasks = tm.getTasks();
+    REQUIRE(tasks.size() == 1);
+    tm.wait(tasks[0]);
+    bus.drain_async_events();
+
+    REQUIRE(completions.size() == 1);
+    // 链根格式：'q' + 8 随机字符；子 Agent 深度 = 0 + 1
+    REQUIRE(completions[0].chain_id.size() == 9);
+    REQUIRE(completions[0].chain_id[0] == 'q');
+    REQUIRE(completions[0].chain_depth == 1);
+}
+
+TEST_CASE_METHOD(TaskToolsFixture,
+                 "AgentTool propagates query chain to sub-agent tool context",
+                 "[agent_tool][chain157]") {
+    MockEventBus bus;
+    auto& tm = TaskManager::instance();
+    MockConfigManager cfg;
+    ToolContext ctx;
+
+    // 探针工具作为子 Agent 唯一工具，捕获子循环注入的 ToolContext 链路字段
+    auto probe = std::make_shared<ChainProbeTool>();
+    auto registry = std::make_shared<ToolRegistry>();
+    registry->register_tool(probe);
+
+    // 脚本：子 Agent 第一步调 ChainProbe，第二步给最终答案
+    auto provider = std::make_shared<MockCompletionProvider>();
+    auto reader1 = std::make_shared<MockStreamReader>();
+    reader1->add_tool_use_start("tu_1", "ChainProbe");
+    reader1->add_tool_use_delta("tu_1", R"({})");
+    auto reader2 = std::make_shared<MockStreamReader>();
+    reader2->add_content_chunk("chain done");
+    provider->set_next_reader(reader1);
+    provider->set_next_reader(reader2);
+
+    fill_ctx(ctx, bus, tm, cfg, provider.get());
+    ctx.tool_registry = registry;
+    ctx.chain_id = "qchain02";
+    ctx.chain_depth = 0;
+
+    AgentTool tool;
+    auto r = tool.call(
+        nlohmann::json{{"prompt", "probe chain"}, {"run_in_background", false}}, ctx);
+    REQUIRE(r.is_ok());
+
+    // 子 Agent 工具执行时看到的链路：继承父链 id、深度 +1（react_loop ctx 注入）
+    REQUIRE(probe->seen_chain_id == "qchain02");
+    REQUIRE(probe->seen_depth == 1);
 }
 
 TEST_CASE_METHOD(TaskToolsFixture, "AgentTool streams sub-agent progress events incrementally",

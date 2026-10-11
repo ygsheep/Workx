@@ -3,7 +3,7 @@
  * @brief Agent 编排事件类型（H-10：从 events.h 按域拆分）
  * @details Agent 推理步骤、工具调用、工具结果、Agent 编排完成等事件。
  *          订阅方按需 include 本文件，避免引入系统/流式事件。
- * @version 1.2.0
+ * @version 1.3.0
  * @date 2026-07
  */
 
@@ -191,6 +191,9 @@ struct SubAgentCompletedEvent {
     std::string final_answer;  ///< 最终答案（Final: ...）或错误信息（Error: ...），可为空
     bool was_error = false;    ///< 子任务是否以错误结束
     double duration_ms = 0.0;  ///< 子 Agent 循环耗时（毫秒，与 AgentDoneEvent 同型）
+    // --- v1.3.0 #157 调用链字段 ---
+    std::string chain_id;  ///< 所属调用链 id（顶层 run 生成 'q'+8 随机；空=无链路上下文）
+    int chain_depth = 0;   ///< 链路深度（AgentTool 派生的子 Agent = 父 depth + 1）
 };
 
 /// @brief 子 Agent 进度事件（AgentTool → 订阅者，v1.2.0 子任务进度流式订阅）
@@ -212,6 +215,9 @@ struct SubAgentProgressEvent {
     std::string observation;   ///< observation 的工具结果文本
     bool is_error = false;     ///< 工具执行是否出错
     double duration_ms = 0.0;  ///< 本步骤耗时（毫秒，思考卡标签展示用）
+    // --- v1.3.0 #157 调用链字段 ---
+    std::string chain_id;  ///< 所属调用链 id（顶层 run 生成 'q'+8 随机；空=无链路上下文）
+    int chain_depth = 0;   ///< 链路深度（AgentTool 派生的子 Agent = 父 depth + 1）
 };
 
 /// @brief 后台 Agent 进度事件（BackgroundAgent → 订阅者，长时任务逐步流式订阅）
