@@ -216,7 +216,11 @@ auto wrapped = SandboxAdapter::wrap_command("rm", {"-rf", "/tmp/build"}, Sandbox
 2. **Windows 是"部分隔离"**——`wrap_command()` 在 Windows 上返回原命令并标记
    `degraded=true`（没有 FS/网络隔离），但会一并带上 `isolation` 规格：`process::exec()`
    据此建立 Job Object，提供进程树连带终止与进程数/内存上限。调用方**不要**把
-   `degraded` 读成"完全没有隔离"，应结合 `isolation` 如实描述（见 BashTool README）
+   `degraded` 读成"完全没有隔离"，应结合 `isolation` 如实描述（见 BashTool README）。
+   此外 #84 方案 A 在 restrictive 档下由工具层（`shell_guard` 的
+   `detect_sandbox_target_risk()`）做**执行前敏感目标拦截**：写系统目录/HKLM 注册表、
+   联网命令会先被拦下走审计与用户确认，是 Windows 上 FS/网络层面的兜底防线（词法
+   启发式，可被混淆绕过，真隔离仍属 AppContainer 远期项）
 3. **沙盒工具路径缓存**——`SandboxDetector` 首次探测后缓存结果，避免每次 `exec()` 都
    搜索 PATH
 4. **profile 字符串注入防护**——生成 profile 时对路径参数做转义，防止命令注入

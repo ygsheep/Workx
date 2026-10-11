@@ -315,6 +315,39 @@ ResultV2<ToolResult> PowerShellTool::call(const nlohmann::json& input,
         cwd = input["cwd"].get<std::string>();
     }
 
+    // #84 方案 A：restrictive 档敏感目标前置拦截（Windows 无 FS/网络沙盒后端的兜底，
+    // macOS/Linux 与 seatbelt/bwrap 构成纵深）。命中即审计 + 用户确认；确认后放行并禁用沙箱。
+    if (!disable_sandbox) {
+        const auto sb_config = process::sandbox::SandboxConfig::restrictive(cwd);
+        SandboxTargetPolicy target_policy;
+        target_policy.network_isolated = sb_config.network_isolated;
+        target_policy.allow_domains = sb_config.allow_domains;
+        target_policy.deny_write = sb_config.deny_write;
+        const auto target_risk = detect_sandbox_target_risk(command, target_policy);
+        if (target_risk != SandboxTargetRisk::None) {
+            const std::string reason = sandbox_target_risk_description(target_risk);
+            audit::AuditLogger::instance().log_security(EventType::SecuritySandboxTargetBlocked,
+                                                        reason, ctx.session_id, name());
+            if (!is_bypass_mode(ctx.permission_mode) && !is_plan_mode(ctx.permission_mode)) {
+                const std::string question = std::format(
+                    "The command targets protected resources ({}):\n\n```\n{}\n```\n\n"
+                    "Allow running this command (sandbox will be disabled)?",
+                    reason, command);
+                if (ask_user_confirm(ctx, question)) {
+                    disable_sandbox = true;
+                } else {
+                    return ResultV2<ToolResult>::err(Error::Code::PermissionDenied,
+                                                     "Command execution denied by user: " +
+                                                         reason);
+                }
+            } else {
+                return ResultV2<ToolResult>::err(
+                    Error::Code::PermissionDenied,
+                    "Command blocked by sandbox target guard: " + reason);
+            }
+        }
+    }
+
     // 取消检查
     if (ctx.is_cancelled()) {
         return ResultV2<ToolResult>::err(Error::Code::Cancelled,

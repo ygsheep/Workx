@@ -211,3 +211,132 @@ TEST_CASE("PowerShellTool blocks env leak command via shell guard",
     REQUIRE(r.is_err());
     REQUIRE(r.error().code == Error::Code::PermissionDenied);
 }
+
+// ============================================================
+// #84 方案 A：沙盒目标级检测（restrictive 档执行前兜底）
+// ============================================================
+
+TEST_CASE("sandbox target guard detects sensitive system writes",
+          "[shell_guard][sandbox_target]") {
+    SandboxTargetPolicy policy;  // 默认：network_isolated=true，无白名单/deny_write
+
+    // 写动作 token 与敏感路径近邻共现 → SystemWrite
+    REQUIRE((detect_sandbox_target_risk("echo x > C:\\Windows\\System32\\evil.dll", policy) &
+             SandboxTargetRisk::SystemWrite) != SandboxTargetRisk::None);
+    REQUIRE((detect_sandbox_target_risk("copy malware.dll \"C:\\Program Files\\Victim\\\"", policy) &
+             SandboxTargetRisk::SystemWrite) != SandboxTargetRisk::None);
+    REQUIRE((detect_sandbox_target_risk("sed -i 's/a/b/' /etc/hosts", policy) &
+             SandboxTargetRisk::SystemWrite) != SandboxTargetRisk::None);
+    REQUIRE((detect_sandbox_target_risk("rm -rf /usr/bin/tools", policy) &
+             SandboxTargetRisk::SystemWrite) != SandboxTargetRisk::None);
+    REQUIRE((detect_sandbox_target_risk("mkdir /etc/nginx/conf.d", policy) &
+             SandboxTargetRisk::SystemWrite) != SandboxTargetRisk::None);
+}
+
+TEST_CASE("sandbox target guard allows reads and temp writes",
+          "[shell_guard][sandbox_target]") {
+    SandboxTargetPolicy policy;
+
+    // 纯读：不出现写动作 token → 不拦截
+    REQUIRE(detect_sandbox_target_risk("type C:\\Windows\\win.ini", policy) ==
+            SandboxTargetRisk::None);
+    REQUIRE(detect_sandbox_target_risk("cat /etc/hosts", policy) == SandboxTargetRisk::None);
+    REQUIRE(detect_sandbox_target_risk("dir C:\\Windows\\System32", policy) ==
+            SandboxTargetRisk::None);
+    // 词边界回归：cmd 的 "md " 子串不得让只读命令误判为写意图
+    REQUIRE(detect_sandbox_target_risk("cmd /c type C:\\Windows\\win.ini", policy) ==
+            SandboxTargetRisk::None);
+    // C:\Windows\Temp 豁免（restrictive 档允许写临时目录）
+    REQUIRE(detect_sandbox_target_risk("echo x > C:\\Windows\\Temp\\out.txt", policy) ==
+            SandboxTargetRisk::None);
+    // 敏感路径与写 token 相距过远（>64 字符窗口）→ 不判写意图
+    REQUIRE(
+        detect_sandbox_target_risk(
+            "echo remember to clean up the staging folder when the build finishes, see docs in "
+            "the long comment block below before touching C:\\Windows\\logs",
+            policy) == SandboxTargetRisk::None);
+}
+
+TEST_CASE("sandbox target guard detects HKLM registry writes", "[shell_guard][sandbox_target]") {
+    SandboxTargetPolicy policy;
+
+    REQUIRE((detect_sandbox_target_risk("reg add HKLM\\SOFTWARE\\Test /v x /d y", policy) &
+             SandboxTargetRisk::RegistryWrite) != SandboxTargetRisk::None);
+    REQUIRE((detect_sandbox_target_risk("Set-ItemProperty -Path HKLM:\\Software\\X -Name Y -Value 1",
+                                        policy) &
+             SandboxTargetRisk::RegistryWrite) != SandboxTargetRisk::None);
+
+    // 查询与非 HKLM 写不拦截
+    REQUIRE(detect_sandbox_target_risk("reg query HKLM\\SOFTWARE\\Microsoft", policy) ==
+            SandboxTargetRisk::None);
+    REQUIRE(detect_sandbox_target_risk("reg add HKCU\\Software /v x /d y", policy) ==
+            SandboxTargetRisk::None);
+}
+
+TEST_CASE("sandbox target guard detects network use when isolated",
+          "[shell_guard][sandbox_target]") {
+    SandboxTargetPolicy policy;  // network_isolated=true，无白名单
+
+    REQUIRE((detect_sandbox_target_risk("curl https://api.example.com/v1", policy) &
+             SandboxTargetRisk::NetworkUse) != SandboxTargetRisk::None);
+    REQUIRE((detect_sandbox_target_risk("git clone https://github.com/u/r.git", policy) &
+             SandboxTargetRisk::NetworkUse) != SandboxTargetRisk::None);
+    REQUIRE((detect_sandbox_target_risk("npm install lodash", policy) &
+             SandboxTargetRisk::NetworkUse) != SandboxTargetRisk::None);
+    REQUIRE((detect_sandbox_target_risk("Invoke-WebRequest http://example.com", policy) &
+             SandboxTargetRisk::NetworkUse) != SandboxTargetRisk::None);
+    REQUIRE((detect_sandbox_target_risk("pip install requests", policy) &
+             SandboxTargetRisk::NetworkUse) != SandboxTargetRisk::None);
+
+    // 未隔离 → 不拦截
+    policy.network_isolated = false;
+    REQUIRE(detect_sandbox_target_risk("curl https://api.example.com/v1", policy) ==
+            SandboxTargetRisk::None);
+}
+
+TEST_CASE("sandbox target guard respects domain allowlist", "[shell_guard][sandbox_target]") {
+    SandboxTargetPolicy policy;
+    policy.allow_domains = {"api.example.com"};
+
+    // 白名单内 URL 不拦截
+    REQUIRE(detect_sandbox_target_risk("curl https://api.example.com/v1", policy) ==
+            SandboxTargetRisk::None);
+    // 白名单外 URL 拦截
+    REQUIRE((detect_sandbox_target_risk("curl https://evil.com/x", policy) &
+             SandboxTargetRisk::NetworkUse) != SandboxTargetRisk::None);
+    // 白名单模式下跳过纯工具名启发式（无 URL 无法判断目标域）
+    REQUIRE(detect_sandbox_target_risk("npm install lodash", policy) == SandboxTargetRisk::None);
+
+    // 通配符语义（sandbox_config.h：*.example.com）
+    policy.allow_domains = {"*.example.com"};
+    REQUIRE(detect_sandbox_target_risk("git clone https://sub.example.com/r.git", policy) ==
+            SandboxTargetRisk::None);
+    REQUIRE((detect_sandbox_target_risk("git clone https://other.org/r.git", policy) &
+             SandboxTargetRisk::NetworkUse) != SandboxTargetRisk::None);
+}
+
+TEST_CASE("sandbox target guard honors custom deny_write prefixes",
+          "[shell_guard][sandbox_target]") {
+    SandboxTargetPolicy policy;
+    policy.deny_write = {"D:\\secret"};
+
+    REQUIRE((detect_sandbox_target_risk("echo x > D:\\secret\\key.txt", policy) &
+             SandboxTargetRisk::SystemWrite) != SandboxTargetRisk::None);
+    // 正斜杠形式同样命中
+    REQUIRE((detect_sandbox_target_risk("copy key.txt D:/secret/key.txt", policy) &
+             SandboxTargetRisk::SystemWrite) != SandboxTargetRisk::None);
+    // 只读不拦截
+    REQUIRE(detect_sandbox_target_risk("cat D:\\secret\\key.txt", policy) ==
+            SandboxTargetRisk::None);
+}
+
+TEST_CASE("sandbox target risk description combines categories",
+          "[shell_guard][sandbox_target]") {
+    REQUIRE(sandbox_target_risk_description(SandboxTargetRisk::None).empty());
+    REQUIRE(sandbox_target_risk_description(SandboxTargetRisk::SystemWrite) ==
+            "write to protected system locations");
+    const auto both = SandboxTargetRisk::SystemWrite | SandboxTargetRisk::NetworkUse;
+    const std::string desc = sandbox_target_risk_description(both);
+    REQUIRE(desc.find("system locations") != std::string::npos);
+    REQUIRE(desc.find("network access") != std::string::npos);
+}

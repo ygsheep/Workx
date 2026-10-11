@@ -54,6 +54,7 @@ enum class EventType {
     SecuritySymlinkBypass,     ///< 符号链接绕过尝试
     SecuritySSRFAttempt,       ///< SSRF 尝试
     SecurityEnvVarLeak,        ///< 环境变量泄露尝试
+    SecuritySandboxTargetBlocked,  ///< 沙盒敏感目标拦截（#84 方案 A）
 
     // 会话/Agent 生命周期
     SessionStart,        ///< 会话开始
