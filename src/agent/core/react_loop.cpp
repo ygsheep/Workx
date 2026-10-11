@@ -669,17 +669,22 @@ void apply_verification_gate(ReActLoop::Config& cfg, const IConfigManager& confi
                                                cfg.verify_max_attempts));
 }
 
-void apply_react_knobs(ReActLoop::Config& cfg, const IConfigManager& config_manager) {
-    // #137：墙钟预算（秒）。默认 0=不限；无人值守/评测场景用环境变量注入
-    // （harbor adapter 会透传所有 WORKX_* 变量，见 agents/workx/__init__.py）。
-    cfg.wall_clock_budget_sec =
-        config_manager.get_or<int>(keys::AGENT_WALL_CLOCK_BUDGET_SEC, 0);
-    if (cfg.wall_clock_budget_sec <= 0) {
-        if (const char* env = std::getenv("WORKX_AGENT_TIMEOUT_SEC")) {
-            try {
-                cfg.wall_clock_budget_sec = std::stoi(env);
-            } catch (...) {
-                cfg.wall_clock_budget_sec = 0;  // 非法值：视为不限，不因配置错误改变行为
+void apply_react_knobs(ReActLoop::Config& cfg, const IConfigManager& config_manager,
+                       bool include_wall_clock) {
+    if (include_wall_clock) {
+        // #137：墙钟预算（秒）。默认 0=不限；无人值守/评测场景用环境变量注入
+        // （harbor adapter 会透传所有 WORKX_* 变量，见 agents/workx/__init__.py）。
+        // #155：主 run 内部的子循环（hook verifier 等）必须传 include_wall_clock=false
+        // —— 墙钟从循环起点计算剩余，子循环继承会拿到满额预算，语义不成立。
+        cfg.wall_clock_budget_sec =
+            config_manager.get_or<int>(keys::AGENT_WALL_CLOCK_BUDGET_SEC, 0);
+        if (cfg.wall_clock_budget_sec <= 0) {
+            if (const char* env = std::getenv("WORKX_AGENT_TIMEOUT_SEC")) {
+                try {
+                    cfg.wall_clock_budget_sec = std::stoi(env);
+                } catch (...) {
+                    cfg.wall_clock_budget_sec = 0;  // 非法值：视为不限，不因配置错误改变行为
+                }
             }
         }
     }
@@ -695,6 +700,8 @@ void apply_react_knobs(ReActLoop::Config& cfg, const IConfigManager& config_mana
                                                             cfg.reasoning_budget_chars);
     cfg.empty_answer_max_retries = config_manager.get_or<int>(keys::AGENT_EMPTY_ANSWER_MAX_RETRIES,
                                                               cfg.empty_answer_max_retries);
+    // #155：装配完成标记 —— run() 据此对漏接入口打一次性 WARN
+    cfg.knobs_configured = true;
 }
 
 ReActLoop::GateResult ReActLoop::run_verification_gate(
@@ -816,6 +823,15 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
     ReActResult result;
     auto loop_start = std::chrono::steady_clock::now();
     int step_counter = 0;
+
+    // #155：运行期守护。直接构造 Config 的入口若漏调 apply_react_knobs()，
+    //      四个旋钮恒为结构体默认值且 env/config 都改不动（PR #154 前的评测路径就是这样），
+    //      在这里打 WARN 让问题进日志可查，而不是静默吞掉。
+    if (!m_config.knobs_configured) {
+        LOG_WARN("[react_loop] #155 knobs not configured: this Config was built without "
+                 "apply_react_knobs(); wall_clock/thought_max_retries/reasoning_budget_chars/"
+                 "empty_answer_max_retries fall back to struct defaults");
+    }
 
     // #30：turn 级轻量环境感知——request_id / model / 历史摘要，turn 内复用（无子进程 I/O）。
     //      git 环境探测较重（需 fork 子进程），推迟到首个工具执行前的 Action 阶段懒加载，

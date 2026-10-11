@@ -4,7 +4,7 @@
  * @details 实现 Thought/Action/Observation 三阶段显式分离的 agent 循环，
  *          替代 ChatSession 中的扁平 while 循环。
  *          使用原生 function calling（Anthropic/OpenAI），不依赖文本解析。
- * @version 1.7.0
+ * @version 1.8.0
  * @date 2026-07
  *
  * @par 版本沿革
@@ -288,6 +288,11 @@ class WORKX_API ReActLoop {
         /// 验证失败回灌重试上限。刻意远小于 AgentGoal::max_attempts(50)：
         /// 后者是外层包壳的轮预算，套进单循环会把成本放大一个量级。
         int verify_max_attempts = 3;
+
+        /// @brief #155：运行期守护 —— 直接构造 Config 的入口必须调用 apply_react_knobs()
+        ///          （或显式豁免）。run() 检测到 false 时打一次性 WARN，让「漏接旋钮」
+        ///          在日志里暴露而不是靠审查 grep 兜底。
+        bool knobs_configured = false;
     };
 
     /// @brief 步骤回调（每完成一个步骤时调用）
@@ -667,10 +672,18 @@ void apply_verification_gate(ReActLoop::Config& cfg, const IConfigManager& confi
 ///          empty_answer_max_retries 恒为结构体默认值 —— env（WORKX_AGENT_TIMEOUT_SEC）
 ///          与 config.json 都改不动，PR #141 的单命令墙钟封顶在评测路径上是死代码。
 ///          集中到本函数后，「新增入口忘记接线」只能发生在一处。
-/// @param cfg [out] 被填入四个旋钮
+/// @param cfg [out] 被填入四个旋钮（并置 knobs_configured = true）
 /// @param config_manager 配置源（WORKX_* 环境变量已由 ConfigManager::load_from_env()
 ///           统一覆盖进键值；wall_clock_budget_sec 额外保留 WORKX_AGENT_TIMEOUT_SEC
 ///           env 兜底，兼容未在 schema 里绑定的旧注入方式）
-void apply_react_knobs(ReActLoop::Config& cfg, const IConfigManager& config_manager);
+/// @param include_wall_clock 是否装配墙钟预算（#155）。**主 run 循环一律 true（默认）**；
+///           唯一例外是「主 run 内部的子循环」（如 hook 的 agentic verifier）：
+///           wall_clock_budget_sec 是 run 级概念——从循环起点计算剩余预算来封顶
+///           单次命令超时，子循环若继承会拿到**满额墙钟**（主循环只剩 5 分钟时
+///           verifier 又获得完整 1 小时），语义不成立，故必须 false。
+///           per-request 旋钮（#144 重试 / #147 思维链预算）子循环**应继承**：
+///           verifier 同样暴露在思维链失控与空答复风险下。
+void apply_react_knobs(ReActLoop::Config& cfg, const IConfigManager& config_manager,
+                       bool include_wall_clock = true);
 
 }  // namespace agent

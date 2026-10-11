@@ -41,6 +41,9 @@ std::unique_ptr<ReActLoop> ReActLoopFactory::make_one_step(const GoalAgentDeps& 
     // ⚠️ 不调用 apply_react_knobs：one-step 循环每步都是新实例，墙钟预算
     // （按循环起点计算剩余）会在每一步都拿到满额，语义不成立；重试/思维链
     // 预算由外层 GoalGuarded 环的迭代节奏接管。
+    // #155：显式豁免运行期守护 —— run() 的 knobs_configured WARN 对此处不适用，
+    //      这是审查过的决策而非遗漏。
+    cfg.knobs_configured = true;
     return make(deps, deps.registry, std::move(cfg));
 }
 
