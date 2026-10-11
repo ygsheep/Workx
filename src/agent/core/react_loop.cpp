@@ -26,6 +26,7 @@
 #include <atomic>
 #include <cassert>
 #include <chrono>
+#include <cstdlib>  // apply_react_knobs：WORKX_AGENT_TIMEOUT_SEC env 兜底
 #include <deque>
 #include <stdexcept>
 #include <filesystem>
@@ -666,6 +667,34 @@ void apply_verification_gate(ReActLoop::Config& cfg, const IConfigManager& confi
     cfg.verify_max_attempts =
         std::max(1, config_manager.get_or<int>(keys::AGENT_VERIFY_MAX_ATTEMPTS,
                                                cfg.verify_max_attempts));
+}
+
+void apply_react_knobs(ReActLoop::Config& cfg, const IConfigManager& config_manager) {
+    // #137：墙钟预算（秒）。默认 0=不限；无人值守/评测场景用环境变量注入
+    // （harbor adapter 会透传所有 WORKX_* 变量，见 agents/workx/__init__.py）。
+    cfg.wall_clock_budget_sec =
+        config_manager.get_or<int>(keys::AGENT_WALL_CLOCK_BUDGET_SEC, 0);
+    if (cfg.wall_clock_budget_sec <= 0) {
+        if (const char* env = std::getenv("WORKX_AGENT_TIMEOUT_SEC")) {
+            try {
+                cfg.wall_clock_budget_sec = std::stoi(env);
+            } catch (...) {
+                cfg.wall_clock_budget_sec = 0;  // 非法值：视为不限，不因配置错误改变行为
+            }
+        }
+    }
+    // #144：Thought 阶段 LLM 请求失败重试次数。默认已在 ReActLoop::Config 里给 2；
+    // 设为 0 可恢复旧行为（失败即终止）。该键已在 schema 里绑定
+    // WORKX_THOUGHT_MAX_RETRIES，由 ConfigManager::load_from_env() 统一覆盖，此处无需再读 env。
+    cfg.thought_max_retries = config_manager.get_or<int>(keys::AGENT_THOUGHT_MAX_RETRIES,
+                                                         cfg.thought_max_retries);
+    // #147：思维链字符预算与空答复重试上限。两者都已在 schema 里绑定环境变量
+    // （WORKX_REASONING_BUDGET_CHARS / WORKX_EMPTY_ANSWER_MAX_RETRIES），
+    // 由 ConfigManager::load_from_env() 统一覆盖，此处无需再读 env。
+    cfg.reasoning_budget_chars = config_manager.get_or<int>(keys::AGENT_REASONING_BUDGET_CHARS,
+                                                            cfg.reasoning_budget_chars);
+    cfg.empty_answer_max_retries = config_manager.get_or<int>(keys::AGENT_EMPTY_ANSWER_MAX_RETRIES,
+                                                              cfg.empty_answer_max_retries);
 }
 
 ReActLoop::GateResult ReActLoop::run_verification_gate(

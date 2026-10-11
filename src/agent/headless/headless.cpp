@@ -159,6 +159,11 @@ std::unique_ptr<ReActLoop> build_loop(IConfigManager& cfg, ITaskManager& task_ma
                                       const std::string& session_id) {
     ReActLoop::Config loop_config;
     loop_config.max_iterations = cfg.get_or<int>(keys::AGENT_MAX_ITERATIONS, 40);
+    // #137 后续：运行旋钮（墙钟预算 / Thought 重试 / 思维链预算 / 空答复重试）
+    // 与 query_engine::make_react_config 走同一装配函数 —— 此前本函数手工构造
+    // Config 只接了 max_iterations，评测路径上 WORKX_AGENT_TIMEOUT_SEC 与
+    // config.json 全部改不动（PR #141 的单命令墙钟封顶因此是死代码）。
+    agent::apply_react_knobs(loop_config, cfg);
     // Issue #78 阶段 P2：headless 是评测入口，验证门禁在这里**默认开启**。
     // 必须在此显式接线 —— headless 自己 new ReActLoop，既不经过 chat_session 的
     // goal 注入，也不经过 GoalGuardedAgent 包壳，漏了这条评测链路就永远零验证。

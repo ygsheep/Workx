@@ -185,8 +185,14 @@ AgentRunResult BackgroundLoopAdapter::run(AgentRunContext ctx) {
     // 供后台子线程取消句柄：ChatSession 经 result.background_task_id 或 cancel() 定向取消
     m_deps.task_manager->launch(task_id, [deps, task_id, user_text, system_prompt,
                                           tools_schema](const std::atomic<bool>& should_cancel) {
-        // 底层默认 ReAct 循环（ReActLoopFactory::make 注入会话权限/事件/压缩器）
-        auto loop = ReActLoopFactory::make(deps, deps.registry, ReActLoop::Config{});
+        // 底层默认 ReAct 循环（ReActLoopFactory::make 注入会话权限/事件/压缩器）。
+        // #137 后续：后台任务是完整 ReAct 循环，运行旋钮同源装配（漏接会让
+        // WORKX_AGENT_TIMEOUT_SEC 等对后台路径静默失效）。
+        ReActLoop::Config loop_config;
+        if (deps.config_manager) {
+            apply_react_knobs(loop_config, *deps.config_manager);
+        }
+        auto loop = ReActLoopFactory::make(deps, deps.registry, std::move(loop_config));
         std::vector<ChatMessage> messages;
         messages.push_back(ChatMessage::user(user_text));
 

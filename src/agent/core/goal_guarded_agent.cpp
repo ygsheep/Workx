@@ -38,6 +38,9 @@ std::unique_ptr<ReActLoop> ReActLoopFactory::make(const GoalAgentDeps& deps,
 std::unique_ptr<ReActLoop> ReActLoopFactory::make_one_step(const GoalAgentDeps& deps) {
     ReActLoop::Config cfg;
     cfg.max_iterations = 1;
+    // ⚠️ 不调用 apply_react_knobs：one-step 循环每步都是新实例，墙钟预算
+    // （按循环起点计算剩余）会在每一步都拿到满额，语义不成立；重试/思维链
+    // 预算由外层 GoalGuarded 环的迭代节奏接管。
     return make(deps, deps.registry, std::move(cfg));
 }
 

@@ -135,7 +135,13 @@ AgentRunResult RoleAgent::run(AgentRunContext ctx) {
     LOG_DEBUG("[role_agent] type={} tools={}", to_string(m_profile.type),
               schema.is_array() ? schema.size() : 0);
 
-    auto loop = ReActLoopFactory::make(m_deps, m_deps.registry, ReActLoop::Config{});
+    // #137 后续：角色 Agent 的底层是完整 ReAct 循环，运行旋钮与 make_react_config
+    // 同源装配（漏接会让 WORKX_AGENT_TIMEOUT_SEC 等对角色路径静默失效）。
+    ReActLoop::Config loop_config;
+    if (m_deps.config_manager) {
+        apply_react_knobs(loop_config, *m_deps.config_manager);
+    }
+    auto loop = ReActLoopFactory::make(m_deps, m_deps.registry, std::move(loop_config));
     out.react = loop->run(*ctx.messages, sys, schema,
                           ctx.should_cancel ? *ctx.should_cancel : kNeverCancel(), ctx.observer);
     return out;
