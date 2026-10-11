@@ -472,6 +472,11 @@ HookResult HookManager::run_agent(const HookDefinition& def, const HookContext& 
 
     ReActLoop::Config loop_cfg;
     loop_cfg.max_iterations = kAgentMaxIterations;  // verifier 最大化受控，避免长跑
+    // #155：verifier 是主 run 内部的子循环 —— per-request 旋钮（#144 重试 /
+    // #147 思维链预算）应继承（verifier 同样暴露在思维链失控/空答复风险下），
+    // 但墙钟**必须不继承**：wall_clock_budget_sec 从循环起点算剩余预算来封顶
+    // 单次命令超时，子循环继承会拿到满额（主循环只剩 5 分钟时 verifier 又有完整 1 小时）。
+    agent::apply_react_knobs(loop_cfg, *config_manager_, /*include_wall_clock=*/false);
     auto loop = ReActLoopFactory::make(deps, sub_registry, loop_cfg);
     if (!loop) {
         r.message = "[hook:agent] failed to build sub loop, default allow";

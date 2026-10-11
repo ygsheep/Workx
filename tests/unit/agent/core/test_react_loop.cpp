@@ -1460,6 +1460,72 @@ TEST_CASE("apply_react_knobs: 配置键优先，env 兜底仅在没有配置时�
     REQUIRE(tuned.empty_answer_max_retries == 3);
 }
 
+TEST_CASE("apply_react_knobs: 子循环模式（include_wall_clock=false）+ 守护标志",
+          "[react_loop][issue155]") {
+    MockConfigManager cfg_mgr;
+
+    // RAII 管理 env，避免泄漏给其他用例（与 issue137 用例同款）
+    struct EnvGuard {
+        bool had{false};
+        std::string old;
+        explicit EnvGuard(const char* name) : m_name(name) {
+            const char* v = std::getenv(name);
+            if (v) {
+                had = true;
+                old = v;
+            }
+        }
+        void set(const std::string& value) {
+#ifdef _WIN32
+            _putenv_s(m_name, value.c_str());
+#else
+            setenv(m_name, value.c_str(), 1);
+#endif
+        }
+        void unset() {
+#ifdef _WIN32
+            _putenv_s(m_name, "");
+#else
+            unsetenv(m_name);
+#endif
+        }
+        ~EnvGuard() {
+            if (had) {
+                set(old);
+            } else {
+                unset();
+            }
+        }
+        const char* m_name;
+    };
+    EnvGuard timeout_env("WORKX_AGENT_TIMEOUT_SEC");
+    timeout_env.set("900");  // env 里有主 run 的墙钟预算
+
+    cfg_mgr.set_value(agent::keys::AGENT_THOUGHT_MAX_RETRIES, 5);
+    cfg_mgr.set_value(agent::keys::AGENT_REASONING_BUDGET_CHARS, 64000);
+    cfg_mgr.set_value(agent::keys::AGENT_EMPTY_ANSWER_MAX_RETRIES, 3);
+
+    // (a) 子循环模式：per-request 旋钮照常继承（verifier 同样暴露在思维链
+    //     失控/空答复风险下），但墙钟**必须不被继承** —— 否则主循环只剩 5
+    //     分钟时 hook verifier 又拿到完整 900s，子循环满额预算语义不成立。
+    ReActLoop::Config sub;
+    apply_react_knobs(sub, cfg_mgr, /*include_wall_clock=*/false);
+    REQUIRE(sub.wall_clock_budget_sec == 0);
+    REQUIRE(sub.thought_max_retries == 5);
+    REQUIRE(sub.reasoning_budget_chars == 64000);
+    REQUIRE(sub.empty_answer_max_retries == 3);
+
+    // (b) 默认（主 run 循环）：墙钟照常装配 —— 参数默认值不改变既有调用点行为
+    ReActLoop::Config main_run;
+    apply_react_knobs(main_run, cfg_mgr);
+    REQUIRE(main_run.wall_clock_budget_sec == 900);
+
+    // (c) 守护标志：装配后置位，裸 Config 保持 false（run() 据此打 WARN）
+    REQUIRE(ReActLoop::Config{}.knobs_configured == false);
+    REQUIRE(sub.knobs_configured);
+    REQUIRE(main_run.knobs_configured);
+}
+
 TEST_CASE_METHOD(VerificationGateFixture, "VF-05: Stop hook 阻断不吞掉验证结论",
                  "[react_loop][issue78][hook]") {
     // Stop 的 blockingError 会把 final_answer 整个覆写掉（这是已知且刻意的行为），
