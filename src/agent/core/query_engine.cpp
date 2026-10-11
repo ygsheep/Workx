@@ -98,31 +98,10 @@ ReActLoop::Config QueryEngine::make_react_config() const {
     ReActLoop::Config cfg;
     cfg.max_iterations =
         m_deps.config_manager->get_or<int>(agent::keys::AGENT_MAX_ITERATIONS, cfg.max_iterations);
-    // #137：墙钟预算（秒）。默认 0=不限；无人值守/评测场景用环境变量注入
-    // （harbor adapter 会透传所有 WORKX_* 变量，见 agents/workx/__init__.py）。
-    cfg.wall_clock_budget_sec =
-        m_deps.config_manager->get_or<int>(agent::keys::AGENT_WALL_CLOCK_BUDGET_SEC, 0);
-    if (cfg.wall_clock_budget_sec <= 0) {
-        if (const char* env = std::getenv("WORKX_AGENT_TIMEOUT_SEC")) {
-            try {
-                cfg.wall_clock_budget_sec = std::stoi(env);
-            } catch (...) {
-                cfg.wall_clock_budget_sec = 0;  // 非法值：视为不限，不因配置错误改变行为
-            }
-        }
-    }
-    // #144：Thought 阶段 LLM 请求失败重试次数。默认已在 ReActLoop::Config 里给 2；
-    // 设为 0 可恢复旧行为（失败即终止）。该键已在 schema 里绑定
-    // WORKX_THOUGHT_MAX_RETRIES，由 ConfigManager::load_from_env() 统一覆盖，此处无需再读 env。
-    cfg.thought_max_retries = m_deps.config_manager->get_or<int>(
-        agent::keys::AGENT_THOUGHT_MAX_RETRIES, cfg.thought_max_retries);
-    // #147：思维链字符预算与空答复重试上限。两者都已在 schema 里绑定环境变量
-    // （WORKX_REASONING_BUDGET_CHARS / WORKX_EMPTY_ANSWER_MAX_RETRIES），
-    // 由 ConfigManager::load_from_env() 统一覆盖，此处无需再读 env。
-    cfg.reasoning_budget_chars = m_deps.config_manager->get_or<int>(
-        agent::keys::AGENT_REASONING_BUDGET_CHARS, cfg.reasoning_budget_chars);
-    cfg.empty_answer_max_retries = m_deps.config_manager->get_or<int>(
-        agent::keys::AGENT_EMPTY_ANSWER_MAX_RETRIES, cfg.empty_answer_max_retries);
+    // 运行旋钮（#137 墙钟预算 / #144 Thought 重试 / #147 思维链预算与空答复重试）
+    // 统一走共享装配函数 —— headless 入口（build_loop）必须装配同一组旋钮，
+    // 否则评测路径上 env 与 config.json 都改不动（见 apply_react_knobs 的注释）。
+    apply_react_knobs(cfg, *m_deps.config_manager);
     // Issue #78 阶段 P3：FinalAnswer 前验证门禁，交互式入口也默认开启。
     // P1 只接了 headless（评测入口），真实用户路径仍是「写完即停」——
     // 而 issue 的验收口径（结束前实际跑过测试/构建命令的比例）正是

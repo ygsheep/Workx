@@ -4,7 +4,7 @@
  * @details 实现 Thought/Action/Observation 三阶段显式分离的 agent 循环，
  *          替代 ChatSession 中的扁平 while 循环。
  *          使用原生 function calling（Anthropic/OpenAI），不依赖文本解析。
- * @version 1.6.0
+ * @version 1.7.0
  * @date 2026-07
  *
  * @par 版本沿革
@@ -658,5 +658,19 @@ class WORKX_API ReActLoop {
 ///       项目上凭空制造失败。
 void apply_verification_gate(ReActLoop::Config& cfg, const IConfigManager& config_manager,
                              bool enabled_by_default = false, std::string_view cwd = {});
+
+/// @brief #137 后续：按配置装配 ReActLoop 的运行旋钮（墙钟预算 / 重试 / 思维链预算）
+/// @details **所有直接构造 ReActLoop 的入口都必须调用本函数**（与 apply_verification_gate
+///          同一约束、同一理由）。headless 曾绕过 query_engine 的 make_react_config()
+///          手工构造 Config，只接了 max_iterations + 验证门禁，导致评测路径上
+///          wall_clock_budget_sec / thought_max_retries / reasoning_budget_chars /
+///          empty_answer_max_retries 恒为结构体默认值 —— env（WORKX_AGENT_TIMEOUT_SEC）
+///          与 config.json 都改不动，PR #141 的单命令墙钟封顶在评测路径上是死代码。
+///          集中到本函数后，「新增入口忘记接线」只能发生在一处。
+/// @param cfg [out] 被填入四个旋钮
+/// @param config_manager 配置源（WORKX_* 环境变量已由 ConfigManager::load_from_env()
+///           统一覆盖进键值；wall_clock_budget_sec 额外保留 WORKX_AGENT_TIMEOUT_SEC
+///           env 兜底，兼容未在 schema 里绑定的旧注入方式）
+void apply_react_knobs(ReActLoop::Config& cfg, const IConfigManager& config_manager);
 
 }  // namespace agent

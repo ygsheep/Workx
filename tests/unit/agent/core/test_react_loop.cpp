@@ -9,6 +9,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <atomic>
 #include <chrono>
+#include <cstdlib>  // #137：apply_react_knobs env 兜底用例（getenv/_putenv_s/setenv）
 #include <filesystem>
 #include <fstream>
 #include <thread>
@@ -1373,6 +1374,90 @@ TEST_CASE_METHOD(ReActLoopFixture, "VF-11: 未声明 agent.goal 时按项目线�
     std::error_code ec;
     std::filesystem::remove_all(cmake, ec);
     std::filesystem::remove_all(make_only, ec);
+}
+
+// ============================================================
+// #137 后续：apply_react_knobs 运行旋钮装配
+// 背景：headless 曾绕过 query_engine::make_react_config 手工构造 Config，
+// 评测路径上四个旋钮恒为默认值。共享装配函数落地后在此守护装配语义。
+// ============================================================
+
+TEST_CASE("apply_react_knobs: 配置键优先，env 兜底仅在没有配置时生效", "[react_loop][issue137]") {
+    MockConfigManager cfg_mgr;
+
+    // RAII 管理 env，避免泄漏给其他用例
+    struct EnvGuard {
+        bool had{false};
+        std::string old;
+        explicit EnvGuard(const char* name) : m_name(name) {
+            const char* v = std::getenv(name);
+            if (v) {
+                had = true;
+                old = v;
+            }
+        }
+        void set(const std::string& value) {
+#ifdef _WIN32
+            _putenv_s(m_name, value.c_str());
+#else
+            setenv(m_name, value.c_str(), 1);
+#endif
+        }
+        void unset() {
+#ifdef _WIN32
+            _putenv_s(m_name, "");
+#else
+            unsetenv(m_name);
+#endif
+        }
+        ~EnvGuard() {
+            if (had) {
+                set(old);
+            } else {
+                unset();
+            }
+        }
+        const char* m_name;
+    };
+    EnvGuard timeout_env("WORKX_AGENT_TIMEOUT_SEC");
+    timeout_env.unset();
+
+    // (a) 无配置、无 env → 不启用墙钟预算（0 = 不限），重试/预算保持结构体默认
+    ReActLoop::Config defaults;
+    apply_react_knobs(defaults, cfg_mgr);
+    REQUIRE(defaults.wall_clock_budget_sec == 0);
+    REQUIRE(defaults.thought_max_retries == 2);
+    REQUIRE(defaults.empty_answer_max_retries >= 0);
+
+    // (b) env 兜底：WORKX_AGENT_TIMEOUT_SEC 在无配置时生效
+    timeout_env.set("900");
+    ReActLoop::Config from_env;
+    apply_react_knobs(from_env, cfg_mgr);
+    REQUIRE(from_env.wall_clock_budget_sec == 900);
+
+    // 非法 env 值 → 视为不限（0），不因配置错误改变行为
+    timeout_env.set("abc");
+    ReActLoop::Config bad_env;
+    apply_react_knobs(bad_env, cfg_mgr);
+    REQUIRE(bad_env.wall_clock_budget_sec == 0);
+
+    // (c) 配置键优先于 env
+    timeout_env.set("999");
+    cfg_mgr.set_value(agent::keys::AGENT_WALL_CLOCK_BUDGET_SEC, 1234);
+    ReActLoop::Config from_cfg;
+    apply_react_knobs(from_cfg, cfg_mgr);
+    REQUIRE(from_cfg.wall_clock_budget_sec == 1234);
+
+    // (d) #144 / #147 旋钮从配置键读取（MockConfigManager 不做 env 覆盖，
+    //     实机上由 ConfigManager::load_from_env() 统一处理）
+    cfg_mgr.set_value(agent::keys::AGENT_THOUGHT_MAX_RETRIES, 5);
+    cfg_mgr.set_value(agent::keys::AGENT_REASONING_BUDGET_CHARS, 64000);
+    cfg_mgr.set_value(agent::keys::AGENT_EMPTY_ANSWER_MAX_RETRIES, 3);
+    ReActLoop::Config tuned;
+    apply_react_knobs(tuned, cfg_mgr);
+    REQUIRE(tuned.thought_max_retries == 5);
+    REQUIRE(tuned.reasoning_budget_chars == 64000);
+    REQUIRE(tuned.empty_answer_max_retries == 3);
 }
 
 TEST_CASE_METHOD(VerificationGateFixture, "VF-05: Stop hook 阻断不吞掉验证结论",
