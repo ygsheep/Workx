@@ -4,7 +4,7 @@
  * @details 管理任务执行、进度跟踪和协作式取消
  *          - 使用 ThreadPool 替代裸 std::thread（2.2）
  *          - 抽取 ITaskManager 接口支持 DI（D-1）
- * @version 2.0.0
+ * @version 2.1.0
  */
 
 #pragma once
@@ -121,6 +121,14 @@ class Task : public std::enable_shared_from_this<Task> {
     /// @brief 读取累计输出（线程安全，返回拷贝）
     [[nodiscard]] std::string output() const;
 
+    /// @brief #158：向任务投递一条补充指令消息（线程安全；FIFO）
+    /// @details 供 SendMessage 工具调用：父 Agent 在子 Agent 运行中途投递补充指令，
+    ///          子 Agent 在工具轮边界 drain 并注入上下文。消息无上限（由调用方自律）。
+    void push_pending_message(const std::string& text);
+
+    /// @brief #158：原子取走全部待处理消息（工具轮边界 drain；FIFO，取后即清）
+    [[nodiscard]] std::vector<std::string> drain_pending_messages();
+
     /// @brief 执行任务（M-6：原 private + friend TaskManager，改为 public）
     /// @details TaskManager::start 通过此入口驱动任务执行；
     ///          测试可直接调用 execute() 驱动状态机，无需 friend。
@@ -164,6 +172,10 @@ class Task : public std::enable_shared_from_this<Task> {
     // 输出缓冲（append_output/output，m_output_mutex 保护）
     mutable std::mutex m_output_mutex;
     std::string m_output;
+
+    // #158：待处理补充指令队列（push/drain，m_pending_mutex 保护）
+    mutable std::mutex m_pending_mutex;
+    std::vector<std::string> m_pending_messages;
 };
 
 // ============================================================

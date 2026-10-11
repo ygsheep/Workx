@@ -4,7 +4,7 @@
  * @details 实现 Thought/Action/Observation 三阶段显式分离的 agent 循环，
  *          替代 ChatSession 中的扁平 while 循环。
  *          使用原生 function calling（Anthropic/OpenAI），不依赖文本解析。
- * @version 1.9.0
+ * @version 1.10.0
  * @date 2026-07
  *
  * @par 版本沿革
@@ -410,6 +410,14 @@ class WORKX_API ReActLoop {
     }
     const std::string& chain_id() const { return m_chain_id; }
     int chain_depth() const { return m_chain_depth; }
+
+    /// @brief #158：设置消息队列冲刷回调（构造后注入）
+    /// @details 主会话回调由构造参数注入（ChatSession 用户消息队列）；
+    ///          子 Agent 的回调由 AgentTool 在 run() 前设置——drain 该任务
+    ///          的 pending_messages（父 Agent 经 SendMessage 投递的补充指令）。
+    void set_queue_inject_cb(std::function<void(std::vector<ChatMessage>&)> cb) {
+        m_queue_inject_cb = std::move(cb);
+    }
 
     /// @brief #45：注入初始权限状态（跨 turn 恢复会话级三态模式）
     /// @details ChatSession 每次新建 ReActLoop 时调用（ReActLoop 为 run_completion

@@ -2,7 +2,7 @@
  * @file agent_tool.cpp
  * @brief AgentTool 实现
  * @details 子 Agent 调度工具的具体实现
- * @version 1.5.0
+ * @version 1.6.0
  * @date 2026-07
  */
 
@@ -153,6 +153,25 @@ std::shared_ptr<agent::Task> launch_sub_agent(const SubAgentLaunchOptions& optio
             }
 
             auto task_ptr = options.task_manager->find_task(options.task_id);
+            // #158：工具轮边界 drain——父 Agent 经 SendMessage 投递的补充指令注入子循环。
+            // maybe_inject_queue 在每个工具轮边界无条件调用（门控在回调内部），
+            // 此处取空即返回；多条消息合并为单条 user 消息（与 ChatSession 冲刷语义一致）。
+            if (task_ptr) {
+                loop.set_queue_inject_cb(
+                    [task_ptr](std::vector<ChatMessage>& msgs) {
+                        const auto pending = task_ptr->drain_pending_messages();
+                        if (pending.empty()) {
+                            return;
+                        }
+                        std::string merged;
+                        for (const auto& m : pending) {
+                            if (!merged.empty()) merged += "\n\n";
+                            merged += m;
+                        }
+                        msgs.push_back(ChatMessage::user(
+                            std::format("[Parent follow-up instruction]\n{}", merged)));
+                    });
+            }
             ReActResult result = loop.run(
                 messages, options.prompt, tools_schema, should_cancel,
                 [options, &task_ptr](const ReActStep& step) {

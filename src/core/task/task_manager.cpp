@@ -37,6 +37,19 @@ std::string Task::output() const {
     return m_output;
 }
 
+void Task::push_pending_message(const std::string& text) {
+    std::lock_guard<std::mutex> lock(m_pending_mutex);
+    m_pending_messages.push_back(text);
+}
+
+std::vector<std::string> Task::drain_pending_messages() {
+    std::lock_guard<std::mutex> lock(m_pending_mutex);
+    // 取后即清：单次 swap 原子让出全部积压消息（FIFO 顺序保持）
+    std::vector<std::string> drained;
+    drained.swap(m_pending_messages);
+    return drained;
+}
+
 void Task::execute() {
     // CAS：仅当处于 Pending 时才进入 Running，避免重复 execute
     TaskStatus expected = TaskStatus::Pending;

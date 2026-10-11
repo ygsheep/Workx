@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "agent/tool/AgentTool/agent_tool.h"
+#include "agent/tool/Task/send_message_tool.h"
 #include "agent/tool/Task/task_output_tool.h"
 #include "agent/tool/Task/task_stop_tool.h"
 #include "agent/tool/registry.h"
@@ -148,6 +149,38 @@ class ChainProbeTool : public ITool {
     mutable std::mutex m_mutex;
     mutable std::string seen_chain_id;
     mutable int seen_depth = -1;
+};
+
+/// @brief #158 探针：子 Agent 执行时向自身任务投递一条补充指令（模拟父 Agent SendMessage）
+/// @details 消除竞态：probe 在子循环内运行，push 必然发生在第 1 轮工具执行后、
+///          边界 drain 前——断言第 2 轮请求消息里出现注入标记即可锁定 drain 时机。
+class MessageProbeTool : public ITool {
+   public:
+    const std::string& name() const override {
+        static const std::string n{"MessageProbe"};
+        return n;
+    }
+    const std::string& description() const override {
+        static const std::string d{"probe"};
+        return d;
+    }
+    const std::string& prompt() const override {
+        static const std::string p;
+        return p;
+    }
+    nlohmann::json input_schema() const override { return {{"type", "object"}}; }
+    bool is_read_only() const override { return true; }
+    ResultV2<ToolResult> call(const nlohmann::json&, const ToolContext& ctx) const override {
+        // TaskManager 单例跨用例累积任务（夹具只 cancel 不清册），
+        // 以「运行中且名首为 'a'」定位本子 Agent（探针执行时它必然在跑）
+        for (const auto& t : ctx.task_manager_ptr->getRunningTasks()) {
+            if (!t->getName().empty() && t->getName()[0] == 'a') {
+                t->push_pending_message("secret follow-up");
+                break;
+            }
+        }
+        return ResultV2<ToolResult>::ok(ToolResult::ok(std::string("probe-ok")));
+    }
 };
 
 }  // namespace
@@ -350,6 +383,126 @@ TEST_CASE_METHOD(TaskToolsFixture,
     // 子 Agent 工具执行时看到的链路：继承父链 id、深度 +1（react_loop ctx 注入）
     REQUIRE(probe->seen_chain_id == "qchain02");
     REQUIRE(probe->seen_depth == 1);
+}
+
+TEST_CASE("Task pending message queue: FIFO push/drain, re-drain empty", "[send_message]") {
+    auto& tm = TaskManager::instance();
+    auto task =
+        tm.launch("pending-queue-task", [](const std::atomic<bool>&) {});
+    tm.wait(task);
+
+    task->push_pending_message("first");
+    task->push_pending_message("second");
+    task->push_pending_message("third");
+
+    auto drained = task->drain_pending_messages();
+    REQUIRE(drained.size() == 3);
+    REQUIRE(drained[0] == "first");
+    REQUIRE(drained[1] == "second");
+    REQUIRE(drained[2] == "third");
+
+    // 取后即清：再次 drain 为空
+    REQUIRE(task->drain_pending_messages().empty());
+}
+
+TEST_CASE_METHOD(TaskToolsFixture, "SendMessageTool classification follows TaskStop conventions",
+                 "[send_message]") {
+    MockEventBus bus;
+    auto& tm = TaskManager::instance();
+    MockConfigManager cfg;
+    ToolContext ctx;
+    fill_ctx(ctx, bus, tm, cfg);
+    SendMessageTool tool;
+
+    // 未知任务 → not_found
+    auto r1 = tool.call(nlohmann::json{{"task_id", "nope"}, {"message", "hi"}}, ctx);
+    REQUIRE(r1.is_err());
+    REQUIRE(r1.error().code == Error::Code::ResourceNotFound);
+    REQUIRE(r1.error().message.find("[not_found]") != std::string::npos);
+
+    // Critical 系统任务 → unsupported_type
+    auto crit = tm.launch("crit-task", [](const std::atomic<bool>&) {}, TaskType::Critical);
+    tm.wait(crit);
+    auto r2 = tool.call(nlohmann::json{{"task_id", "crit-task"}, {"message", "hi"}}, ctx);
+    REQUIRE(r2.is_err());
+    REQUIRE(r2.error().code == Error::Code::UnsupportedTaskType);
+    REQUIRE(r2.error().message.find("[unsupported_type]") != std::string::npos);
+
+    // 已结束任务 → not_running
+    auto done = tm.launch("done-task", [](const std::atomic<bool>&) {});
+    tm.wait(done);
+    auto r3 = tool.call(nlohmann::json{{"task_id", "done-task"}, {"message", "hi"}}, ctx);
+    REQUIRE(r3.is_err());
+    REQUIRE(r3.error().code == Error::Code::InvalidTaskState);
+    REQUIRE(r3.error().message.find("[not_running]") != std::string::npos);
+
+    // 运行中任务 → ok 且消息入队（TaskStop 的 not_running 分支先于类型检查的顺序
+    // 在 TaskStopTool 已锁定；此处 Critical 已结束时同样返回 unsupported_type）
+    auto running = tm.launch(
+        "running-task", [](const std::atomic<bool>& cancel) {
+            while (!cancel.load(std::memory_order_acquire)) std::this_thread::sleep_for(
+                std::chrono::milliseconds(5));
+        });
+    auto r4 = tool.call(nlohmann::json{{"task_id", "running-task"}, {"message", "do X"}}, ctx);
+    REQUIRE(r4.is_ok());
+    auto drained = running->drain_pending_messages();
+    REQUIRE(drained.size() == 1);
+    REQUIRE(drained[0] == "do X");
+    running->cancel();
+    tm.wait(running);
+}
+
+TEST_CASE_METHOD(TaskToolsFixture, "SendMessage drain injects follow-up at sub-agent tool boundary",
+                 "[send_message][agent_tool]") {
+    MockEventBus bus;
+    auto& tm = TaskManager::instance();
+    MockConfigManager cfg;
+    ToolContext ctx;
+
+    // 脚本：子 Agent 第 1 轮调 MessageProbe（probe 执行时向自身任务 push 补充指令），
+    // 第 2 轮给最终答案。probe 的 push 消除竞态：必然发生在边界 drain 前。
+    auto probe = std::make_shared<MessageProbeTool>();
+    auto registry = std::make_shared<ToolRegistry>();
+    registry->register_tool(probe);
+
+    auto provider = std::make_shared<MockCompletionProvider>();
+    auto reader1 = std::make_shared<MockStreamReader>();
+    reader1->add_tool_use_start("tu_1", "MessageProbe");
+    reader1->add_tool_use_delta("tu_1", R"({})");
+    auto reader2 = std::make_shared<MockStreamReader>();
+    reader2->add_content_chunk("follow-up done");
+    provider->set_next_reader(reader1);
+    provider->set_next_reader(reader2);
+
+    fill_ctx(ctx, bus, tm, cfg, provider.get());
+    ctx.tool_registry = registry;
+
+    AgentTool tool;
+    auto r = tool.call(
+        nlohmann::json{{"prompt", "drain probe"}, {"run_in_background", false}}, ctx);
+    REQUIRE(r.is_ok());
+
+    // 第 2 轮请求（provider 记录最后一次请求）中应出现边界注入的合并 user 消息
+    bool injected = false;
+    for (const auto& m : provider->last_messages) {
+        if (m.role == ChatMessage::Role::User &&
+            m.content.find("[Parent follow-up instruction]") != std::string::npos &&
+            m.content.find("secret follow-up") != std::string::npos) {
+            injected = true;
+        }
+    }
+    REQUIRE(injected);
+
+    // probe 投递的消息已被 drain 取走（不残留）：按 probe 记录的任务名复查
+    auto tasks = tm.getTasks();
+    REQUIRE_FALSE(tasks.empty());
+    bool all_drained = true;
+    for (const auto& t : tasks) {
+        if (!t->getName().empty() && t->getName()[0] == 'a') {
+            if (!t->drain_pending_messages().empty()) all_drained = false;
+        }
+    }
+    REQUIRE(all_drained);
 }
 
 TEST_CASE_METHOD(TaskToolsFixture, "AgentTool streams sub-agent progress events incrementally",
