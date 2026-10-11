@@ -2,7 +2,7 @@
  * @file chat_session.h
  * @brief 对话状态机
  * @details 持有 ICompletionProvider，处理用户事件，后台推理，发布流式事件
- * @version 3.1.0
+ * @version 3.2.0
  * @date 2026-07
  */
 

@@ -6,7 +6,7 @@
  *          - register_builtin_tools: 内置工具注册（单一来源，工具集同步）
  *          - build_system_prompt: 系统提示词拼接（env + 项目记忆 + 工具 prompt）
  *          依赖仅限 agent + core，不触碰 tui/app，供多个宿主（workx / codex）复用。
- * @version 1.0.0
+ * @version 1.1.0
  */
 
 #pragma once

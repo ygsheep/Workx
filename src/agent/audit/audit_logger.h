@@ -13,7 +13,7 @@
  * - **线程安全**：mutex 保护写入（同步写入，每次 log 落盘）
  * - **append-only**：以 std::ios::app 打开，工具无法篡改历史记录
  *
- * @version 1.0.1
+ * @version 1.1.0
  * @date 2026-08
  */
 
