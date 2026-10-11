@@ -13,7 +13,7 @@
  * - **线程安全**：mutex 保护写入（同步写入，每次 log 落盘）
  * - **append-only**：以 std::ios::app 打开，工具无法篡改历史记录
  *
- * @version 1.0.1
+ * @version 1.1.0
  * @date 2026-08
  */
 
@@ -55,6 +55,7 @@ enum class EventType {
     SecuritySSRFAttempt,       ///< SSRF 尝试
     SecurityEnvVarLeak,        ///< 环境变量泄露尝试
     SecuritySandboxTargetBlocked,  ///< 沙盒敏感目标拦截（#84 方案 A）
+    BackendFallback,           ///< 模型降级切换（#89：主后端重试耗尽 → fallback 模型）
 
     // 会话/Agent 生命周期
     SessionStart,        ///< 会话开始

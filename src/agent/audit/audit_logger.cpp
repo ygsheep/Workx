@@ -59,6 +59,8 @@ std::string_view to_string(EventType type) noexcept {
             return "security.env_var_leak";
         case EventType::SecuritySandboxTargetBlocked:
             return "security.sandbox_target_blocked";
+        case EventType::BackendFallback:
+            return "backend.fallback";
         case EventType::SessionStart:
             return "session.start";
         case EventType::SessionEnd:

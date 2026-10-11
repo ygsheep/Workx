@@ -317,6 +317,197 @@ TEST_CASE("compute_retry stops on http 4xx instead of retrying", "[session][h7][
     }
 }
 
+// ============================================================
+// #89：fallback 模型降级
+// ============================================================
+
+TEST_CASE("next_fallback_model only degrades on retryable errors",
+          "[session][fallback][89]") {
+    const std::vector<std::string> models = {"model-a", "model-b"};
+
+    ReActResult r429;
+    r429.was_error = true;
+    r429.http_status = 429;
+    r429.error_message = "rate limited";
+    REQUIRE(ChatSession::next_fallback_model(r429, models, 0) ==
+            std::optional<std::string>("model-a"));
+    REQUIRE(ChatSession::next_fallback_model(r429, models, 1) ==
+            std::optional<std::string>("model-b"));
+    // 列表耗尽 → nullopt（走终止路径）
+    REQUIRE_FALSE(ChatSession::next_fallback_model(r429, models, 2).has_value());
+
+    ReActResult r503;
+    r503.was_error = true;
+    r503.http_status = 503;
+    r503.error_message = "server error";
+    REQUIRE(ChatSession::next_fallback_model(r503, models, 0) ==
+            std::optional<std::string>("model-a"));
+
+    // 网络错误（无 HTTP 响应）：http_status=0 + 非空 message
+    ReActResult rnet;
+    rnet.was_error = true;
+    rnet.http_status = 0;
+    rnet.error_message = "connection reset by peer";
+    REQUIRE(ChatSession::next_fallback_model(rnet, models, 0) ==
+            std::optional<std::string>("model-a"));
+
+    // 4xx 客户端错误：换模型同样失败 → 不降级
+    ReActResult r400;
+    r400.was_error = true;
+    r400.http_status = 400;
+    r400.error_message = "bad request";
+    REQUIRE_FALSE(ChatSession::next_fallback_model(r400, models, 0).has_value());
+
+    // 空列表 → nullopt
+    REQUIRE_FALSE(ChatSession::next_fallback_model(r429, {}, 0).has_value());
+}
+
+TEST_CASE("ChatSession degrades to fallback model after retry exhaustion",
+          "[session][fallback][89]") {
+    MockConfigManager cfg;
+    cfg.set<std::string>("backend.fallback_models", "fallback-a, fallback-b");
+    cfg.set<int>("backend.retry_count", 0);  // 不重试：首轮 429 立即耗尽
+    // ⚠️ 关闭 #78 验证门禁：测试进程 cwd 是本仓库根目录，门禁会按项目线索推断出
+    // tests_pass 目标，在 final answer 前真实执行 `ctest --test-dir ./build`（全套
+    // 数千用例，分钟级）——本测试只验证降级链路，不测门禁。
+    cfg.set<bool>("agent.verify_before_finish", false);
+    auto session = make_test_session(cfg);
+    auto* primary = static_cast<MockCompletionProvider*>(session->completion_provider());
+
+    // 主后端：429 错误
+    auto err = std::make_shared<MockStreamReader>();
+    err->set_error_at(0).set_error_payload(429, "rate limited");
+    primary->set_next_reader(err);
+
+    // fallback 工厂：每次调用造一个成功回复的新 mock（std::function 须可拷贝，不可捕获 unique_ptr）
+    std::vector<std::string> requested;
+    session->set_fallback_provider_factory(
+        [&requested](const std::string& model) -> std::unique_ptr<ICompletionProvider> {
+            requested.push_back(model);
+            auto p = std::make_unique<MockCompletionProvider>();
+            auto r = std::make_shared<MockStreamReader>();
+            r->add_content_chunk("from-" + model);
+            p->set_next_reader(r);
+            return p;
+        });
+
+    // 事件取证：捕获降级提示与最终完成事件
+    std::vector<std::string> error_events;
+    std::vector<std::string> done_events;
+    int status_events = 0;
+    auto err_token = EventBus::instance().subscribe<StreamErrorEvent>(
+        [&](const StreamErrorEvent& e) { error_events.push_back(e.message); });
+    auto done_token = EventBus::instance().subscribe<StreamDoneEvent>(
+        [&](const StreamDoneEvent& e) { done_events.push_back(e.full_content); });
+    auto status_token = EventBus::instance().subscribe<BackendStatusEvent>(
+        [&](const BackendStatusEvent&) { ++status_events; });
+
+    session->send_message("hello");
+    // 注意：Windows 默认定时器粒度 ~15.6ms，sleep_for(1ms) 实际睡 ~15ms，
+    // 「迭代次数上限」在这里形同虚设（10000 次 ≈ 2.6 分钟）——必须用截止时间
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (!session->is_generating() && std::chrono::steady_clock::now() < deadline) {
+        EventBus::instance().process_async_events();  // 测试无 TUI 主循环，手动泵发异步事件
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    while (session->is_generating() && std::chrono::steady_clock::now() < deadline) {
+        EventBus::instance().process_async_events();
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    INFO("events: " << error_events.size() << " errors, " << done_events.size() << " done, "
+                    << status_events << " status");
+    // 排水：run 结束前最后发布的事件可能仍在异步队列里（publish_async 只入队，
+    // 分发依赖调用方泵发），多泵几轮确保断言看到完整事件流
+    for (int i = 0; i < 10; ++i) {
+        EventBus::instance().process_async_events();
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    REQUIRE_FALSE(session->is_generating());
+
+    EventBus::instance().unsubscribe<BackendStatusEvent>(status_token);
+
+    // 断言：降级到第一个候选；降级提示与完成事件均已发布
+    REQUIRE(requested == std::vector<std::string>{"fallback-a"});
+    REQUIRE(std::any_of(error_events.begin(), error_events.end(), [](const std::string& m) {
+        return m.find("degraded to model 'fallback-a'") != std::string::npos;
+    }));
+    REQUIRE(std::any_of(done_events.begin(), done_events.end(), [](const std::string& c) {
+        return c.find("from-fallback-a") != std::string::npos;
+    }));
+
+    EventBus::instance().unsubscribe<StreamErrorEvent>(err_token);
+    EventBus::instance().unsubscribe<StreamDoneEvent>(done_token);
+
+    // 任务由 fallback 后端完成；上下文保留（user 消息不因 fresh_budget 重启而重复）
+    const auto msgs = session->get_messages();
+    REQUIRE_FALSE(msgs.empty());
+    REQUIRE(msgs.back().role == ChatMessage::Role::Assistant);
+    REQUIRE(msgs.back().content.find("from-fallback-a") != std::string::npos);
+    const size_t user_msgs = std::count_if(msgs.begin(), msgs.end(), [](const ChatMessage& m) {
+        return m.role == ChatMessage::Role::User && m.content.find("hello") != std::string::npos;
+    });
+    REQUIRE(user_msgs == 1);
+}
+
+TEST_CASE("ChatSession does not degrade on non-retryable 4xx", "[session][fallback][89]") {
+    MockConfigManager cfg;
+    cfg.set<std::string>("backend.fallback_models", "fallback-a");
+    cfg.set<int>("backend.retry_count", 0);
+    cfg.set<bool>("agent.verify_before_finish", false);  // 同 degrade 用例：避免门禁跑真 ctest
+    auto session = make_test_session(cfg);
+    auto* primary = static_cast<MockCompletionProvider*>(session->completion_provider());
+
+    auto err = std::make_shared<MockStreamReader>();
+    err->set_error_at(0).set_error_payload(400, "bad request");
+    primary->set_next_reader(err);
+
+    bool factory_called = false;
+    session->set_fallback_provider_factory(
+        [&factory_called](const std::string&) -> std::unique_ptr<ICompletionProvider> {
+            factory_called = true;
+            return nullptr;
+        });
+
+    session->send_message("hello");
+    const auto deadline4xx = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (!session->is_generating() && std::chrono::steady_clock::now() < deadline4xx)
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    while (session->is_generating() && std::chrono::steady_clock::now() < deadline4xx)
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    REQUIRE_FALSE(session->is_generating());
+
+    // 4xx 不降级，走终止路径
+    REQUIRE_FALSE(factory_called);
+    REQUIRE(primary->submit_count <= 3);
+}
+
+TEST_CASE("ChatSession gives up when fallback factory fails", "[session][fallback][89]") {
+    MockConfigManager cfg;
+    cfg.set<std::string>("backend.fallback_models", "fallback-a");
+    cfg.set<int>("backend.retry_count", 0);
+    cfg.set<bool>("agent.verify_before_finish", false);  // 同 degrade 用例：避免门禁跑真 ctest
+    auto session = make_test_session(cfg);
+    auto* primary = static_cast<MockCompletionProvider*>(session->completion_provider());
+
+    auto err = std::make_shared<MockStreamReader>();
+    err->set_error_at(0).set_error_payload(429, "rate limited");
+    primary->set_next_reader(err);
+
+    session->set_fallback_provider_factory(
+        [](const std::string&) -> std::unique_ptr<ICompletionProvider> { return nullptr; });
+
+    session->send_message("hello");
+    const auto deadlineFail = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (!session->is_generating() && std::chrono::steady_clock::now() < deadlineFail)
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    while (session->is_generating() && std::chrono::steady_clock::now() < deadlineFail)
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    REQUIRE_FALSE(session->is_generating());
+
+    // 创建失败 → 降级放弃，走终止路径（不挂死、不无限重试）
+    REQUIRE(primary->submit_count <= 3);
+}
+
 TEST_CASE("compute_retry treats http_status 0 as network error", "[session][h7][retry][89]") {
     // 无 HTTP 响应（连接超时 / 提交失败）：仍按网络错误可重试，与修复前一致
     ReActResult r;

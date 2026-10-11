@@ -215,6 +215,21 @@ ChatSession::ChatSession(std::unique_ptr<ICompletionProvider> provider, ITaskMan
                                        ? cfg.get_or<int>("backend.retry_delay_ms", retry_delay_ms)
                                        : retry_delay_ms;
 
+    // #89：fallback 模型列表（逗号分隔，有序；空 = 不降级）
+    if (cfg.has(keys::FALLBACK_MODELS)) {
+        const auto raw = cfg.get_or<std::string>(keys::FALLBACK_MODELS, "");
+        std::string_view sv(raw);
+        for (size_t pos = 0; pos <= sv.size(); ++pos) {
+            const size_t start = pos;
+            while (pos < sv.size() && sv[pos] != ',') ++pos;
+            std::string_view item = sv.substr(start, pos - start);
+            while (!item.empty() && (item.front() == ' ' || item.front() == '\t')) item.remove_prefix(1);
+            while (!item.empty() && (item.back() == ' ' || item.back() == '\t'))
+                item.remove_suffix(1);
+            if (!item.empty()) m_fallback_models.emplace_back(item);
+        }
+    }
+
     // DS_CACHE H-3：注册压缩器暂停回调，发布 CompactionPausedEvent 到 EventBus
     m_compactor.set_paused_callback([this](bool paused, int consecutive_compacts, int32_t tokens,
                                            float ratio, const std::string& notice) {
@@ -500,6 +515,71 @@ bool ChatSession::set_provider(std::unique_ptr<ICompletionProvider> provider) {
     std::lock_guard<std::mutex> lock(m_state_mutex);
     if (m_generating.load()) return false;  // 生成中拒绝切换（ReActLoop 持有 provider 指针）
     m_provider = std::move(provider);
+    return true;
+}
+
+void ChatSession::set_fallback_provider_factory(
+    std::function<std::unique_ptr<ICompletionProvider>(const std::string&)> factory) {
+    m_fallback_factory = std::move(factory);
+}
+
+std::optional<std::string> ChatSession::next_fallback_model(const ReActResult& react_result,
+                                                            const std::vector<std::string>& models,
+                                                            size_t index) {
+    if (models.empty() || index >= models.size()) return std::nullopt;
+    // 仅可重试类错误（429/5xx/网络错）在重试耗尽后值得降级：
+    // 4xx 是客户端错误（鉴权/参数），换模型同样失败，走原终止路径
+    if (!HttpRetryPolicy::is_retryable(static_cast<unsigned int>(react_result.http_status),
+                                       react_result.error_message)) {
+        return std::nullopt;
+    }
+    return models[index];
+}
+
+bool ChatSession::try_fallback_degrade(const ReActResult& react_result,
+                                       const std::string& user_text) {
+    auto model = next_fallback_model(react_result, m_fallback_models, m_fallback_index);
+    if (!model || !m_fallback_factory) return false;
+
+    auto new_provider = m_fallback_factory(*model);
+    if (!new_provider) {
+        LOG_WARN("[session] #89 fallback backend create/init failed for model '{}', giving up "
+                 "degrade this round",
+                 *model);
+        ++m_fallback_index;  // 跳过坏候选：用户重发时直接尝试下一个
+        return false;
+    }
+
+    // 内部换用：不走 set_provider 的 m_generating 拒绝分支——本函数只在完成任务的
+    // 错误收尾路径调用，ReActLoop 已退出、provider 空闲；锁语义与 set_provider 一致
+    {
+        std::lock_guard<std::mutex> lock(m_state_mutex);
+        m_provider = std::move(new_provider);
+    }
+    ++m_fallback_index;  // 会话级降级记忆：再次耗尽时尝试下一个候选
+
+    const std::string reason = react_result.error_message.empty()
+                                   ? std::format("http {}", react_result.http_status)
+                                   : react_result.error_message;
+    LOG_WARN("[session] #89 primary backend exhausted ({}), degraded to model '{}' ({}/{})",
+             reason, *model, m_fallback_index, m_fallback_models.size());
+    // 可观测：审计 + 事件播报（TUI 显示降级提示）
+    audit::AuditLogger::instance().log(
+        audit::AuditEvent{.type = audit::EventType::BackendFallback,
+                          .severity = audit::Severity::Warn,
+                          .session_id = m_session_id,
+                          .decision_reason = std::format("primary exhausted: {}", reason),
+                          .output_summary = std::format("degraded to '{}'", *model)});
+    m_event_bus.get().publish_async(StreamErrorEvent{
+        .session_id = m_session_id,
+        .message = std::format("Primary backend unavailable ({}), degraded to model '{}', "
+                               "continuing task",
+                               reason, *model),
+        .retryable = true});
+
+    // 重启本轮：预算归零（新后端有自己的重试预算），上下文不变；
+    // fresh_budget=true 防止 user 消息/skill 激活重复入队
+    run_completion(user_text, {}, 0, /*fresh_budget=*/true);
     return true;
 }
 
@@ -1248,12 +1328,17 @@ std::vector<ChatMessage> ChatSession::get_messages() const {
 // DS_CACHE M-3：session_cache_stats() 已删除（死代码，TUI 使用 token_stats_model）
 
 void ChatSession::run_completion(const std::string& user_text,
-                                 const std::vector<std::string>& images, int retry_attempt) {
+                                 const std::vector<std::string>& images, int retry_attempt,
+                                 bool fresh_budget) {
     // B.1：拆分后的 run_completion 仅做顶层调度，agent 循环逻辑分发到子方法
     // 子方法返回 AgentStepResult，决定下一步动作（避免 goto 跨变量声明）
 
+    // #89 fresh_budget：fallback 降级重启时新后端重试预算归零，但 user 消息与
+    // skill 激活已在首轮完成，不得重复入队（retry_attempt==0 的两个语义在此解耦）
+    const int budget_attempt = fresh_budget ? 0 : retry_attempt;
+
     // 仅首次请求时添加用户消息（重试时不重复添加）
-    if (retry_attempt == 0) {
+    if (retry_attempt == 0 && !fresh_budget) {
         // conditional skills：提取用户消息中的 <file path> 引用 → touch，
         // 匹配激活的 skill 追加为用户消息前缀（已激活过的不重复注入）
         std::string effective_text = user_text;
@@ -1340,7 +1425,7 @@ void ChatSession::run_completion(const std::string& user_text,
 
     auto task = m_task_manager.get().launch(
         "completion",
-        [this, retry_attempt, retry_policy, user_text](const std::atomic<bool>& should_cancel) {
+        [this, budget_attempt, retry_policy, user_text](const std::atomic<bool>& should_cancel) {
             // 顶层异常安全网：确保任何未捕获异常都能重置 m_generating 并通知 UI
             try {
                 // ---- 构建 tools_schema ----
@@ -1536,7 +1621,7 @@ void ChatSession::run_completion(const std::string& user_text,
                 // ---- 错误处理 ----
                 // H-7：纯函数 compute_retry 决策，I/O 由 run_completion 执行
                 if (react_result.was_error) {
-                    auto decision = compute_retry(react_result, retry_policy, retry_attempt);
+                    auto decision = compute_retry(react_result, retry_policy, budget_attempt);
 
                     switch (decision.action) {
                         case RetryAction::Sleep: {
@@ -1546,7 +1631,7 @@ void ChatSession::run_completion(const std::string& user_text,
                                 .message =
                                     std::format("Error: {}, retrying in {}ms... ({}/{})",
                                                 react_result.error_message, decision.delay_ms,
-                                                retry_attempt + 1, retry_policy.max_retries),
+                                                budget_attempt + 1, retry_policy.max_retries),
                                 .retryable = true});
 
                             // 可中断的等待
@@ -1565,7 +1650,7 @@ void ChatSession::run_completion(const std::string& user_text,
                                 // 保留工具调用上下文：不删除已成功的 tool call/result 消息
                                 // ReAct loop 在流式失败时不会添加 partial assistant 消息，
                                 // 所以 m_messages 中只有成功的 round，直接重试即可
-                                run_completion(user_text, {}, retry_attempt + 1);
+                                run_completion(user_text, {}, budget_attempt + 1);
                                 // 递归重试已接管 m_generating（保持 true），本任务退出；
                                 // 队列由重试任务的终止路径冲刷，此处不重复冲刷。
                                 return;
@@ -1573,7 +1658,14 @@ void ChatSession::run_completion(const std::string& user_text,
                             break;
                         }
                         case RetryAction::Stop:
-                            // 不可重试：发布终止事件
+                            // #89：可重试类错误重试耗尽 → 尝试 fallback 模型降级；
+                            //      降级成功则重启本轮（上下文不变），不走终止路径
+                            if (try_fallback_degrade(react_result, user_text)) {
+                                // 降级任务已接管 m_generating（保持 true），本任务退出；
+                                // 队列由降级任务的终止路径冲刷，此处不重复冲刷。
+                                return;
+                            }
+                            // 不可重试（或无候选）：发布终止事件
                             m_event_bus.get().publish_async(
                                 StreamErrorEvent{.session_id = m_session_id,
                                                  .message = react_result.error_message,
