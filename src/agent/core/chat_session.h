@@ -277,6 +277,23 @@ class WORKX_API ChatSession {
     ///          保留对话继续（消息在 ChatSession 内，不受 provider 影响）。
     bool set_provider(std::unique_ptr<ICompletionProvider> provider);
 
+    /// @brief #89：注入 fallback 后端工厂（模型降级用）
+    /// @param factory 输入目标模型名，返回已 initialize 的新后端；失败返回 nullptr。
+    ///                由 factory.cpp 接线（按 backend.fallback_models 换模型重建）。
+    ///                不注入（默认）时降级能力关闭，行为与既有版本一致。
+    void set_fallback_provider_factory(
+        std::function<std::unique_ptr<ICompletionProvider>(const std::string&)> factory);
+
+    /// @brief #89：纯函数 —— 计算下一个 fallback 候选模型
+    /// @param react_result 本轮失败结果（判定错误是否可重试类：仅 429/5xx/网络错值得降级，
+    ///                     4xx 换模型也无益）
+    /// @param models 有序 fallback 模型列表
+    /// @param index 当前已降级到的位置（0 = 尚未降级过）
+    /// @return 下一个候选模型名；不满足降级条件返回 nullopt
+    static std::optional<std::string> next_fallback_model(const ReActResult& react_result,
+                                                          const std::vector<std::string>& models,
+                                                          size_t index);
+
     /// @brief #45：设置会话级权限模式（CLI --bypass-permissions 注入）
     /// @details 仅接受 Default/BypassPermissions（Plan 由 toggle_permission_mode 管理）。
     ///          线程安全（受 m_state_mutex 保护）。跨 turn 生效（下一轮 ReActLoop 注入）。
@@ -426,7 +443,7 @@ class WORKX_API ChatSession {
     /// @param images 图片附件绝对路径（仅首次请求使用，重试沿用已入列的图片消息）
     /// @param retry_attempt 当前重试次数（0=首次请求）
     void run_completion(const std::string& user_text, const std::vector<std::string>& images = {},
-                        int retry_attempt = 0);
+                        int retry_attempt = 0, bool fresh_budget = false);
 
     /// @brief 订阅中断事件
     void subscribe_interrupt();
@@ -526,7 +543,19 @@ class WORKX_API ChatSession {
     PermissionRestoreResult restore_permission_locked(
         const std::optional<agent::session::PermissionEvent>& ev);
 
+    /// @brief #89：重试耗尽后尝试降级到 fallback 模型
+    /// @details 仅在完成任务线程的错误收尾路径调用（provider 空闲，可安全替换）。
+    ///          成功：换 provider（m_provider）→ 审计 + 事件播报 → run_completion
+    ///          重启本轮（attempt 归零，上下文不变），调用方直接 return；
+    ///          失败（无候选/工厂未注入/创建失败）：返回 false 走原终止路径。
+    bool try_fallback_degrade(const ReActResult& react_result, const std::string& user_text);
+
     std::unique_ptr<ICompletionProvider> m_provider;
+    // #89：模型降级状态（m_fallback_index 由完成任务线程独占写，无需锁；
+    //      m_fallback_factory 构造后只读）
+    std::vector<std::string> m_fallback_models;  ///< 有序 fallback 候选（backend.fallback_models）
+    size_t m_fallback_index = 0;                 ///< 已降级位置（0 = 未降级，会话级单调递增）
+    std::function<std::unique_ptr<ICompletionProvider>(const std::string&)> m_fallback_factory;
     std::vector<ChatMessage> m_messages;
     std::string m_system_prompt;
     /// @brief 系统提示词重建回调（方案 A，由 m_state_mutex 保护）

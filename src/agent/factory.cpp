@@ -72,7 +72,7 @@ namespace agent {
 // ============================================================
 
 BackendCreateResult create_backend(IConfigManager& cfg, const ProviderPreset* preset,
-                                   IEventBus& event_bus) {
+                                   IEventBus& event_bus, const std::string& model_override) {
     BackendCreateResult result;
 
     // URL: cfg(显式设置) > preset > ""
@@ -82,12 +82,13 @@ BackendCreateResult create_backend(IConfigManager& cfg, const ProviderPreset* pr
         result.remote_url = std::string(preset->default_url);
     }
 
-    // Model: cfg(显式设置) > preset > ""
+    // Model: cfg(显式设置) > preset > ""；#89 model_override 非空时最终覆盖
     if (cfg.has(keys::MODEL_NAME)) {
         result.model_name = cfg.get_or<std::string>(keys::MODEL_NAME, "");
     } else if (preset && !preset->default_model.empty()) {
         result.model_name = std::string(preset->default_model);
     }
+    if (!model_override.empty()) result.model_name = model_override;
 
     // 无 remote_url 时不创建 backend
     if (result.remote_url.empty()) {
@@ -128,7 +129,8 @@ BackendCreateResult create_backend(IConfigManager& cfg, const ProviderPreset* pr
 // ============================================================
 
 BackendCreateResult create_backend_for_entry(IConfigManager& cfg, const ProviderConfigEntry& entry,
-                                             IEventBus& event_bus) {
+                                             IEventBus& event_bus,
+                                             const std::string& model_override) {
     BackendCreateResult result;
 
     // 预置默认（可能为空；自定义条目 id 不在预设表返回 nullptr）
@@ -141,7 +143,7 @@ BackendCreateResult create_backend_for_entry(IConfigManager& cfg, const Provider
     }
     result.remote_url = effective_url;
 
-    // Model：条目 model > cfg > preset 默认
+    // Model：条目 model > cfg > preset 默认；#89 model_override 非空时最终覆盖
     std::string effective_model = entry.model;
     if (effective_model.empty()) {
         effective_model = cfg.get_or<std::string>(keys::MODEL_NAME, "");
@@ -149,6 +151,7 @@ BackendCreateResult create_backend_for_entry(IConfigManager& cfg, const Provider
     if (effective_model.empty() && preset && !preset->default_model.empty()) {
         effective_model = preset->default_model;
     }
+    if (!model_override.empty()) effective_model = model_override;
     result.model_name = effective_model;
 
     // 无 URL 时不创建 backend（ProviderConfigEntry 存在但未配置 base_url）
@@ -224,6 +227,26 @@ SessionResult create_session(IConfigManager& cfg, const ProviderPreset* preset,
     int default_retry_delay = preset && preset->retry_delay_ms > 0 ? preset->retry_delay_ms : 1000;
     result.session = std::make_unique<ChatSession>(std::move(backend_result.provider), task_manager,
                                                    event_bus, cfg, default_retry_delay, session_id);
+
+    // #89：fallback 模型降级工厂 —— 主后端 429/5xx/网络错重试耗尽时，按
+    // backend.fallback_models 顺序换模型重建后端（会话历史保留在 ChatSession 内，
+    // 仅换 provider）。与主装配同样分两条路：preset 解析（create_backend）与
+    // 自定义供应商条目（create_backend_for_entry，主后端 URL 来自条目时）。
+    result.session->set_fallback_provider_factory(
+        [&cfg, preset, &event_bus,
+         active_provider = cfg.get_or<std::string>(keys::PROVIDER, "")](
+            const std::string& model) -> std::unique_ptr<ICompletionProvider> {
+            auto r = create_backend(cfg, preset, event_bus, model);
+            if (!r.provider && !active_provider.empty()) {
+                for (const auto& e : load_provider_configs(cfg)) {
+                    if (e.id == active_provider || e.name == active_provider) {
+                        r = create_backend_for_entry(cfg, e, event_bus, model);
+                        break;
+                    }
+                }
+            }
+            return std::move(r.provider);
+        });
 
     // #45：CLI --bypass-permissions 启动即全权模式（跳过文件/命令确认）
     if (cfg.get_or<bool>(keys::BYPASS_PERMISSIONS, false)) {

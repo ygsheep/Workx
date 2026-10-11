@@ -37,6 +37,9 @@ constexpr const char* CONTEXT_LENGTH =
 constexpr const char* SEND_REASONING =
     "backend.send_reasoning_content";  // DS_CACHE P2：是否把 reasoning_content
                                        // 往返发送给模型（DeepSeek-reasoner CoT 进前缀，默认 false）
+// #89：fallback 模型列表（逗号分隔，有序）。主后端 429/5xx/网络错重试耗尽时
+// 按顺序降级到下一个候选（会话历史保留，仅换后端）；空 = 不降级（默认）
+constexpr const char* FALLBACK_MODELS = "backend.fallback_models";
 
 // Retry
 constexpr const char* RETRY_COUNT = "backend.retry_count";

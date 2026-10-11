@@ -58,9 +58,10 @@ struct BackendCreateResult {
 /// @param cfg 配置管理器
 /// @param preset Provider 预设（nullptr 表示无预设）
 /// @param event_bus 事件总线（BackendStatusEvent 发布用）
+/// @param model_override #89：非空时覆盖解析出的模型名（fallback 降级重建后端用）
 /// @return BackendCreateResult（provider 可能为 nullptr）
 BackendCreateResult create_backend(IConfigManager& cfg, const ProviderPreset* preset,
-                                   IEventBus& event_bus);
+                                   IEventBus& event_bus, const std::string& model_override = "");
 
 /// @brief 按供应商条目创建后端（/provider 热切换专用）
 /// @details 以目标 ProviderConfigEntry 自身的连接配置为准，避免依赖切换前旧的
@@ -70,9 +71,11 @@ BackendCreateResult create_backend(IConfigManager& cfg, const ProviderPreset* pr
 /// @param cfg 配置管理器（其余字段如 timeout / reasoning 从 cfg 与 preset 解析）
 /// @param entry 目标供应商条目
 /// @param event_bus 事件总线（BackendStatusEvent 发布用）
+/// @param model_override #89：非空时覆盖解析出的模型名（fallback 降级重建后端用）
 /// @return BackendCreateResult（provider 可能为 nullptr）
 BackendCreateResult create_backend_for_entry(IConfigManager& cfg, const ProviderConfigEntry& entry,
-                                             IEventBus& event_bus);
+                                             IEventBus& event_bus,
+                                             const std::string& model_override = "");
 
 /// @brief 会话创建结果（工厂返回）
 /// @details H-8：新增 backend_admin 字段，UI 层通过它调用 list_models /

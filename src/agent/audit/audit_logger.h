@@ -55,6 +55,7 @@ enum class EventType {
     SecuritySSRFAttempt,       ///< SSRF 尝试
     SecurityEnvVarLeak,        ///< 环境变量泄露尝试
     SecuritySandboxTargetBlocked,  ///< 沙盒敏感目标拦截（#84 方案 A）
+    BackendFallback,           ///< 模型降级切换（#89：主后端重试耗尽 → fallback 模型）
 
     // 会话/Agent 生命周期
     SessionStart,        ///< 会话开始
