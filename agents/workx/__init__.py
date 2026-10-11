@@ -18,6 +18,17 @@
         -m <model> \\
         --n-concurrent 4
 
+#132 验证目标注入（让 #78 门禁在无工程标记的容器里也能介入）
+    宿主环境设置 WORKX_AGENT_GOAL 即可，适配器转成 --goal 命令行参数
+    （优先级 > WORKX_GOAL env > config.json）：
+        WORKX_AGENT_GOAL=tests_pass            测试全绿
+        WORKX_AGENT_GOAL=build_clean           编译零 error
+        WORKX_AGENT_GOAL="file_exists:/app/out.txt"
+        WORKX_AGENT_GOAL="cmd:python3 -m pytest -q"
+    不设置时不注入 —— 门禁行为与此前一致（无 goal 则结构性不介入）。
+    ⚠️ #137 已实测门禁 fail-open 有下游效应（墙钟超时成为通过瓶颈），
+    是否在跑分中默认开启需先看该 issue 的结论，故此处保持显式 opt-in。
+
 ⚠️ 未验证声明
     本适配器在**没有可用 Docker 守护进程**的机器上编写（WSL 被安全策略拉黑），
     `install()` / `run()` 的实际容器内行为**尚未实跑验证**。首次使用请先跑单题 smoke：
@@ -95,6 +106,15 @@ class WorkxAgent(BaseInstalledAgent):
         self.permission_mode = os.environ.get(
             "WORKX_AGENT_PERMISSION_MODE", "bypass-permissions"
         )
+        # #132 建议动作 c：显式声明验证目标，填上「门禁 0%」的结构性空洞。
+        # Terminal-Bench 的任务容器里没有 CMakeLists / package.json 之类的工程标记，
+        # detect_default_goal() 返回 None → #78 门禁结构性不介入（首轮实测触发率恒 0）。
+        # 这里支持两种注入方式：
+        #   1. WORKX_AGENT_GOAL（本适配器读取，走 --goal 命令行，优先级最高）
+        #   2. 宿主直接设 WORKX_GOAL（_workx_env 已按 WORKX_* 前缀透传进容器）
+        # 取值格式见 src/agent/core/goal_verdict.h parse_goal：
+        #   tests_pass / build_clean / lint_zero / file_exists:<path> / cmd:<command>
+        self.goal = os.environ.get("WORKX_AGENT_GOAL", "")
 
     # ------------------------------------------------------------------
     # 元数据
@@ -167,6 +187,9 @@ class WorkxAgent(BaseInstalledAgent):
         flags = f"--output-format stream-json --permission-mode {self.permission_mode}"
         if self.max_iterations:
             flags += f" --max-iterations {shlex.quote(self.max_iterations)}"
+        if self.goal:
+            # #132：显式验证目标（--goal 优先级 > WORKX_GOAL > config.json）
+            flags += f" --goal {shlex.quote(self.goal)}"
         prefix = f"cd {shlex.quote(self.cwd)} && " if self.cwd else ""
 
         await self.exec_as_agent(
