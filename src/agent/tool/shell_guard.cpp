@@ -272,6 +272,200 @@ bool env_leak_regex(std::string_view command) {
     return false;
 }
 
+// ============================================================
+// #84 方案 A：沙盒目标级检测（restrictive 档的执行前兜底）
+// ============================================================
+
+/// 敏感系统路径前缀（小写）。Windows 前缀在 '\\' 归一形式上匹配，
+/// POSIX 前缀在原始小写形式上匹配。
+constexpr std::string_view kSensitiveWinPaths[] = {
+    "c:\\windows", "c:\\program files", "c:\\programdata",
+};
+constexpr std::string_view kSensitivePosixPaths[] = {
+    "/etc", "/usr", "/bin", "/sbin", "/boot", "/lib",
+};
+
+/// 写动作 token（需与敏感路径近邻共现才判定为写意图，窗口 64 字符）。
+/// 检索时带词边界：字母开头 token 的前一字符不得为字母/数字
+/// （避免 "cmd " 命中 "md "、"model " 命中 "del "、"scp " 命中 "cp "）。
+constexpr std::string_view kWriteActionTokens[] = {
+    ">", ">>", "del ", "rd ", "rmdir", "rm ", "mv ", "move ", "copy ", "xcopy ", "robocopy ",
+    "echo ", "touch ", "mkdir ", "cp ", "tee ", "dd ", "format ", "mkfs", "icacls ", "takeown ",
+    "attrib ", "sed -i", "new-item ", "set-content", "add-content ", "out-file", "remove-item",
+    "install ", "unzip ", "tar -x", "expand ", "msiexec", "curl -o ", "curl --output",
+    "wget -o ", "wget --output",
+};
+
+/// 写意图判定窗口：写动作 token 结束位置到敏感路径起始位置的最大距离
+constexpr size_t kWriteProximityWindow = 64;
+
+/// prefix 在 form 中的所有「路径级」出现位置。
+/// 下一个字符须为路径分隔/引号/空白/数字等边界（避免 "/etc" 命中 "/etcetera"）；
+/// 前一个字符须非字母（避免 "x/usr" 误命中）。
+std::vector<size_t> find_path_prefix(const std::string& form, const std::string& prefix) {
+    std::vector<size_t> hits;
+    const auto is_boundary = [](char ch) {
+        return ch == '/' || ch == '\\' || ch == ' ' || ch == '\t' || ch == '"' || ch == '\'' ||
+               ch == ';' || ch == '|' || ch == '&' || ch == '>' || ch == '<' || ch == ')' ||
+               ch == ',' || std::isdigit(static_cast<unsigned char>(ch));
+    };
+    size_t pos = 0;
+    while ((pos = form.find(prefix, pos)) != std::string::npos) {
+        const bool prev_ok = pos == 0 || !std::isalpha(static_cast<unsigned char>(form[pos - 1]));
+        const size_t end = pos + prefix.size();
+        const bool next_ok = end >= form.size() || is_boundary(form[end]);
+        if (prev_ok && next_ok) hits.push_back(pos);
+        pos += prefix.size();
+    }
+    return hits;
+}
+
+/// 敏感路径出现位置前方窗口内是否存在写动作 token（字母开头 token 带词边界）
+bool has_write_action_near(const std::string& c, size_t path_pos) {
+    const size_t begin = path_pos > kWriteProximityWindow ? path_pos - kWriteProximityWindow : 0;
+    for (const auto& tok : kWriteActionTokens) {
+        const std::string_view t(tok);
+        const bool need_word_boundary =
+            std::isalpha(static_cast<unsigned char>(t.front())) != 0;
+        size_t p = c.find(t, begin);
+        while (p != std::string::npos && p < path_pos) {
+            if (p + t.size() <= path_pos) {
+                const bool boundary_ok =
+                    !need_word_boundary || p == 0 ||
+                    !std::isalnum(static_cast<unsigned char>(c[p - 1]));
+                if (boundary_ok) return true;
+            }
+            p = c.find(t, p + 1);
+        }
+    }
+    return false;
+}
+
+/// 敏感系统路径写意图（写动作 token 与敏感路径近邻共现）。
+/// c:\windows\temp 豁免——restrictive 档本就允许写临时目录（SandboxConfig::allow_temp_write）。
+bool sensitive_system_write(const std::string& c, const std::string& win_form,
+                            const SandboxTargetPolicy& policy) {
+    auto hit_with_write = [&](const std::string& form, const std::string& prefix, bool win_style) {
+        for (const size_t pos : find_path_prefix(form, prefix)) {
+            if (win_style && form.compare(pos, 15, "c:\\windows\\temp") == 0) {
+                const size_t after = pos + 15;
+                if (after >= form.size() || form[after] == '\\' || form[after] == '"' ||
+                    form[after] == ' ') {
+                    continue;  // 纯临时目录写入，豁免
+                }
+            }
+            if (has_write_action_near(form, pos)) return true;
+        }
+        return false;
+    };
+
+    for (const auto& p : kSensitiveWinPaths) {
+        if (hit_with_write(win_form, std::string(p), true)) return true;
+    }
+    for (const auto& p : kSensitivePosixPaths) {
+        if (hit_with_write(c, std::string(p), false)) return true;
+    }
+    // 用户配置的 deny_write 前缀：分隔符双向归一（条目的 '/'→'\\' 与 '\\'→'/'），
+    // 分别与原始小写命令（'/' 形式）和归一形式（'\\' 形式）交叉匹配
+    for (const auto& raw : policy.deny_write) {
+        const std::string as_is = lower(raw);
+        std::string bs = as_is;
+        std::replace(bs.begin(), bs.end(), '/', '\\');
+        std::string fs = as_is;
+        std::replace(fs.begin(), fs.end(), '\\', '/');
+        if (hit_with_write(c, as_is, false) || hit_with_write(c, fs, false) ||
+            hit_with_write(win_form, as_is, false) || hit_with_write(win_form, bs, false)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/// HKLM 注册表写意图（HKLM 引用 + 写类命令/cmdlet 共现；
+/// `reg delete hklm` 已由破坏性档覆盖，此处补充其余写形态）
+bool registry_hklm_write(const std::string& c) {
+    if (c.find("hklm") == std::string::npos &&
+        c.find("hkey_local_machine") == std::string::npos) {
+        return false;
+    }
+    constexpr std::string_view kRegWriteTokens[] = {
+        "reg add", "reg delete", "reg import", "reg load", "reg restore", "reg unload",
+        "regedit", "set-itemproperty", "new-itemproperty", "remove-itemproperty",
+    };
+    for (const auto& t : kRegWriteTokens) {
+        if (c.find(t) != std::string::npos) return true;
+    }
+    return false;
+}
+
+/// URL host 是否命中域名白名单（支持 sandbox_config.h 的 `*.example.com` 通配语义）
+bool host_allowed(std::string_view host, const std::vector<std::string>& allow_domains) {
+    for (const auto& raw : allow_domains) {
+        const std::string dom = lower(raw);
+        if (dom.rfind("*.", 0) == 0) {
+            // "*.example.com" → host 等于 example.com 或以 ".example.com" 结尾
+            const std::string suffix = dom.substr(1);
+            if (host == dom.substr(2) ||
+                (host.size() >= suffix.size() &&
+                 host.compare(host.size() - suffix.size(), suffix.size(), suffix) == 0)) {
+                return true;
+            }
+            continue;
+        }
+        if (host == dom) return true;
+    }
+    return false;
+}
+
+/// 网络访问意图：
+/// 1. 任一 http(s) URL 的 host 在白名单外（白名单为空 = 全部拦截）→ 拦截；
+/// 2. 白名单为空时的网络工具启发式（curl/wget/git push/pip install 等）。
+///    白名单非空时跳过纯工具名启发式——无 URL 无法判断目标域，从严会误伤白名单语义。
+bool network_use(const std::string& c, const SandboxTargetPolicy& policy) {
+    if (!policy.network_isolated) return false;
+
+    bool has_url = false;
+    size_t pos = 0;
+    while ((pos = c.find("http", pos)) != std::string::npos) {
+        size_t scheme_end = pos + 4;
+        if (scheme_end < c.size() && c[scheme_end] == 's') ++scheme_end;
+        if (scheme_end >= c.size() || c.compare(scheme_end, 3, "://") != 0) {
+            pos = scheme_end;
+            continue;
+        }
+        const size_t host_start = scheme_end + 3;
+        size_t host_end = host_start;
+        while (host_end < c.size()) {
+            const char ch = c[host_end];
+            if (ch == '/' || ch == '"' || ch == '\'' || ch == ' ' || ch == '\t' || ch == '&' ||
+                ch == ';' || ch == '|' || ch == '>' || ch == ':') {
+                break;
+            }
+            ++host_end;
+        }
+        if (host_end > host_start) {
+            has_url = true;
+            const std::string_view host(c.data() + host_start, host_end - host_start);
+            if (!host_allowed(host, policy.allow_domains)) return true;
+        }
+        pos = host_end;
+    }
+    if (has_url) return false;  // 所有 URL 均在白名单内（未在循环里拦截）
+
+    if (!policy.allow_domains.empty()) return false;  // 白名单模式：不再启发式误伤
+
+    static const std::regex kNetTools(
+        R"(\b(curl|wget|ftp|telnet|nc|ncat|netcat|bitsadmin|ssh|scp|sftp)\b)"
+        R"(|\binvoke-webrequest\b|\binvoke-restmethod\b|\biwr\b|\birm\b)"
+        R"(|\bgit\s+(?:push|pull|fetch|clone|ls-remote)\b)"
+        R"(|\bpip3?\s+(?:install|download)\b)"
+        R"(|\bnpm\s+(?:install|publish|update|add)\b)"
+        R"(|\byarn\s+add\b|\bpnpm\s+(?:add|install)\b)"
+        R"(|\bwinget\s+install\b|\bchoco\s+install\b|\bscoop\s+install\b)"
+        R"(|\bcertutil\b[^|;&]*-urlcache)");
+    return std::regex_search(c, kNetTools);
+}
+
 }  // namespace
 
 bool contains_destructive_command(std::string_view command) { return destructive_regex(command); }
@@ -327,6 +521,37 @@ bool is_command_cwd_allowed(std::string_view cwd, std::string_view base,
         if (under(n, std::filesystem::path(root).generic_string())) return true;
     }
     return false;
+}
+
+SandboxTargetRisk detect_sandbox_target_risk(std::string_view command,
+                                             const SandboxTargetPolicy& policy) {
+    uint32_t risk = static_cast<uint32_t>(SandboxTargetRisk::None);
+    const std::string c = lower(command);
+    // Windows 路径分隔符归一：用户写 c:/windows 与 c:\windows 等价
+    std::string win_form = c;
+    std::replace(win_form.begin(), win_form.end(), '/', '\\');
+
+    if (sensitive_system_write(c, win_form, policy))
+        risk |= static_cast<uint32_t>(SandboxTargetRisk::SystemWrite);
+    if (registry_hklm_write(c))
+        risk |= static_cast<uint32_t>(SandboxTargetRisk::RegistryWrite);
+    if (network_use(c, policy)) risk |= static_cast<uint32_t>(SandboxTargetRisk::NetworkUse);
+    return static_cast<SandboxTargetRisk>(risk);
+}
+
+std::string sandbox_target_risk_description(SandboxTargetRisk risk) {
+    std::string desc;
+    auto append = [&desc](std::string_view part) {
+        if (!desc.empty()) desc += ", ";
+        desc += part;
+    };
+    if ((risk & SandboxTargetRisk::SystemWrite) != SandboxTargetRisk::None)
+        append("write to protected system locations");
+    if ((risk & SandboxTargetRisk::RegistryWrite) != SandboxTargetRisk::None)
+        append("HKLM registry modification");
+    if ((risk & SandboxTargetRisk::NetworkUse) != SandboxTargetRisk::None)
+        append("network access while sandboxed");
+    return desc;
 }
 
 }  // namespace agent::tool
