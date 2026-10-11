@@ -579,16 +579,38 @@ TEST_CASE_METHOD(TaskToolsFixture, "TaskStopTool rejects unknown and finished ta
     fill_ctx(ctx, bus, tm, cfg);
     TaskStopTool tool;
 
-    // 未知任务
+    // 未知任务 → not_found
     auto r1 = tool.call(nlohmann::json{{"task_id", "nope"}}, ctx);
     REQUIRE(r1.is_err());
     REQUIRE(r1.error().code == Error::Code::ResourceNotFound);
+    REQUIRE(r1.error().message.find("[not_found]") != std::string::npos);
 
-    // 已结束任务（立即完成的 no-op 任务）
+    // 已结束任务 → not_running（#52：原 InternalError 误用，改为 InvalidTaskState）
     auto task = tm.launch("done-task", [](const std::atomic<bool>&) {});
     tm.wait(task);
     auto r2 = tool.call(nlohmann::json{{"task_id", "done-task"}}, ctx);
     REQUIRE(r2.is_err());
+    REQUIRE(r2.error().code == Error::Code::InvalidTaskState);
+    REQUIRE(r2.error().message.find("[not_running]") != std::string::npos);
+}
+
+TEST_CASE_METHOD(TaskToolsFixture, "TaskStopTool rejects critical tasks as unsupported type",
+                 "[task_stop]") {
+    MockEventBus bus;
+    auto& tm = TaskManager::instance();
+    MockConfigManager cfg;
+    ToolContext ctx;
+    fill_ctx(ctx, bus, tm, cfg);
+    TaskStopTool tool;
+
+    // Critical 系统任务 → unsupported_type（#52：类型检查先于状态检查，
+    // 已结束的 Critical 任务同样返回 unsupported_type）
+    auto task = tm.launch("crit-task", [](const std::atomic<bool>&) {}, TaskType::Critical);
+    tm.wait(task);
+    auto r = tool.call(nlohmann::json{{"task_id", "crit-task"}}, ctx);
+    REQUIRE(r.is_err());
+    REQUIRE(r.error().code == Error::Code::UnsupportedTaskType);
+    REQUIRE(r.error().message.find("[unsupported_type]") != std::string::npos);
 }
 
 TEST_CASE_METHOD(TaskToolsFixture, "TaskStopTool rejects missing task_id", "[task_stop]") {

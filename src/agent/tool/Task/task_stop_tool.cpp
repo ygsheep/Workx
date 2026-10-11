@@ -1,7 +1,7 @@
 /**
  * @file task_stop_tool.cpp
  * @brief TaskStopTool 实现
- * @version 1.0.0
+ * @version 1.1.0
  * @date 2026-08
  */
 
@@ -13,6 +13,27 @@
 #include "core/utils/error.h"
 
 namespace agent::tool {
+
+namespace {
+
+/// @brief 任务状态 → 小写字符串（用于错误消息；TaskStatus 无现成 to_string）
+std::string_view task_status_string(TaskStatus s) noexcept {
+    switch (s) {
+        case TaskStatus::Pending:
+            return "pending";
+        case TaskStatus::Running:
+            return "running";
+        case TaskStatus::Completed:
+            return "completed";
+        case TaskStatus::Cancelled:
+            return "cancelled";
+        case TaskStatus::Failed:
+            return "failed";
+    }
+    return "unknown";
+}
+
+}  // namespace
 
 const std::string& TaskStopTool::name() const {
     static const std::string n{"TaskStop"};
@@ -58,13 +79,26 @@ ResultV2<ToolResult> TaskStopTool::call(const nlohmann::json& input, const ToolC
 
     auto task = ctx.task_manager_ptr->find_task(task_id);
     if (task == nullptr) {
-        return ResultV2<ToolResult>::err(Error::Code::ResourceNotFound,
-                                         std::format("No task found with ID: {}", task_id));
+        // #52 StopTaskError 分类：not_found —— 目标不存在
+        return ResultV2<ToolResult>::err(
+            Error::Code::ResourceNotFound,
+            std::format("[not_found] No task found with ID: {}", task_id));
+    }
+    // #52 StopTaskError 分类：unsupported_type —— Critical 是系统关键任务，LLM 不可停止
+    if (task->getType() == TaskType::Critical) {
+        return ResultV2<ToolResult>::err(
+            Error::Code::UnsupportedTaskType,
+            std::format("[unsupported_type] Task {} has type 'critical' and cannot be "
+                        "stopped via TaskStop",
+                        task_id));
     }
     if (task->isFinished()) {
+        // #52 StopTaskError 分类：not_running —— 目标已结束（可能结果已就绪）
         return ResultV2<ToolResult>::err(
-            Error::Code::InternalError,
-            std::format("Task {} is not running (status: finished)", task_id));
+            Error::Code::InvalidTaskState,
+            std::format("[not_running] Task {} is not running (status: {}). "
+                        "Use TaskOutput to read its result.",
+                        task_id, task_status_string(task->getStatus())));
     }
 
     ctx.task_manager_ptr->cancel(task);
