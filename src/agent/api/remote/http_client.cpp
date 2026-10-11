@@ -375,6 +375,15 @@ ResultV2<HttpResponse> HttpClient::post(
 // StreamSession — 异步流式 POST 会话
 // ============================================================
 
+/// @brief 流式请求的总时长超时（毫秒）——唯一定义点（#146）
+/// @details timeout_ms 参数的语义是**空闲超时**（LOW_SPEED_TIME）；总时长超时
+///          独立计算：timeout_ms > 0 时取 max(timeout_ms, 120s)（确保不短于
+///          空闲超时），否则默认 120s。日志必须打印这里的返回值，避免出现
+///          「日志说 30s、实际 120s 才取消」的口径不一致（#146）。
+int effective_total_timeout_ms(const int timeout_ms) {
+    return timeout_ms > 0 ? (std::max)(timeout_ms, 120000) : 120000;
+}
+
 class StreamSession : public std::enable_shared_from_this<StreamSession> {
    public:
     CURL* easy_handle() const { return m_curl; }
@@ -388,10 +397,10 @@ class StreamSession : public std::enable_shared_from_this<StreamSession> {
           m_reader(std::move(reader)),
           m_on_complete(std::move(on_complete))
           // H-2：总时长超时（Timer-based），默认 120 秒
-          // timeout_ms 作为空闲超时（LOW_SPEED_TIME），总时长超时独立配置
-          // 当 timeout_ms > 0 时，总时长 = max(timeout_ms, 120000) 确保不短于空闲超时
+          // timeout_ms 作为空闲超时（LOW_SPEED_TIME），总时长超时独立计算
+          // （唯一定义见 effective_total_timeout_ms，日志打印同一口径）
           ,
-          m_total_timeout_ms(timeout_ms > 0 ? (std::max)(timeout_ms, 120000) : 120000),
+          m_total_timeout_ms(effective_total_timeout_ms(timeout_ms)),
           m_start_time(std::chrono::steady_clock::now()) {
         m_curl = curl_easy_init();
         if (!m_curl) return;
@@ -691,7 +700,10 @@ void HttpClient::async_post_stream(const std::string& url,
                                    const std::vector<std::pair<std::string, std::string>>& headers,
                                    const std::string& body, std::shared_ptr<SSEStreamReader> reader,
                                    std::function<void()> on_complete, int timeout_ms) const {
-    LOG_INFO("[http][stream] POST {} body_len={} timeout={}ms", url, body.size(), timeout_ms);
+    // timeout_ms 是空闲超时；真正取消会话的总超时可能被抬到 120s——两个值都打
+    // 出来，日志口径与实际取消时机一致（#146）
+    LOG_INFO("[http][stream] POST {} body_len={} idle_timeout={}ms total_timeout={}ms",
+             url, body.size(), timeout_ms, effective_total_timeout_ms(timeout_ms));
     auto parsed = parse_url(url);
     // H-4：URL 解析失败（scheme 为空）时直接 finish reader，避免构造 "://" 怪 URL
     if (parsed.scheme.empty()) {
