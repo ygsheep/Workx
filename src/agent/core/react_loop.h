@@ -4,10 +4,12 @@
  * @details 实现 Thought/Action/Observation 三阶段显式分离的 agent 循环，
  *          替代 ChatSession 中的扁平 while 循环。
  *          使用原生 function calling（Anthropic/OpenAI），不依赖文本解析。
- * @version 1.8.0
+ * @version 1.9.0
  * @date 2026-07
  *
  * @par 版本沿革
+ * - 1.9.0（Issue #157）：新增 set_query_chain() 调用链注入（chain_id/chain_depth），
+ *   run() 开始时空链 id 自动生成链根，工具轮 ToolContext 注入链路字段。
  * - 1.6.0（Issue #147 回归修正）：`reasoning_budget_chars` 默认值 64000 → 0（关闭熔断）。
  *   完整 20 题实测（job 2026-10-05__11-50-58）显示熔断净效应为负：
  *   触发熔断的 6 道题 **0/6 通过**（其中 3 道基线是 PASS），未触发的 14 道 4/14。
@@ -399,6 +401,16 @@ class WORKX_API ReActLoop {
     void set_permission_mode(tool::PermissionMode mode) { m_permission_mode = mode; }
     tool::PermissionMode permission_mode() const { return m_permission_mode; }
 
+    /// @brief #157：注入调用链（子 Agent 由 AgentTool 在 run() 前调用）
+    /// @details chain_id 为空时 run() 开始会生成链根（'q'+8 随机）；子 Agent
+    ///          由 AgentTool 透传父链 id 并把 depth+1，保证同链共享、跨轮独立。
+    void set_query_chain(std::string chain_id, int chain_depth) {
+        m_chain_id = std::move(chain_id);
+        m_chain_depth = chain_depth;
+    }
+    const std::string& chain_id() const { return m_chain_id; }
+    int chain_depth() const { return m_chain_depth; }
+
     /// @brief #45：注入初始权限状态（跨 turn 恢复会话级三态模式）
     /// @details ChatSession 每次新建 ReActLoop 时调用（ReActLoop 为 run_completion
     ///          局部变量，每轮重建），同步恢复 m_permission_mode、
@@ -640,6 +652,10 @@ class WORKX_API ReActLoop {
     PermissionStateChangedCallback m_perm_state_changed_cb;
     /// @brief 消息队列冲刷回调（可选；工具轮边界把排队用户消息注入 messages）
     std::function<void(std::vector<ChatMessage>&)> m_queue_inject_cb;
+
+    /// @brief #157：调用链（m_chain_id 空 = 未生成，run() 开始时生成链根）
+    std::string m_chain_id;
+    int m_chain_depth = 0;
 
     /// @brief #56 方案 C：命令注册表（bundled + 磁盘技能；注入 ToolContext.command_registry_ptr）
     std::shared_ptr<command::CommandRegistry> m_command_registry;

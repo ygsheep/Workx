@@ -3,7 +3,7 @@
  * @brief ToolContext — 工具执行上下文
  * @details 在工具执行过程中传递的运行时信息：会话 ID、工作目录、权限模式、取消信号、
  *          任务管理器、进度回调
- * @version 1.5.0
+ * @version 1.6.0
  * @date 2026-07
  */
 
@@ -231,6 +231,16 @@ struct ToolContext {
     /// @details 可为 nullptr（如子 Agent 自身、或未走 ReActLoop 的测试路径），
     ///          此时 AgentTool 视为不限——但生产路径下 ReActLoop 必定注入非空实例。
     std::shared_ptr<SubAgentBudget> sub_agent_budget;
+
+    /// @brief #157：调用链 ID（同一 query 派生链共享）
+    /// @details 由 ReActLoop 在 run() 开始时生成（'q'+8 随机，链根），经 AgentTool
+    ///          透传给子 Agent；空表示未走 ReActLoop 的路径（如手工构造的测试 ctx）。
+    std::string chain_id;
+
+    /// @brief #157：链路深度（顶层 run = 0；AgentTool 派生的子 Agent = 父 depth + 1）
+    /// @note 当前防递归机制（子 Agent 不携带 Agent 工具）使嵌套封顶一层，
+    ///       字段先行落地，为后续派生策略放开/链路审计预留。
+    int chain_depth = 0;
 
     /// @brief 权限模式变更回调类型（#28：EnterPlanMode/ExitPlanMode 注入路径）
     /// @details 工具通过 set_permission_mode() 请求模式切换，由宿主（ReActLoop）
