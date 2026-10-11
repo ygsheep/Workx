@@ -174,10 +174,16 @@ static LaunchResult launch_lpac(PSID ac_sid, const std::wstring& cmdline,
 }
 
 // 跑一条 AppContainer 命令并把 stdout/stderr 落到 out 文件返回文本
+// v2 修复：原实现 `cmdline + " > out 2>&1"` 会与探针命令自身的重定向冲突
+// （cmd 解析 `> A > B` 时只有最后一个重定向生效，A 从未被创建），
+// 导致 S4/S5/S6 的探针文件写入被静默吞掉、S7 读到上一项残留。
+// 改为括号分组：`cmd /c (cmdline) > out 2>&1`，内层重定向独立解析；
+// 并在启动前删除 out 文件，杜绝跨项残留。
 static std::string run_capture(PSID sid, HANDLE job, const std::wstring& cmdline,
                                const std::wstring& cwd, const std::wstring& out_file,
                                LaunchResult* lr = nullptr) {
-    std::wstring full = cmdline + L" > \"" + out_file + L"\" 2>&1";
+    DeleteFileW(out_file.c_str());
+    std::wstring full = L"cmd.exe /c (" + cmdline + L") > \"" + out_file + L"\" 2>&1";
     LaunchResult res = launch_ac(sid, job, full, cwd);
     if (lr) *lr = res;
     if (!res.started)
@@ -297,8 +303,8 @@ int wmain(int argc, wchar_t** argv) {
                 L"C:\\Windows\\System32\\whoami.exe /groups > \"" + whoami_out + L"\" 2>&1",
                 work);
             std::string wout = read_file(whoami_out);
-            printf("S3f whoami exit_code=%lu started=%d out_len=%zu\n", pr3.exit_code,
-                   (int)pr3.started, wout.size());
+            printf("S3f whoami exit_code=%lu started=%d out_len=%zu out=%s\n", pr3.exit_code,
+                   (int)pr3.started, wout.size(), wout.c_str());
 
             // S3g：LPAC 变体（不同策略路径，排除 ALL APPLICATION PACKAGES 组因素）
             std::wstring lpac_out = root_work + L"\\lpac-out.txt";
