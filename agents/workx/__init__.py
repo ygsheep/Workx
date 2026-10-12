@@ -34,14 +34,30 @@
     `install()` / `run()` 的实际容器内行为**尚未实跑验证**。首次使用请先跑单题 smoke：
         harbor run -d terminal-bench@2.0 -a agents.workx:WorkxAgent \\
                    --include-task-name git-init -k 1
+
+#166 方案 C 按题下发墙钟预算
+    harbor 的 agent 超时是**按题**的（task.toml 的 `[agent] timeout_sec`），而 JobConfig
+    的 `agents[].env` 是 **job 级**（一份值给所有题），表达不了"20 题各自 900/1200/1800s"。
+    于是改由本适配器就地推导：trial 产物目录的 config.json 里带着 `task.path`
+    （宿主侧题目目录），读它下面的 task.toml 即可拿到本题真实超时，再留 10% 余量
+    下发 `WORKX_AGENT_TIMEOUT_SEC` —— 让 agent 在**被外层硬超时杀掉之前**主动收敛
+    （#137 建议 3 / #166 方案 C）。宿主若已显式设置该变量则以宿主为准。
 """
 
 from __future__ import annotations
 
 import base64
+import json
 import os
+import pathlib
+import re
 import shlex
 from typing import Any
+
+try:  # Python >= 3.11
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - 老解释器走正则兜底
+    tomllib = None  # type: ignore[assignment]
 
 from harbor.agents.installed.base import BaseInstalledAgent, with_prompt_template
 
@@ -68,6 +84,47 @@ BUILD_PACKAGES = (
     "build-essential cmake ninja-build pkg-config unzip zip tar "
     "libcurl4-openssl-dev python3"
 )
+
+
+#: 按题墙钟预算的余量系数：留 10% 给「收尾 + 验证」。
+#: agent 侧会在预算耗尽前触发收敛提示（wall_clock_reserve_sec），故预算必须**略小于**
+#: 题目声明的 timeout_sec，否则收敛提示还没生效就被外层硬超时杀掉了。
+WALL_CLOCK_MARGIN = 0.9
+
+
+def _read_agent_timeout_sec(task_dir: str) -> float | None:
+    """从题目目录的 task.toml 读 `[agent] timeout_sec`（读不到返回 None）。
+
+    优先 tomllib（Python >= 3.11）；老解释器走一段**分节感知**的正则兜底，
+    避免把 `[verifier] timeout_sec` / `[environment] build_timeout_sec` 误当成 agent 的。
+    """
+    try:
+        text = (pathlib.Path(task_dir) / "task.toml").read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+    if tomllib is not None:
+        try:
+            data = tomllib.loads(text)
+        except (tomllib.TOMLDecodeError, ValueError):
+            return None
+        value = (data.get("agent") or {}).get("timeout_sec")
+        if isinstance(value, (int, float)) and value > 0:
+            return float(value)
+        return None
+
+    section = ""
+    for raw in text.splitlines():  # pragma: no cover - 仅老解释器
+        line = raw.strip()
+        if line.startswith("[") and line.endswith("]"):
+            section = line.strip("[]").strip()
+            continue
+        if section != "agent":
+            continue
+        match = re.match(r"timeout_sec\s*=\s*([0-9]+(?:\.[0-9]+)?)", line)
+        if match:
+            return float(match.group(1))
+    return None
 
 
 def _source_build_script(repo_url: str, ref: str) -> str:
@@ -125,7 +182,7 @@ class WorkxAgent(BaseInstalledAgent):
         return "workx"
 
     def version(self) -> str:
-        return "0.10.1"
+        return "0.11.0"
 
     # ------------------------------------------------------------------
     # 安装
@@ -217,6 +274,18 @@ class WorkxAgent(BaseInstalledAgent):
         # 否则门禁的 #78 标记仍会丢失 —— 采集器的「门禁触发率 / 误报率」就采不到数。
         env.setdefault("WORKX_AUDIT_FILE", AUDIT_PATH)
 
+        # #166 方案 C：按题下发墙钟预算（宿主显式设置则优先，便于单题调试时覆盖）
+        if not env.get("WORKX_AGENT_TIMEOUT_SEC"):
+            budget = self._resolve_wall_clock_budget()
+            if budget:
+                env["WORKX_AGENT_TIMEOUT_SEC"] = str(budget)
+                self.logger.info(
+                    "wall clock budget for this trial: %ss "
+                    "(task timeout_sec x %.2f margin; agent converges before the hard timeout)",
+                    budget,
+                    WALL_CLOCK_MARGIN,
+                )
+
         if not env.get("WORKX_API_KEY"):
             raise RuntimeError(
                 "缺少 WORKX_API_KEY：Workx 需要模型凭据才能执行任务。"
@@ -224,3 +293,62 @@ class WorkxAgent(BaseInstalledAgent):
                 "它们会通过 env 透传进容器。"
             )
         return env
+
+    # ------------------------------------------------------------------
+    # #166 方案 C：按题推导墙钟预算
+    # ------------------------------------------------------------------
+
+    def _trial_dir(self) -> pathlib.Path | None:
+        """定位当前 trial 的产物目录（harbor 在那里落 config.json）。
+
+        `logs_dir` 形如 `<trial_dir>/agent`（多步任务是 `<trial_dir>/<step>/agent`），
+        故向上至多 4 层，取第一个含 `config.json` 的目录。
+        """
+        node = pathlib.Path(self.logs_dir)
+        for _ in range(4):
+            if (node / "config.json").is_file():
+                return node
+            if node.parent == node:
+                break
+            node = node.parent
+        return None
+
+    def _resolve_wall_clock_budget(self) -> int | None:
+        """推导本题的墙钟预算（秒）= task.timeout_sec x multiplier x WALL_CLOCK_MARGIN。
+
+        链路：trial config.json -> `task.path`（宿主侧题目目录）-> task.toml
+        -> `[agent] timeout_sec`。任一步失败都返回 None（= 不下发 = 旧行为），
+        **绝不因推导失败中断 trial** —— 拿不到预算只是退回"agent 不知道 deadline"。
+        """
+        trial_dir = self._trial_dir()
+        if trial_dir is None:
+            self.logger.debug("trial config.json not found near %s; skip wall clock", self.logs_dir)
+            return None
+
+        try:
+            trial_cfg = json.loads((trial_dir / "config.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            self.logger.debug("unreadable trial config.json (%s); skip wall clock", exc)
+            return None
+
+        task_path = (trial_cfg.get("task") or {}).get("path")
+        if not task_path:
+            return None
+
+        timeout_sec = _read_agent_timeout_sec(task_path)
+        if not timeout_sec:
+            self.logger.debug("no [agent] timeout_sec in %s/task.toml; skip wall clock", task_path)
+            return None
+
+        # harbor 的 timeout 乘数（`--timeout-multiplier` / `agent_timeout_multiplier`）。
+        # trial config.json 用 exclude_defaults 序列化，未设置时字段缺省 → 视为 1.0。
+        multiplier = trial_cfg.get("agent_timeout_multiplier") or trial_cfg.get(
+            "timeout_multiplier"
+        )
+        try:
+            multiplier = float(multiplier) if multiplier else 1.0
+        except (TypeError, ValueError):
+            multiplier = 1.0
+
+        budget = int(timeout_sec * multiplier * WALL_CLOCK_MARGIN)
+        return budget if budget > 0 else None

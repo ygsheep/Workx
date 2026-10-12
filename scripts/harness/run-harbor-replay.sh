@@ -13,8 +13,9 @@
 #
 # 前置：先把 DeepSeek API Key 写进仓库根的 .env.harbor（不要提交）
 #       跑分前先起代理桥：bash scripts/harness/harbor-proxy.sh start
-# 跑前的五道卡口不要跳过，每一道都对应一次真实的翻车：
+# 跑前的六道卡口不要跳过，每一道都对应一次真实的翻车：
 #   ①二进制签名 ②模型连通 ③数据集行尾（LF）④config 模型名对齐 ⑤代理桥连通
+#   ⑥每题墙钟预算可推导（#166 方案 C）
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -119,6 +120,72 @@ else:
 
 json.dump(c, open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 print(f"✅ 已生成 {out}：{len(c['datasets'][0]['task_names'])} 题")
+PY
+
+# --- 卡口 ⑥：每题墙钟预算可推导（#166 方案 C）---
+# 适配器（agents/workx）按题读 task.toml 的 [agent] timeout_sec 推导
+# WORKX_AGENT_TIMEOUT_SEC（×0.9）。有题读不到 → 那题不下发墙钟 → agent 不知道 deadline，
+# 回到 #137 的原始问题（轮次还够、墙钟先到 → 被硬超时杀 → AgentTimeoutError）。
+# 故逐题校验，读不到即整体失败。
+python - "$OUT_CONFIG" "$MODE" <<'PY'
+import json, os, re, sys
+
+out, mode = sys.argv[1:3]
+cfg = json.load(open(out, encoding="utf-8"))
+root = cfg["datasets"][0]["path"]
+names = cfg["datasets"][0]["task_names"]
+MARGIN = 0.9
+
+
+def agent_timeout(task_dir):
+    try:
+        text = open(os.path.join(task_dir, "task.toml"), encoding="utf-8").read()
+    except OSError:
+        return None
+    try:
+        import tomllib
+
+        value = (tomllib.loads(text).get("agent") or {}).get("timeout_sec")
+        return float(value) if value else None
+    except Exception:
+        pass
+    # 老解释器兜底：分节感知，别把 [verifier]/[environment] 的 timeout 误当 agent 的
+    section = ""
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith("[") and s.endswith("]"):
+            section = s.strip("[]").strip()
+            continue
+        if section == "agent":
+            m = re.match(r"timeout_sec\s*=\s*([0-9]+(?:\.[0-9]+)?)", s)
+            if m:
+                return float(m.group(1))
+    return None
+
+
+missing, budgets = [], []
+for name in names:
+    t = agent_timeout(os.path.join(root, name))
+    if not t:
+        missing.append(name)
+    else:
+        budgets.append((name, t, int(t * MARGIN)))
+
+if missing:
+    print(f"❌ 卡口⑥失败：{len(missing)} 题读不到 [agent] timeout_sec → 这些题不会下发墙钟：")
+    for m in missing[:8]:
+        print(f"    - {m}")
+    sys.exit(1)
+
+lo = min(b for _, _, b in budgets)
+hi = max(b for _, _, b in budgets)
+print(
+    f"✅ 卡口⑥ 墙钟预算可推导：{len(budgets)} 题，预算 {lo}~{hi}s"
+    f"（题面 timeout_sec × {MARGIN}，由适配器按题下发）"
+)
+if mode == "dry":
+    for name, t, b in budgets:
+        print(f"    {name:<32} timeout_sec={t:>7.0f}s -> WORKX_AGENT_TIMEOUT_SEC={b}s")
 PY
 
 # dry 模式：卡口全跑、配置照常生成，但不实际调用 harbor（不花钱）。

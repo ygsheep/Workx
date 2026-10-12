@@ -204,6 +204,22 @@ void register_config_defaults(ConfigManager& cfg) {
                          .int_range = std::make_pair<int64_t, int64_t>(0, 10),
                          .env_var = "WORKX_EMPTY_ANSWER_MAX_RETRIES"});
 
+    // #166 方案 C / #137 建议 3：剩余墙钟收敛阈值。仅当 wall_clock_budget_sec > 0 时生效 ——
+    // 剩余墙钟 <= 该值时注入"收尾 + 验证"提示，<= 阈值/3 时升级为"立即交卷"。
+    // 默认 90s：够跑一次验证并组织答复；0 = 关闭（不注入）。
+    // 独立于 wall_clock_budget_sec 的 env 兜底路径（那个键未注册 schema，见 react_loop）。
+    cfg.register_schema({.key = keys::AGENT_WALL_CLOCK_RESERVE_SEC,
+                         .description =
+                             "Remaining-wall-clock threshold (seconds) that triggers a "
+                             "convergence nudge (#166C). Only active when "
+                             "wall_clock_budget_sec > 0: below it the agent is told to wrap up "
+                             "and verify; below a third of it, to submit immediately. "
+                             "0 disables the nudge.",
+                         .default_value = 90,
+                         .type = ConfigSchema::Type::Int,
+                         .int_range = std::make_pair<int64_t, int64_t>(0, 100000),
+                         .env_var = "WORKX_WALL_CLOCK_RESERVE_SEC"});
+
     // #79：子 Agent 派生护栏。防递归已由"子 Agent 工具集不含 Agent 工具"保证，
     // 剩余风险是规模失控（一次传入上百个 tasks，或多轮累计派生），故设两级上限：
     // 单次批量规模 + 单次 run 累计总量。超限时 AgentTool 整批拒绝并回灌可读错误，

@@ -15,6 +15,7 @@
 #include "agent/config/app_config.h"     // #30：agent::keys::MODEL_NAME / #78：验证门禁键
 #include "agent/core/verdict.h"          // #78：check_goal / has_checker（#31 验证原语）
 #include "agent/prompt/budget_hint.h"    // #83：剩余预算提示
+#include "agent/prompt/wall_clock_hint.h"
 #include "agent/hook/hook_manager.h"     // Issue #50：通用 Hook 事件系统
 #include "agent/skill/inclaude/conditional.h"
 #include "agent/util/git_checkpoint.h"     // #81：git 基线检查点
@@ -688,6 +689,11 @@ void apply_react_knobs(ReActLoop::Config& cfg, const IConfigManager& config_mana
                 }
             }
         }
+        // #166 方案 C：墙钟收敛阈值（秒）。默认取 Config 结构体默认值（90s）；
+        // 0/负 = 关闭（不注入收敛提示）。该键已注册 schema 并绑定
+        // WORKX_WALL_CLOCK_RESERVE_SEC，由 ConfigManager::load_from_env() 统一覆盖。
+        cfg.wall_clock_reserve_sec = config_manager.get_or<int>(keys::AGENT_WALL_CLOCK_RESERVE_SEC,
+                                                               cfg.wall_clock_reserve_sec);
     }
     // #144：Thought 阶段 LLM 请求失败重试次数。默认已在 ReActLoop::Config 里给 2；
     // 设为 0 可恢复旧行为（失败即终止）。该键已在 schema 里绑定
@@ -889,6 +895,9 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
     // #83：低预算提示所需的验证命令，首次进入 Warn 档时探测一次后复用
     bool budget_cmd_probed = false;
     std::string budget_verify_cmd;
+    // #166 方案 C：墙钟收敛提示已注入到的档位（只在档位**升级**时再注入一次，
+    // 避免最后几十秒每轮都往上下文里塞同一条提醒）。Normal 表示尚未注入。
+    prompt::WallClockTier wall_clock_notified = prompt::WallClockTier::Normal;
 
     // 评审上下文用"用户主要任务"（第一条非空 user 消息，截断）而非全量历史
     std::string primary_request;
@@ -909,6 +918,40 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
 
     while (!graceful_stop && budget > 0) {
         result.total_iterations = iteration;
+
+        // --- #166 方案 C / #137 建议 3：剩余墙钟不足 → 主动收敛收尾 ---
+        // 与 #83 的「轮次档位」互补：#137 实测的真实瓶颈是「轮次还够、墙钟先到」。
+        // 放在循环顶部（而非工具轮边界）是为了让提醒尽早进入**下一轮**请求：
+        // 模型一旦收到就有机会在本轮直接交卷，而不是先跑完一个长命令再看提示。
+        // 未配置墙钟预算（wall_clock_budget_sec <= 0）时整体关闭，交互式场景行为不变。
+        if (m_config.wall_clock_budget_sec > 0 && m_config.wall_clock_reserve_sec > 0) {
+            const double remaining_s =
+                static_cast<double>(m_config.wall_clock_budget_sec) -
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - loop_start)
+                    .count();
+            const auto wall_tier =
+                prompt::wall_clock_tier(remaining_s, m_config.wall_clock_reserve_sec);
+            // 只在档位升级时注入（Normal→Warn→Critical 各最多一次）
+            if (wall_tier != prompt::WallClockTier::Normal && wall_tier > wall_clock_notified) {
+                std::string verify_cmd;
+                if (wall_tier == prompt::WallClockTier::Warn) {
+                    if (!budget_cmd_probed) {  // 复用 #83 的探测缓存（同一份验证命令）
+                        budget_cmd_probed = true;
+                        budget_verify_cmd = budget_verification_command(m_config, m_cwd);
+                    }
+                    verify_cmd = budget_verify_cmd;
+                }
+                messages.push_back(ChatMessage::system(
+                    prompt::format_wall_clock_hint(remaining_s, wall_tier, verify_cmd)));
+                LOG_WARN(
+                    "[react_loop] iteration={} wall clock low: {:.0f}s remaining of {}s budget "
+                    "(reserve {}s), injecting convergence hint (tier={})",
+                    iteration, remaining_s, m_config.wall_clock_budget_sec,
+                    m_config.wall_clock_reserve_sec,
+                    wall_tier == prompt::WallClockTier::Critical ? "critical" : "warn");
+                wall_clock_notified = wall_tier;
+            }
+        }
 
         // ================================================================
         // === Thought 阶段 ===

@@ -4,10 +4,17 @@
  * @details 实现 Thought/Action/Observation 三阶段显式分离的 agent 循环，
  *          替代 ChatSession 中的扁平 while 循环。
  *          使用原生 function calling（Anthropic/OpenAI），不依赖文本解析。
- * @version 1.11.0
+ * @version 1.12.0
  * @date 2026-07
  *
  * @par 版本沿革
+ * - 1.12.0（Issue #166 方案 C / #137 建议 3）：剩余墙钟不足时主动收敛。
+ *   新增 `Config::wall_clock_reserve_sec`，主循环在剩余墙钟进入阈值后注入
+ *   `prompt::format_wall_clock_hint` 的 system 提示（Warn=收尾+验证 / Critical=立即交卷）。
+ *   此前只有 #83 的**轮次**档位与 shell 工具的单命令超时封顶：模型始终不知道
+ *   自己有 wall-clock deadline，一路做到被外层硬超时杀掉（trial 记 AgentTimeoutError，
+ *   成果全丢）。实测 20 题里 3 题如此收场（adaptive-rejection-sampler / caffe-cifar-10 /
+ *   feal-linear-cryptanalysis）。默认 90s；未配置墙钟预算时整体关闭，交互式场景不变。
  * - 1.11.0（Issue #166 方案 B）：run_in_background 后台命令结果自动回传。
  *   新增 BackgroundTaskTracker（经 ToolContext 注入工具），工具轮边界 drain 已完成结果
  *   注入对话；模型想收尾但仍有未完成后台任务时先阻塞等待（可取消），
@@ -241,6 +248,13 @@ class WORKX_API ReActLoop {
         ///          单次命令超时。无人值守/评测场景下由宿主（如 WORKX_AGENT_TIMEOUT_SEC）
         ///          注入；不注入则完全关闭，避免影响交互式场景。
         int wall_clock_budget_sec = 0;
+        /// @brief #166 方案 C：剩余墙钟收敛阈值（秒）；<= 0 = 关闭
+        /// @details 仅当 `wall_clock_budget_sec > 0` 时生效。剩余墙钟 <= 该值时向对话注入
+        ///          一条 system 提示，把模型从「继续探索」推向「收尾 + 验证」；
+        ///          剩余 <= 阈值/3 时升级为「立即交卷」，避免被外层硬超时杀掉后
+        ///          trial 记 `AgentTimeoutError`、已完成成果全部作废（#137 的真实瓶颈）。
+        ///          默认 90s（足够跑一次验证并组织答复）。env：WORKX_WALL_CLOCK_RESERVE_SEC。
+        int wall_clock_reserve_sec = 90;
         /// @brief #144：Thought 阶段 LLM 请求失败后的最大重试次数（0 = 保持旧行为立即终止）
         /// @details 失败发生在 Tool 执行之前，**没有任何状态被改变**，重试只是重发同一个请求，
         ///          因此重试不消耗 `max_iterations` / budget。
