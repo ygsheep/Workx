@@ -33,7 +33,7 @@ namespace agent::tool {
 struct BackgroundTaskResult {
     std::string task_name;  ///< TaskManager 任务名（如 bash:3:make -j8）
     std::string tool_name;  ///< 发起工具名（Bash / PowerShell）
-    std::string output;     ///< 已格式化的输出（stdout/stderr/exit code，已截断 + 脱敏）
+    std::string output;  ///< 已格式化的输出（stdout/stderr/exit code，已截断 + 脱敏）
     bool is_error = false;  ///< 命令是否以失败收场（启动失败 / 非零退出 / 超时 / 取消）
 };
 
