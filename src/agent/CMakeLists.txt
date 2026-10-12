@@ -193,6 +193,7 @@ target_sources(workx_agent PRIVATE
     plan/plan_coordinator.cpp
     tool/Task/task_output_tool.cpp
     tool/Task/task_stop_tool.cpp
+    tool/Task/send_message_tool.cpp
     tool/MCPTool/mcp_tool.cpp
     tool/ListMcpResourcesTool/list_mcp_resources_tool.cpp
     tool/ReadMcpResourceTool/read_mcp_resource_tool.cpp

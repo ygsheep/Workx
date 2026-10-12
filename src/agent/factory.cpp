@@ -40,6 +40,7 @@
 #include "agent/tool/BriefTool/BriefTool.h"
 #include "agent/tool/PlanMode/enter_plan_mode_tool.h"
 #include "agent/tool/PlanMode/exit_plan_mode_v2_tool.h"
+#include "agent/tool/Task/send_message_tool.h"
 #include "agent/tool/Task/task_output_tool.h"
 #include "agent/tool/Task/task_stop_tool.h"
 #include "agent/tool/FileEditTool/file_edit_tool.h"
@@ -359,6 +360,8 @@ void register_builtin_tools(tool::ToolRegistry& registry,
     registry.register_tool(std::make_shared<tool::AgentTool>());
     registry.register_tool(std::make_shared<tool::TaskOutputTool>());
     registry.register_tool(std::make_shared<tool::TaskStopTool>());
+    // #52 阶段 C：向运行中后台任务投递补充指令（工具轮边界 drain 生效）
+    registry.register_tool(std::make_shared<tool::SendMessageTool>());
 
     // #24：待办清单（TodoWrite 全量 + TaskV2 细粒度 CRUD）
     registry.register_tool(std::make_shared<tool::TodoWriteTool>());
