@@ -72,9 +72,13 @@ probe_bridge() {
   curl -x "http://127.0.0.1:${BRIDGE_PORT}" -sS --max-time 15 "$PROBE_URL" >/dev/null 2>&1
 }
 
-# 找监听端口的进程（Windows Git Bash 用 netstat；失败不致命，仅用于打印 pid）
+# 找监听端口的进程（Windows Git Bash 用 netstat；找不到就返回空串，**不视为错误**）
+# ⚠️ 末尾的 `|| true` 不可省（#171）：本脚本是 `set -euo pipefail`，监听不存在时
+#    `grep` 无匹配会让**整条管道**返回非零，于是赋值 `pid="$(bridge_pid)"` 本身变成
+#    「失败命令」→ `set -e` 直接终止脚本；此刻还没走到任何 echo，表现为**静默退出、
+#    零输出**——偏偏这正是最想跑 `status` 看个究竟的时候。
 bridge_pid() {
-  netstat -ano 2>/dev/null | grep -E "[.:]${BRIDGE_PORT}[[:space:]]" | grep -i listening | awk '{print $NF}' | head -1
+  netstat -ano 2>/dev/null | grep -E "[.:]${BRIDGE_PORT}[[:space:]]" | grep -i listening | awk '{print $NF}' | head -1 || true
 }
 
 cmd_status() {
@@ -203,9 +207,17 @@ cmd_stop() {
   local pid
   pid="$(bridge_pid)"
   if [ -n "$pid" ]; then
-    # Windows 上 taskkill 按 PID 杀；Git Bash 的 kill 对原生进程不一定生效
-    taskkill //PID "$pid" //F >/dev/null 2>&1 || kill "$pid" 2>/dev/null || true
-    echo "✅ 已停止桥进程 pid=$pid"
+    # Windows 上用 taskkill 按 PID 杀（Git Bash 的 kill 对原生进程不一定生效）。
+    # ⚠️ 必须在**子 shell 里 unset MSYS_NO_PATHCONV** 再调 taskkill（#171 附带发现）：
+    #    本脚本为 docker 挂载 export 了该变量=1，而它会让 `//PID` 不再被规整成 `/PID`，
+    #    taskkill 遂把 `//PID` 当非法参数 → **根本杀不掉**，却因下面吞掉退出码而谎报成功。
+    #    也不能写 `MSYS_NO_PATHCONV=0`：该变量只要**非空**就算启用，置 0 照样禁用转换。
+    if ( unset MSYS_NO_PATHCONV; taskkill //PID "$pid" //F ) >/dev/null 2>&1 \
+       || kill "$pid" 2>/dev/null; then
+      echo "✅ 已停止桥进程 pid=$pid"
+    else
+      echo "⚠️ 未能停止桥进程 pid=$pid（可能需要管理员权限），请手工确认" >&2
+    fi
   else
     echo "⚪ 端口 $BRIDGE_PORT 上没有监听进程"
   fi
