@@ -2,7 +2,7 @@
  * @file agent_tool.cpp
  * @brief AgentTool 实现
  * @details 子 Agent 调度工具的具体实现
- * @version 1.6.0
+ * @version 1.7.0
  * @date 2026-07
  */
 
@@ -19,8 +19,8 @@
 #include "agent/core/react_step_format.h"
 #include "agent/hook/hook_event.h"  // #50 通用 Hook 事件系统：SubagentStart/SubagentStop
 #include "agent/hook/hook_manager.h"
-#include "agent/mcp/mcp_client_manager.h"  // #56 方案 D：子作用域 MCP 管理器
-#include "agent/tool/MCPTool/mcp_tool.h"   // H-1：子 Agent 绑定作用域 manager 的 MCPTool
+#include "agent/mcp/mcp_client_manager.h"       // #56 方案 D：子作用域 MCP 管理器
+#include "agent/tool/MCPTool/mcp_tool.h"        // H-1：子 Agent 绑定作用域 manager 的 MCPTool
 #include "agent/skill/inclaude/skill_prompt.h"  // #56 方案 C：build_skill_full_text 共享取全文
 #include "core/task/task_manager.h"
 #include "core/utils/error.h"
@@ -132,6 +132,11 @@ std::shared_ptr<agent::Task> launch_sub_agent(const SubAgentLaunchOptions& optio
                 loop.set_mcp_manager(mcp_scope.scope);
             }
             std::vector<ChatMessage> messages;
+            if (options.fork_context) {
+                // #159 fork：前缀快照开头（字节一致 → prompt cache 命中），
+                // 任务指令作为新 user 消息追加；skill 预加载插在前缀与指令之间
+                messages = options.fork_context->prefix_messages;
+            }
             // #56 方案 C：按 skill 名预加载全文到初始 system 消息（找不到/非技能静默跳过）
             auto preload = AgentTool::build_skill_preload_messages(
                 options.skills, options.command_registry,
@@ -139,6 +144,12 @@ std::shared_ptr<agent::Task> launch_sub_agent(const SubAgentLaunchOptions& optio
             if (!preload.empty()) {
                 messages.insert(messages.end(), preload.begin(), preload.end());
             }
+            if (options.fork_context) {
+                messages.push_back(ChatMessage::user(options.prompt));
+            }
+            // #159：fork 模式复用父已渲染 system prompt（字节一致）；普通模式 = prompt 原文
+            const std::string& sub_system_prompt =
+                options.fork_context ? options.fork_context->system_prompt : options.prompt;
             // 独立工具集 schema（子 Agent 的 ToolContext.tool_registry 亦指向独立 registry）
             nlohmann::json tools_schema = sub_agent_registry->get_all_schemas();
 
@@ -157,23 +168,22 @@ std::shared_ptr<agent::Task> launch_sub_agent(const SubAgentLaunchOptions& optio
             // maybe_inject_queue 在每个工具轮边界无条件调用（门控在回调内部），
             // 此处取空即返回；多条消息合并为单条 user 消息（与 ChatSession 冲刷语义一致）。
             if (task_ptr) {
-                loop.set_queue_inject_cb(
-                    [task_ptr](std::vector<ChatMessage>& msgs) {
-                        const auto pending = task_ptr->drain_pending_messages();
-                        if (pending.empty()) {
-                            return;
-                        }
-                        std::string merged;
-                        for (const auto& m : pending) {
-                            if (!merged.empty()) merged += "\n\n";
-                            merged += m;
-                        }
-                        msgs.push_back(ChatMessage::user(
-                            std::format("[Parent follow-up instruction]\n{}", merged)));
-                    });
+                loop.set_queue_inject_cb([task_ptr](std::vector<ChatMessage>& msgs) {
+                    const auto pending = task_ptr->drain_pending_messages();
+                    if (pending.empty()) {
+                        return;
+                    }
+                    std::string merged;
+                    for (const auto& m : pending) {
+                        if (!merged.empty()) merged += "\n\n";
+                        merged += m;
+                    }
+                    msgs.push_back(ChatMessage::user(
+                        std::format("[Parent follow-up instruction]\n{}", merged)));
+                });
             }
             ReActResult result = loop.run(
-                messages, options.prompt, tools_schema, should_cancel,
+                messages, sub_system_prompt, tools_schema, should_cancel,
                 [options, &task_ptr](const ReActStep& step) {
                     const std::string line = format_step_line(step);
                     if (task_ptr && !line.empty()) {
@@ -328,7 +338,13 @@ nlohmann::json AgentTool::input_schema() const {
           {"run_in_background",
            {{"type", "boolean"},
             {"description",
-             "Run the sub-agent(s) in background (default true); false waits for completion"}}}}},
+             "Run the sub-agent(s) in background (default true); false waits for completion"}}},
+          {"fork",
+           {{"type", "boolean"},
+            {"description",
+             "Fork mode (default false): the sub-agent inherits the parent's rendered system "
+             "prompt (byte-identical, prompt-cache friendly) and conversation prefix, with the "
+             "task prompt appended as a new user message"}}}}},
         {"anyOf", nlohmann::json::array({{{"required", nlohmann::json::array({"prompt"})}},
                                          {{"required", nlohmann::json::array({"tasks"})}}})},
         {"additionalProperties", false}};
@@ -341,6 +357,8 @@ ResultV2<ToolResult> AgentTool::call(const nlohmann::json& input, const ToolCont
                                          "Agent: input must be an object");
     }
     const bool run_in_background = input.value("run_in_background", true);
+    // #159：fork 模式（复用父 system prompt 字节 + 对话前缀；不可用时回退普通模式）
+    const bool fork_requested = input.value("fork", false);
 
     // v1.1.0：解析顶级 tools 白名单（空/缺失 → 使用全部已注册工具；仅单任务模式生效）
     std::vector<std::string> tool_whitelist;
@@ -357,7 +375,7 @@ ResultV2<ToolResult> AgentTool::call(const nlohmann::json& input, const ToolCont
         std::string prompt;
         std::vector<std::string> tools;
         std::vector<std::string> skills;  // #56 方案 C：子 Agent 预加载 skill 名
-        nlohmann::json mcp_servers;  // #56 方案 D：mcpServers（字符串引用 / inline 对象数组）
+        nlohmann::json mcp_servers;       // #56 方案 D：mcpServers（字符串引用 / inline 对象数组）
     };
 
     // #56 方案 C：解析 skills（string[]，单任务 & 批量任务共用）
@@ -448,6 +466,13 @@ ResultV2<ToolResult> AgentTool::call(const nlohmann::json& input, const ToolCont
     std::vector<std::string> ids;
     tasks.reserve(specs.size());
     ids.reserve(specs.size());
+    // #159 fork：创建时一次性捕获父上下文快照（system prompt 字节 + 消息前缀）。
+    // fork 不可用（非 loop 路径，provider 为空）时静默回退普通模式——
+    // fork 是优化语义而非功能承诺，LLM 侧无需为回退分支处理。
+    std::shared_ptr<const tool::ForkContextSnapshot> fork_ctx;
+    if (fork_requested && ctx.fork_context_provider) {
+        fork_ctx = std::make_shared<const tool::ForkContextSnapshot>(ctx.fork_context_provider());
+    }
     for (const auto& spec : specs) {
         const std::string task_id = generate_agent_task_id('a');
         ids.push_back(task_id);
@@ -455,7 +480,7 @@ ResultV2<ToolResult> AgentTool::call(const nlohmann::json& input, const ToolCont
             .task_id = task_id,
             .prompt = spec.prompt,
             .tool_whitelist = spec.tools,
-            .skills = spec.skills,  // #56 方案 C：子 Agent 预加载 skill 名
+            .skills = spec.skills,                         // #56 方案 C：子 Agent 预加载 skill 名
             .command_registry = ctx.command_registry_ptr,  // #56 方案 C：按名取 skill 全文
             .provider = provider,
             .sub_registry = sub_registry,
@@ -471,9 +496,10 @@ ResultV2<ToolResult> AgentTool::call(const nlohmann::json& input, const ToolCont
                 ctx.mcp_manager_ptr,  // #56 方案 D：父全局 manager（引用复用来源）
             // #157：调用链透传——父 ctx 无链 id（如测试/非 loop 路径）时在此生成链根，
             //       保证派生链总有 id；子 Agent 深度 = 父 depth + 1
-            .chain_id =
-                ctx.chain_id.empty() ? generate_agent_task_id('q') : ctx.chain_id,
+            .chain_id = ctx.chain_id.empty() ? generate_agent_task_id('q') : ctx.chain_id,
             .chain_depth = ctx.chain_depth + 1,
+            // #159 fork：父上下文快照（空 = 普通模式）
+            .fork_context = fork_ctx,
         }));
     }
 

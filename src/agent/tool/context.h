@@ -3,7 +3,7 @@
  * @brief ToolContext — 工具执行上下文
  * @details 在工具执行过程中传递的运行时信息：会话 ID、工作目录、权限模式、取消信号、
  *          任务管理器、进度回调
- * @version 1.6.0
+ * @version 1.7.0
  * @date 2026-07
  */
 
@@ -16,6 +16,8 @@
 #include <functional>
 #include <memory>
 #include <nlohmann/json.hpp>
+
+#include "agent/api/chat_types.h"  // #159：ForkContextSnapshot 携带消息前缀
 
 namespace agent {
 
@@ -58,6 +60,15 @@ class ToolRegistry;
 ///          由 ReActLoop 注入，最终通过 EventBus 发布到 UI。
 /// @param progress_text 进度文本
 using ProgressCallback = std::function<void(const std::string& progress_text)>;
+
+/// @brief #159：fork 子 Agent 的父上下文快照（创建时一次性捕获，不随后续父历史增长）
+/// @details system_prompt 复用父已渲染字节（prompt cache 以字节前缀判定命中）；
+///          prefix_messages 为父已完成对话前缀，fork 子 Agent 在其后追加任务指令。
+///          对齐 cc subagent-fork-in-process 语义（one-shot：快照一次性捕获）。
+struct ForkContextSnapshot {
+    std::string system_prompt;                 ///< 父已渲染 system prompt（字节一致复用）
+    std::vector<ChatMessage> prefix_messages;  ///< 父对话前缀快照（system 外的全部历史）
+};
 
 /// @brief 权限模式（#36 统一权限决策层）
 /// @details 工具 check_permissions 的决策依据，由宿主在构造 ToolContext 时注入：
@@ -139,8 +150,7 @@ class SubAgentBudget {
    public:
     /// @param max_batch 单次批量上限（<=0 表示不限）
     /// @param max_total 单次 run 累计上限（<=0 表示不限）
-    SubAgentBudget(int max_batch, int max_total)
-        : max_batch_(max_batch), max_total_(max_total) {}
+    SubAgentBudget(int max_batch, int max_total) : max_batch_(max_batch), max_total_(max_total) {}
 
     /// @brief 尝试预约 n 个子 Agent 额度（成功则计数已扣除）
     /// @param n 本次拟派生数量
@@ -241,6 +251,16 @@ struct ToolContext {
     /// @note 当前防递归机制（子 Agent 不携带 Agent 工具）使嵌套封顶一层，
     ///       字段先行落地，为后续派生策略放开/链路审计预留。
     int chain_depth = 0;
+
+    /// @brief #159：当前循环已渲染 system prompt 指针（AgentTool fork 模式字节一致复用）
+    /// @details 指向 run() 的 system_prompt 参数，仅在本次 run() 期间有效——
+    ///          工具调用都发生在 run() 内部，生命周期安全；可为 nullptr（测试路径）。
+    const std::string* system_prompt_ptr = nullptr;
+
+    /// @brief #159：fork 快照回调（fork=true 时 AgentTool 调用一次捕获父上下文）
+    /// @details ReActLoop 注入：捕获调用时刻的 system prompt 与消息前缀。
+    ///          空 = fork 不可用（未走 ReActLoop 的路径），AgentTool 回退普通模式。
+    std::function<ForkContextSnapshot()> fork_context_provider;
 
     /// @brief 权限模式变更回调类型（#28：EnterPlanMode/ExitPlanMode 注入路径）
     /// @details 工具通过 set_permission_mode() 请求模式切换，由宿主（ReActLoop）
