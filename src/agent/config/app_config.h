@@ -2,7 +2,7 @@
  * @file app_config.h
  * @brief 应用配置键定义与配置加载
  * @details 配置键常量、默认值注册、环境变量/配置文件加载
- * @version 1.1.0
+ * @version 1.2.0
  * @date 2026-07
  */
 
