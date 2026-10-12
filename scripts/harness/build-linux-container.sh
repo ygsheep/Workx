@@ -11,6 +11,9 @@
 #      MSYS 挂载会让 CMake 探测不到编译器，报 "no CMAKE_CXX_COMPILER could be found"。
 #      只有 vcpkg 目录适合挂出来复用（省掉每次重编 curl/openssl 的时间）。
 #   3. Git Bash 跑本脚本要加 MSYS_NO_PATHCONV=1（否则 D:/... 会被转成 PortableGit 路径）。
+#   4. 旧 glibc 兼容（debian:bookworm 2.36，terminal-bench 数据集镜像）靠
+#      src/tui/glibc_isoc23_shim.c + -static-libstdc++ 固化在 CMake 里，已不需要
+#      手工重链；[7] 卡口用 bookworm 容器实测产物能否启动，别跳过。
 #
 # 用法：MSYS_NO_PATHCONV=1 bash scripts/harness/build-linux-container.sh
 # 产物：build/linux/workx-linux-amd64（旧版会被备份成 .old-<日期>）
@@ -90,3 +93,24 @@ echo "[6] 产物已导出 -> $OUT（size=$(wc -c < "$OUT") bytes）"
 #    得出「修复有效」的假结论。签名必须对得上源头。
 # --version 输出的 `-g<hash>` 应当等于当前 HEAD 的短 hash。
 python scripts/harness/check_binary_signature.py "$OUT"
+
+# [7] bookworm 实测卡口：老 glibc（2.36）容器里必须能启动。
+# ubuntu:24.04 编出的产物默认引用 GLIBC_2.38+ 符号，bookworm 系镜像载入即崩；
+# 2026-10-12 就曾带着这种二进制跑了半轮 20 题（9/20 agent 根本没启动）。
+# glibc 兼容已由 CMake 固化（见脚本头部坑 #4），本卡口验证它真的生效。
+BOOKWORM_IMG=debian:bookworm
+if ! docker image inspect "$BOOKWORM_IMG" >/dev/null 2>&1; then
+  docker pull -q "$BOOKWORM_IMG" >/dev/null 2>&1 \
+    || { # 加速器 403 时走 daocloud 镜像源兜底（2026-10-12 实测）
+         docker pull -q "docker.m.daocloud.io/library/debian:bookworm" >/dev/null 2>&1 \
+           && docker tag "docker.m.daocloud.io/library/debian:bookworm" "$BOOKWORM_IMG"; } \
+    || { echo "❌ [7] 拉不到 $BOOKWORM_IMG，无法做旧 glibc 冒烟"; exit 1; }
+fi
+HOST_BIN_DIR="$(pwd -W 2>/dev/null || pwd)"
+if ! MSYS_NO_PATHCONV=1 docker run --rm \
+    -v "$HOST_BIN_DIR/build/linux:/opt/binwork:ro" \
+    "$BOOKWORM_IMG" /opt/binwork/workx-linux-amd64 --version; then
+  echo "❌ [7] bookworm 冒烟失败：产物对老 glibc 不可用（检查 shim 与 -static-libstdc++ 是否生效）" >&2
+  exit 1
+fi
+echo "[7] bookworm 实测通过：旧 glibc（2.36）可正常载入运行"
