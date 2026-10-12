@@ -5,7 +5,8 @@
 
 | 脚本 | 作用 | 对应的翻车 |
 | --- | --- | --- |
-| [`run-harbor-replay.sh`](run-harbor-replay.sh) | 复跑一轮 Harbor（含**四道跑前卡口**） | 拿旧二进制/坏模型跑满一小时才发现白跑 |
+| [`run-harbor-replay.sh`](run-harbor-replay.sh) | 复跑一轮 Harbor（含**五道跑前卡口** + `dry` 体检模式） | 拿旧二进制/坏模型跑满一小时才发现白跑 |
+| [`harbor-proxy.sh`](harbor-proxy.sh) | 代理桥（HTTP→SOCKS5）起停 + docker 构建期代理 + 运行期 env 注入 | 容器直连境外源被干扰，caffe 题下 170MB 数据+源码编译全废 |
 | [`build-linux-container.sh`](build-linux-container.sh) | 在 Docker 里重建 Linux 二进制的完整配方 | 构建配方没留过档；不同潜意识复用错了 IOC 配置 |
 | [`check_binary_signature.py`](check_binary_signature.py) | 校验产物二进制是否含目标改动 | 用没编进 #133 的二进制得出「#133 有效」的假结论 |
 | [`fix_dataset_lineendings.py`](fix_dataset_lineendings.py) | 数据集行尾守卫（CRLF → LF） | Windows `autocrlf=true` 让 checksum 校验题**必然失败** |
@@ -18,11 +19,13 @@
 ## 跑一轮 Harbor：`run-harbor-replay.sh`
 
 唯一变量是**二进制**：用 `--config` 喂 JobConfig，datasets / agents / mounts / 并发数
-全部与基准轮对齐。跑前四道卡口缺一不可：
+全部与基准轮对齐。跑前五道卡口缺一不可：
 
 ```bash
+MSYS_NO_PATHCONV=1 bash scripts/harness/harbor-proxy.sh start         # 跑分前：起代理桥（见下节）
 MSYS_NO_PATHCONV=1 bash scripts/harness/run-harbor-replay.sh          # 全量 20 题
 MSYS_NO_PATHCONV=1 bash scripts/harness/run-harbor-replay.sh smoke    # 3 题，约 20~36 分钟
+MSYS_NO_PATHCONV=1 bash scripts/harness/run-harbor-replay.sh dry      # 只体检：跑卡口 + 生成配置，不调 harbor（不花钱）
 ```
 
 | 卡口 | 检查什么 | 不过会发生什么 |
@@ -31,10 +34,52 @@ MSYS_NO_PATHCONV=1 bash scripts/harness/run-harbor-replay.sh smoke    # 3 题，
 | ② 模型连通 | 真打一次 `/chat/completions` | 整轮 trial 全 0 且看不出错在哪 |
 | ③ 数据集行尾 | `.cache/tb2/terminal-bench` 是否 LF | checksum 题必挂、`*.sh` bad interpreter |
 | ④ 模型名对齐 | JobConfig 的 `model_name` = `WORKX_MODEL` | 产物元信息与实际调用不符，无法追溯 |
+| ⑤ 代理桥连通 | `harbor-proxy.sh check`（HTTP→SOCKS5 桥真拉一次境外文件） | 容器直连境外源被干扰，整轮耗在重试上 |
 
 前提：仓库根有 `.env.harbor`（`WORKX_API_KEY=...`，已被 gitignore，模板见
 `.env.harbor.example`）。Windows/Git Bash 下三个必踩的坑已在脚本注释里写明：
 `MSYS_NO_PATHCONV=1`、`PATH` 要含 `~/.local/bin`、`PYTHONPATH` 必须 `$(pwd -W)`。
+
+## 评测环境网络代理：`harbor-proxy.sh`
+
+背景（#166 方案 A）：跑分容器直连境外数据集/源码会被干扰——caffe 题下载 CIFAR-10
+出现 SSL `UNEXPECTED_EOF`、`aria2c` 直接报错退出、`wget` 单连接仅 ~92 KB/s 且反复断流；
+挂代理后 `apt-get` / `git clone` 秒过。本机只有 socks5 代理，而 `wget`/`aria2c`/`apt`
+对 socks5 支持不全，所以中间加一层 **HTTP→SOCKS5 桥**（pproxy）：
+
+```
+容器 --HTTP--> 宿主桥(0.0.0.0:18888) --SOCKS5--> 上游代理 --> 外网
+```
+
+两个注入点，缺一不可：
+
+| 阶段 | 落点 | 谁负责 |
+| --- | --- | --- |
+| 构建期（`docker/compose build` 拉 apt/pip 包） | `~/.docker/config.json` 的 `proxies` 段（docker 会转成 build-arg） | `harbor-proxy.sh start` |
+| 运行期（agent 在容器内下载/编译） | JobConfig 的 `environment.env` | `run-harbor-replay.sh` 卡口⑤自动注入 |
+
+`no_proxy` **必须排除 `*.deepseek.com`**：LLM 调用绕行代理会明显变慢，且代理一断整轮跑分全废。
+
+```bash
+bash scripts/harness/harbor-proxy.sh status      # 看桥 + docker 构建代理状态
+bash scripts/harness/harbor-proxy.sh start       # 起桥 + 注入 docker 构建代理（幂等，已在跑就复用）
+bash scripts/harness/harbor-proxy.sh env-json    # 打印运行期注入用的 JSON
+bash scripts/harness/harbor-proxy.sh docker-off  # 撤销 docker 构建代理（配置文件有 .workx-backup 备份）
+bash scripts/harness/harbor-proxy.sh stop        # docker-off + 停桥
+```
+
+**大文件下载仍要显式多连接**：代理下单连接实测 ~67 KB/s，`aria2c -x16 --all-proxy=...`
+叠加到 ~461 KB/s（170MB 从 ~40 分钟压到 ~6 分钟）。注意 `aria2c` **不读环境变量代理**，
+必须显式传 `--all-proxy`。
+
+### 两个 MSYS 陷阱（都真踩过，写进脚本注释了）
+
+1. 脚本开了 `MSYS_NO_PATHCONV=1`，`curl -o /dev/null` 里的 `/dev/null` 不再被转成 `NUL`，
+   Windows 版 curl 会报 `(23) client returned ERROR on write` —— 表现为「桥明明通、探活说不行」。
+   改用 shell 重定向。
+2. 同样因为不再转路径，把 `/c/Users/...` 当参数传给 Windows 版 python，会被解析成
+   **当前盘符**下的路径（在 D: 盘跑就写进 `D:\c\Users\...`），静默写错位置。
+   碰 `~/.docker/config.json` 的 python 代码一律在 python 侧 `os.path.expanduser("~")` 自己算路径。
 
 ## 重建 Linux 二进制：`build-linux-container.sh`
 
