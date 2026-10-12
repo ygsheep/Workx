@@ -2,7 +2,7 @@
  * @file agent_tool.h
  * @brief AgentTool — 子 Agent 调度工具
  * @details 启动子 Agent 执行复杂任务
- * @version 1.4.0
+ * @version 1.5.0
  * @date 2026-07
  */
 
@@ -81,10 +81,10 @@ struct SubAgentLaunchOptions {
     std::string task_id;  ///< 任务 id（AgentTool 生成 'a'+8 随机；Plan 用 "pa-N"）
     std::string prompt;   ///< 子 Agent 任务 prompt
     std::vector<std::string> tool_whitelist;  ///< 工具白名单（空 → 全部已注册工具）
-    std::vector<std::string> skills;  ///< #56 方案 C：预加载到初始消息的 skill 名
+    std::vector<std::string> skills;          ///< #56 方案 C：预加载到初始消息的 skill 名
     const command::CommandRegistry* command_registry =
-        nullptr;  ///< #56 方案 C：按名取 skill 全文（非拥有）
-    ICompletionProvider* provider = nullptr;  ///< LLM provider（宿主保证存活于会话周期）
+        nullptr;                                 ///< #56 方案 C：按名取 skill 全文（非拥有）
+    ICompletionProvider* provider = nullptr;     ///< LLM provider（宿主保证存活于会话周期）
     std::shared_ptr<ToolRegistry> sub_registry;  ///< 父会话工具注册表（构建子 Agent 独立工具集）
     IConfigManager* config_manager = nullptr;
     ITaskManager* task_manager = nullptr;
@@ -100,6 +100,10 @@ struct SubAgentLaunchOptions {
     // --- v1.4.0 #157 调用链透传 ---
     std::string chain_id;  ///< 父调用链 id（来自父 ToolContext；空=无链路上下文）
     int chain_depth = 0;   ///< 本子 Agent 链路深度（AgentTool::call 填充父 depth + 1）
+
+    /// @brief #159 fork：父上下文快照（非空时子 Agent 复用父 system prompt 字节
+    ///          并以前缀历史开头；空 = 普通模式，system_prompt = prompt 原文）
+    std::shared_ptr<const ForkContextSnapshot> fork_context;
 };
 
 /// @brief 启动单个子 Agent 任务

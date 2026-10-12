@@ -505,6 +505,88 @@ TEST_CASE_METHOD(TaskToolsFixture, "SendMessage drain injects follow-up at sub-a
     REQUIRE(all_drained);
 }
 
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool fork reuses parent system prompt bytes and prefix",
+                 "[fork159]") {
+    MockEventBus bus;
+    auto& tm = TaskManager::instance();
+    MockConfigManager cfg;
+    ToolContext ctx;
+
+    const std::string parent_sys = "PARENT RENDERED SYSTEM PROMPT v1";
+    std::vector<ChatMessage> prefix;
+    prefix.push_back(ChatMessage::user("earlier user context"));
+    prefix.push_back(ChatMessage::assistant("earlier assistant reply"));
+
+    // 模拟 ReActLoop 注入（生产路径 react_loop.cpp 的 ctx 构建点）
+    ctx.system_prompt_ptr = &parent_sys;
+    ctx.fork_context_provider = [&parent_sys, &prefix]() {
+        return ForkContextSnapshot{parent_sys, prefix};
+    };
+
+    auto provider = std::make_shared<MockCompletionProvider>();
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->add_content_chunk("fork done");
+    provider->set_next_reader(reader);
+    fill_ctx(ctx, bus, tm, cfg, provider.get());
+
+    AgentTool tool;
+    auto r = tool.call(
+        nlohmann::json{{"prompt", "fork task"}, {"fork", true}, {"run_in_background", false}},
+        ctx);
+    REQUIRE(r.is_ok());
+
+    // 请求消息：[0] = system（字节一致复用父渲染 prompt）→ cache 前缀命中的前提
+    REQUIRE_FALSE(provider->last_messages.empty());
+    REQUIRE(provider->last_messages[0].role == ChatMessage::Role::System);
+    REQUIRE(provider->last_messages[0].content == parent_sys);
+
+    // 前缀历史完整保留 + 任务指令作为最后一条 user 消息
+    bool has_prefix_user = false, has_prefix_assistant = false, last_is_instruction = true;
+    for (const auto& m : provider->last_messages) {
+        if (m.role == ChatMessage::Role::User && m.content == "earlier user context")
+            has_prefix_user = true;
+        if (m.role == ChatMessage::Role::Assistant && m.content == "earlier assistant reply")
+            has_prefix_assistant = true;
+    }
+    const ChatMessage& last = provider->last_messages.back();
+    if (last.role != ChatMessage::Role::User || last.content != "fork task") {
+        last_is_instruction = false;
+    }
+    REQUIRE(has_prefix_user);
+    REQUIRE(has_prefix_assistant);
+    REQUIRE(last_is_instruction);
+}
+
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool fork falls back to plain mode without snapshot",
+                 "[fork159]") {
+    MockEventBus bus;
+    auto& tm = TaskManager::instance();
+    MockConfigManager cfg;
+    ToolContext ctx;
+
+    // fork 不可用路径（非 loop：无 system_prompt_ptr / 无 provider 回调）
+    auto provider = std::make_shared<MockCompletionProvider>();
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->add_content_chunk("plain done");
+    provider->set_next_reader(reader);
+    fill_ctx(ctx, bus, tm, cfg, provider.get());
+
+    AgentTool tool;
+    auto r = tool.call(
+        nlohmann::json{{"prompt", "plain prompt text"}, {"fork", true},
+                       {"run_in_background", false}},
+        ctx);
+    REQUIRE(r.is_ok());
+
+    // 回退普通模式：system = prompt 原文，无前缀（fork 不改变功能承诺）
+    REQUIRE_FALSE(provider->last_messages.empty());
+    REQUIRE(provider->last_messages[0].role == ChatMessage::Role::System);
+    REQUIRE(provider->last_messages[0].content == "plain prompt text");
+    for (const auto& m : provider->last_messages) {
+        REQUIRE(m.content.find("earlier user context") == std::string::npos);
+    }
+}
+
 TEST_CASE_METHOD(TaskToolsFixture, "AgentTool streams sub-agent progress events incrementally",
                  "[agent_tool][review]") {
     MockEventBus bus;

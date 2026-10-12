@@ -1289,6 +1289,12 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
         //       AgentTool 经 set_query_chain 设置），供 AgentTool 透传与审计关联
         ctx.chain_id = m_chain_id;
         ctx.chain_depth = m_chain_depth;
+        // #159：注入已渲染 system prompt（指针仅本次 run() 有效，工具调用都在 run() 内）
+        //       与 fork 快照回调——AgentTool fork=true 时字节一致复用父上下文
+        ctx.system_prompt_ptr = &system_prompt;
+        ctx.fork_context_provider = [&messages, &system_prompt]() {
+            return tool::ForkContextSnapshot{system_prompt, messages};
+        };
         // #30：注入 git 环境字段，工具改前可做分支/未提交风险提示
         ctx.git_branch = turn_env_probe.git_branch;
         ctx.git_has_uncommitted = turn_env_probe.git_has_uncommitted;
