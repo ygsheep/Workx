@@ -71,6 +71,16 @@ add_executable(workx
     wizard.cpp
 )
 
+# --- Linux：glibc strtol 兼容 shim + libstdc++/libgcc 静态化 ---
+# 产物要能在老 glibc（debian:bookworm 2.36，terminal-bench 数据集镜像）上
+# 运行。新工具链（GCC 13 / glibc 2.39）引入的 __isoc23_strtol* 依赖与
+# GLIBCXX 动态版本要求都会让老系统载入即失败。两者缺一不可，详见
+# glibc_isoc23_shim.c 头部注释。
+if(UNIX AND NOT APPLE)
+    target_sources(workx PRIVATE glibc_isoc23_shim.c)
+    target_link_options(workx PRIVATE -static-libstdc++ -static-libgcc)
+endif()
+
 # ============================================================
 # workx 目标的应用图标与运行时资源打包
 # 注意：add_custom_command(TARGET workx POST_BUILD ...) 必须在 workx
