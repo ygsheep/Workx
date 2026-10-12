@@ -56,15 +56,15 @@ const std::string& SendMessageTool::prompt() const {
 }
 
 nlohmann::json SendMessageTool::input_schema() const {
-    return {{"type", "object"},
-            {"properties",
-             {{"task_id",
-               {{"type", "string"}, {"description", "The ID of the target background task"}}},
-              {"message",
-               {{"type", "string"},
-                {"description", "The follow-up instruction text to deliver"}}}}},
-            {"required", {"task_id", "message"}},
-            {"additionalProperties", false}};
+    return {
+        {"type", "object"},
+        {"properties",
+         {{"task_id",
+           {{"type", "string"}, {"description", "The ID of the target background task"}}},
+          {"message",
+           {{"type", "string"}, {"description", "The follow-up instruction text to deliver"}}}}},
+        {"required", {"task_id", "message"}},
+        {"additionalProperties", false}};
 }
 
 ResultV2<ToolResult> SendMessageTool::call(const nlohmann::json& input,
