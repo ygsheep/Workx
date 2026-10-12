@@ -162,7 +162,7 @@ python scripts/harness/export_run.py --self-test
 
 # 导出整个 job 到 jobs/<job-id>/export/
 python scripts/harness/export_run.py --runs-dir jobs/<job-id> \
-       --model deepseek-v4-flash --copy-raw
+       --model deepseek-flash --copy-raw
 
 # 顺手装进 ~/.workx/projects/terminal-bench-<题名>/ 给本地会话工具看
 python scripts/harness/export_run.py --runs-dir jobs/<job-id> --to-workx-projects

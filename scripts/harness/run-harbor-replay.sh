@@ -26,11 +26,11 @@ export PATH="$HOME/.local/bin:$PATH"   # harbor 由 uv tool 装在这里，非�
 # 收到 /d/develop/... 这种 POSIX 路径，sys.path 里就找不到 agents.workx。
 export PYTHONPATH=$(pwd -W)
 export WORKX_BASE_URL=https://api.deepseek.com
-# ⚠️ 模型改名过一次：首轮用的是 `deepseek-v4-flash`，2026-10-04 实测
-# /v1/models 只列得出 deepseek-flash / deepseek-v4-pro，但 `deepseek-v4-flash`
-# 与 `deepseek-v4-flash-vision-exp` 仍能调用（服务端统一映射到 deepseek-flash）。
+# ⚠️ 模型改名过两次：首轮是 `deepseek-v4-flash`；2026-10-04 实测
+# `deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` 仍能调用（服务端统一映射到 deepseek-flash）；
+# 2026-10-11 起官方名称即 `deepseek-flash`（见 .env.harbor.example）。
 # **改模型务必先 curl 打一次 chat/completions 确认 200**，否则整轮跑分全废。
-export WORKX_MODEL=${WORKX_MODEL:-deepseek-v4-flash-vision-exp}
+export WORKX_MODEL=${WORKX_MODEL:-deepseek-flash}
 # ⚠️ 必须抬高：http_client.cpp:394 把总超时取 max(timeout_ms, 120000)，
 # 默认值 30000 会被拉到 **120 秒**。thinking 模型在长任务中后段（上下文 35KB+）
 # 单次生成很容易超过 2 分钟 → `Total request timeout exceeded` →

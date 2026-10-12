@@ -6,7 +6,7 @@
  *          - 参数校验（缺 command / 空 command）
  *          - 同步执行（echo 命令）
  *          - 超时/取消路径
- *          - 后台任务（TaskManager nullptr 检查）
+ *          - 后台任务（TaskManager nullptr 检查 / #166 结果回传追踪器）
  *          - 进度回调（report_progress 触发）
  *
  *          跨平台命令选择：
@@ -253,6 +253,106 @@ TEST_CASE("BashTool background cancel kills process and marks Cancelled",
     REQUIRE(bg_task->getStatus() == TaskStatus::Cancelled);
 
     // 清理：取消全部遗留任务并清空事件队列，避免影响其他测试
+    task_mgr.cancelAll();
+    task_mgr.waitForAll();
+    task_mgr.update();
+    EventBus::instance().clear();
+}
+#endif  // !_WIN32
+
+// ============================================================
+// #166：后台任务结果回传（BackgroundTaskTracker）
+// ============================================================
+
+TEST_CASE("#166 BackgroundTaskTracker 基本语义", "[tool][background][tracker]") {
+    auto tracker = BackgroundTaskTracker::create();
+    REQUIRE_FALSE(tracker->has_pending());
+    REQUIRE(tracker->pending_count() == 0);
+
+    tracker->add_pending("bash:1:echo hi");
+    REQUIRE(tracker->has_pending());
+    REQUIRE(tracker->pending_count() == 1);
+
+    // drain 只取已完成结果，不触碰 pending
+    REQUIRE(tracker->drain_completed().empty());
+    REQUIRE(tracker->has_pending());
+
+    tracker->mark_done(
+        BackgroundTaskResult{"bash:1:echo hi", "Bash", "<stdout>\nhi\n</stdout>\n", false});
+    REQUIRE_FALSE(tracker->has_pending());  // mark_done 同时移出 pending
+    REQUIRE(tracker->pending_count() == 0);
+
+    auto done = tracker->drain_completed();
+    REQUIRE(done.size() == 1);
+    REQUIRE(done[0].task_name == "bash:1:echo hi");
+    REQUIRE(done[0].tool_name == "Bash");
+    REQUIRE(done[0].output.find("hi") != std::string::npos);
+    REQUIRE_FALSE(done[0].is_error);
+
+    // 取走后队列清空（幂等，不重复回传）
+    REQUIRE(tracker->drain_completed().empty());
+}
+
+TEST_CASE("#166 BackgroundTaskTracker remove_pending 撤销登记", "[tool][background][tracker]") {
+    auto tracker = BackgroundTaskTracker::create();
+    tracker->add_pending("bash:7:true");
+    tracker->remove_pending("bash:7:true");
+    REQUIRE_FALSE(tracker->has_pending());
+
+    // 撤销后仍可安全 mark_done（不会重复移除/越界）
+    tracker->mark_done(BackgroundTaskResult{"bash:7:true", "Bash", "ok", false});
+    REQUIRE(tracker->drain_completed().size() == 1);
+}
+
+#ifndef _WIN32
+TEST_CASE("#166 BashTool 后台任务完成后结果进入追踪器", "[tool][bash][background][callback]") {
+    // run_in_background=true：工具立即返回（非阻塞），任务完成后
+    // 结果写入 tracker（tool_name/output/is_error），供 ReActLoop drain 注入对话。
+    EventBus::instance().clear();
+    auto& task_mgr = TaskManager::instance();
+    task_mgr.cancelAll();
+    task_mgr.waitForAll();
+    task_mgr.update();
+
+    auto tracker = BackgroundTaskTracker::create();
+    ToolContext ctx;
+    fill_ctx(ctx);
+    ctx.task_manager_ptr = &task_mgr;
+    ctx.background_tracker = tracker;
+
+    BashTool tool;
+    nlohmann::json input = {{"command", "echo bg_callback_ok"}, {"run_in_background", true}};
+    auto r = tool.call(input, ctx);
+    REQUIRE(r.is_ok());
+
+    // 从返回文本提取 task_id（格式 "ID: bash:<n>:<cmd>"）
+    const std::string text = r.value().text;
+    const std::string prefix = "ID: ";
+    REQUIRE(text.find(prefix) != std::string::npos);
+    std::string id = text.substr(text.find(prefix) + prefix.size());
+    id = id.substr(0, id.find('\n'));
+    REQUIRE(id.rfind("bash:", 0) == 0);
+
+    // 注：echo 命令可能在下一行执行前就已执行完毕，故不断言"此刻仍 pending"。
+    // 完成后结果必须恰好回传一次（下面的断言覆盖完整路径）。
+    std::shared_ptr<Task> bg_task;
+    for (const auto& t : task_mgr.getTasks()) {
+        if (t->getName() == id) {
+            bg_task = t;
+            break;
+        }
+    }
+    REQUIRE(bg_task != nullptr);
+    task_mgr.wait(bg_task);  // 等待后台命令执行完毕（mark_done 已完成）
+
+    REQUIRE_FALSE(tracker->has_pending());
+    auto done = tracker->drain_completed();
+    REQUIRE(done.size() == 1);
+    REQUIRE(done[0].task_name == id);
+    REQUIRE(done[0].tool_name == "Bash");
+    REQUIRE(done[0].output.find("bg_callback_ok") != std::string::npos);
+    REQUIRE_FALSE(done[0].is_error);
+
     task_mgr.cancelAll();
     task_mgr.waitForAll();
     task_mgr.update();

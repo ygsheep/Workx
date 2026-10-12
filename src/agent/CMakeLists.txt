@@ -180,6 +180,7 @@ target_sources(workx_agent PRIVATE
     tool/GrepTool/grep_tool.cpp
     tool/BashTool/bash_tool.cpp
     tool/PowerShellTool/powershell_tool.cpp
+    tool/background_task_tracker.h  # #166：后台任务结果回传追踪器（纯头，IDE 导航）
     tool/ShellTool/shell_detector.cpp
     tool/ShellTool/sandbox_visibility.cpp
     tool/AgentTool/agent_tool.cpp

@@ -3,13 +3,14 @@
  * @brief PowerShellTool 实现
  * @details Windows PowerShell 命令执行工具的具体实现。
  *          结构对齐 BashTool，复用 shell_tool_common 的辅助函数。
- * @version 1.0.1
+ * @version 1.1.0
  * @date 2026-07
  */
 
 #include "agent/tool/PowerShellTool/powershell_tool.h"
 
 #include "agent/tool/ShellTool/shell_tool_common.h"
+#include "agent/tool/background_task_tracker.h"
 #include "agent/tool/permission_ask.h"
 #include "agent/tool/secret_scanner.h"
 #include "agent/tool/command_policy.h"
@@ -141,8 +142,10 @@ const std::string& PowerShellTool::prompt() const {
         "- Prefer specialized tools (FileRead/FileEdit/FileWrite/Grep/Glob) when applicable\n"
         "- Use `description` to briefly explain what the command does (5-10 words)\n"
         "- Set `timeout` for long-running commands (max 600000ms)\n"
-        "- Use `run_in_background=true` for long-running commands whose output "
-        "you don't immediately need\n"
+        "- Use `run_in_background=true` for long-running commands: they run without "
+        "blocking you, and their output is automatically delivered back to you "
+        "when they finish (use it for builds/tests/downloads you can wait on "
+        "while doing other work)\n"
         "- Avoid interactive cmdlets: `Read-Host`, `Get-Credential`, `PromptForChoice` "
         "(the shell runs in -NonInteractive mode)\n"
         "- Commands run in the current working directory by default\n"
@@ -451,48 +454,83 @@ ResultV2<ToolResult> PowerShellTool::execute_background(const std::string& comma
     const size_t task_id = s_task_id_counter.fetch_add(1, std::memory_order_relaxed);
     std::string task_name = "ps:" + std::to_string(task_id) + ":" + command.substr(0, 40);
 
+    // #166：后台任务结果回传——启动前登记 pending，任务结束时把结果回传追踪器。
+    // 必须在 launch 之前 add_pending（理由同 BashTool：避免瞬时任务导致 pending 残留）。
+    auto tracker = ctx.background_tracker;
+    if (tracker) {
+        tracker->add_pending(task_name);
+    }
+
     auto& tm = ctx.task_manager();
     auto task = tm.launch(
         task_name,
-        [command, cwd, timeout_ms, wrapped, task_name](const std::atomic<bool>& should_cancel) {
-            process::ExecOptions opts;
-            opts.cwd = cwd;
-            opts.args = wrapped.args;
-            // #84 方案 B：后台路径同样带上进程级约束（超时/取消时连带杀全树）
-            opts.isolation = wrapped.isolation;
-            if (timeout_ms > 0) {
-                opts.timeout = std::chrono::milliseconds(timeout_ms);
-            }
-            opts.is_cancelled = [&should_cancel]() {
-                return should_cancel.load(std::memory_order_acquire);
+        [command, cwd, timeout_ms, wrapped, task_name, tracker](
+            const std::atomic<bool>& should_cancel) {
+            // 保证恰好回传一次（含启动失败/异常路径），否则追踪器 pending 永久挂起。
+            bool reported = false;
+            auto report = [&](std::string text, bool is_err) {
+                if (tracker && !reported) {
+                    reported = true;
+                    tracker->mark_done(
+                        BackgroundTaskResult{task_name, "PowerShell", std::move(text), is_err});
+                }
             };
+            try {
+                process::ExecOptions opts;
+                opts.cwd = cwd;
+                opts.args = wrapped.args;
+                // #84 方案 B：后台路径同样带上进程级约束（超时/取消时连带杀全树）
+                opts.isolation = wrapped.isolation;
+                if (timeout_ms > 0) {
+                    opts.timeout = std::chrono::milliseconds(timeout_ms);
+                }
+                opts.is_cancelled = [&should_cancel]() {
+                    return should_cancel.load(std::memory_order_acquire);
+                };
 
-            auto exec_result = process::exec(wrapped.cmd, opts);
-            if (exec_result.is_err()) {
-                const auto& err = exec_result.error();
-                throw std::runtime_error("Failed to execute PowerShell command: " + err.message);
+                auto exec_result = process::exec(wrapped.cmd, opts);
+                if (exec_result.is_err()) {
+                    const auto& err = exec_result.error();
+                    report(std::format("Failed to execute PowerShell command: {}", err.message),
+                           true);
+                    throw std::runtime_error("Failed to execute PowerShell command: " + err.message);
+                }
+                auto& out = exec_result.value();
+                if (out.isolation == process::IsolationOutcome::Failed) {
+                    // #84 方案 B：后台路径拿不到 ctx（本 lambda 可能比调用方存活更久），
+                    // 因此把降级事实写进被持久化的输出本身，避免静默丢失。
+                    out.stderr_text =
+                        "[workx] process isolation unavailable: job object not applied\n" +
+                        out.stderr_text;
+                }
+                PSOutputRegistry::instance().store(task_name, out);
+                // #166：格式化输出（截断 + 脱敏，与同步路径一致）回传追踪器
+                std::string formatted = format_result(out);
+                formatted = truncate_output(std::move(formatted), kMaxOutputChars);
+                formatted = redact_secrets(formatted);
+                report(std::move(formatted), !out.is_success());
+            } catch (...) {
+                // 兜底：任何未预期异常也解除 pending，避免 ReActLoop 收尾时无限等待
+                report("Background command failed to execute.", true);
+                throw;
             }
-            auto& out = exec_result.value();
-            if (out.isolation == process::IsolationOutcome::Failed) {
-                // #84 方案 B：后台路径拿不到 ctx（本 lambda 可能比调用方存活更久），
-                // 因此把降级事实写进被持久化的输出本身，避免静默丢失。
-                out.stderr_text =
-                    "[workx] process isolation unavailable: job object not applied\n" +
-                    out.stderr_text;
-            }
-            PSOutputRegistry::instance().store(task_name, out);
         },
         TaskType::Background);
 
     if (!task) {
+        if (tracker) {
+            tracker->remove_pending(task_name);  // 启动失败：撤销登记，避免污染 pending
+        }
         return ResultV2<ToolResult>::err(Error::Code::InternalError,
                                          "PowerShellTool: failed to launch background task");
     }
 
+    // 立即返回 task 信息（非阻塞）。完成后结果由 ReActLoop 自动回传模型。
     std::string task_name_str = task->getName();
-    std::string result = "PowerShell command running in background with ID: " + task_name_str +
+    std::string result = "PowerShell command started in background with ID: " + task_name_str +
                          "\nCommand: " + command +
-                         "\nOutput will be available when the task completes.";
+                         "\nIt runs without blocking you; its output will be delivered back to "
+                         "you automatically when it completes.";
 
     ctx.report_progress("Background task started: " + task_name_str);
 
