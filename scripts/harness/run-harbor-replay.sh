@@ -9,10 +9,12 @@
 # 用法：
 #   MSYS_NO_PATHCONV=1 bash scripts/harness/run-harbor-replay.sh          # 20 题
 #   MSYS_NO_PATHCONV=1 bash scripts/harness/run-harbor-replay.sh smoke    # 3 题
+#   MSYS_NO_PATHCONV=1 bash scripts/harness/run-harbor-replay.sh dry      # 只跑卡口 + 生成配置，不调 harbor（不花钱）
 #
 # 前置：先把 DeepSeek API Key 写进仓库根的 .env.harbor（不要提交）
-# 跑前的四道卡口不要跳过，每一道都对应一次真实的翻车：
-#   ①二进制签名 ②模型连通 ③数据集行尾（LF）④config 模型名对齐
+#       跑分前先起代理桥：bash scripts/harness/harbor-proxy.sh start
+# 跑前的五道卡口不要跳过，每一道都对应一次真实的翻车：
+#   ①二进制签名 ②模型连通 ③数据集行尾（LF）④config 模型名对齐 ⑤代理桥连通
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -80,9 +82,18 @@ PY
 python scripts/harness/fix_dataset_lineendings.py --check \
   || { echo "请跑：python scripts/harness/fix_dataset_lineendings.py --fix"; exit 1; }
 
+# --- 卡口 ⑤：代理桥连通（#166 方案 A）---
+# 容器直连境外数据集/源码会被干扰（caffe 实测 SSL UNEXPECTED_EOF / aria2c 报错 /
+# wget 92KB/s），挂代理后 apt/git 秒过。桥不通就别开跑，否则整轮都耗在重试上。
+# 桥的启动与 docker 构建期代理见 scripts/harness/harbor-proxy.sh。
+# 必须 export：下面的 python 块是独立进程，普通 shell 变量读不到
+export PROXY_ENV_JSON="$(bash scripts/harness/harbor-proxy.sh env-json)"
+bash scripts/harness/harbor-proxy.sh check
+
 python - "$SRC_CONFIG" "$OUT_CONFIG" "$MODE" <<'PY'
 import json, os, sys
 # --- 卡口 ④：job 元信息里的模型名要与容器里实际调用的保持一致 ---
+# --- 运行期注入：environment.env 写入代理（#166 方案 A）---
 src, out, mode = sys.argv[1:4]
 c = json.load(open(src, encoding="utf-8"))
 if mode == "smoke":
@@ -95,9 +106,35 @@ for a in c.get("agents", []):
     if a.get("model_name") and a["model_name"] != WANT_MODEL:
         print(f"⚠️  config 里 model_name {a['model_name']} -> {WANT_MODEL}（与 WORKX_MODEL 对齐）")
         a["model_name"] = WANT_MODEL
+
+# 容器内代理地址是 host.docker.internal（宿主桥），不是 127.0.0.1；
+# no_proxy 已排除 *.deepseek.com —— LLM 调用绕行代理会拖慢且代理断了整轮废。
+proxy_env = json.loads(os.environ.get("PROXY_ENV_JSON", "") or "{}")
+if proxy_env:
+    env_section = c.setdefault("environment", {}).setdefault("env", {})
+    env_section.update(proxy_env)
+    print(f"✅ 已注入运行期代理 env：{proxy_env['http_proxy']}（no_proxy 含 .deepseek.com）")
+else:
+    print("⚠️  未拿到代理 env（PROXY_ENV_JSON 为空），容器将直连外网")
+
 json.dump(c, open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 print(f"✅ 已生成 {out}：{len(c['datasets'][0]['task_names'])} 题")
 PY
+
+# dry 模式：卡口全跑、配置照常生成，但不实际调用 harbor（不花钱）。
+# 用途：改完 harness 脚本先验证「签名/模型/数据集/代理/注入」这条链路是通的。
+if [ "$MODE" = "dry" ]; then
+  echo "=== dry 模式：跳过 harbor 调用 ==="
+  python - "$OUT_CONFIG" <<'PY'
+import json, sys
+c = json.load(open(sys.argv[1], encoding="utf-8"))
+env = c.get("environment", {}).get("env", {})
+print(f"题目数       : {len(c['datasets'][0]['task_names'])}")
+print(f"agent        : {c['agents'][0]['name']} / model={c['agents'][0].get('model_name')}")
+print(f"代理 env 注入: {json.dumps(env, ensure_ascii=False, indent=2) if env else '（无）'}")
+PY
+  exit 0
+fi
 
 echo "=== 开始跑分 (mode=$MODE) ==="
 harbor run -c "$OUT_CONFIG" --env-file .env.harbor -y
