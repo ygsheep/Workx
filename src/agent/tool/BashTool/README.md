@@ -13,7 +13,10 @@
 `BashTool` 是 Agent 工具集中负责"执行 Shell 命令"的工具，对应 LLM 工具名 `Bash`。支持：
 
 - **同步执行（默认）**：阻塞等待命令完成，返回 stdout / stderr / exit_code
-- **后台执行**：`run_in_background=true` 时通过 `TaskManager` 异步执行，立即返回 task_id
+- **后台执行（#166）**：`run_in_background=true` 时通过 `TaskManager` 异步执行、立即返回
+  task_id（非阻塞）；**命令完成后结果自动回传模型**——工具把格式化输出写入
+  `BackgroundTaskTracker`，`ReActLoop` 在工具轮边界取回并注入对话；模型想收尾但仍有
+  未完成任务时先等待其完成，保证结果不丢
 - **沙盒包装**：默认通过 `SandboxAdapter::wrap_command()` 包装命令（可禁用）
 - **超时控制**：默认 120 秒，最大 600 秒
 - **进度回调**：通过 `ctx.progress_callback` 上报执行进度
@@ -76,7 +79,7 @@
 | `command` | string | 是 | — | Shell 命令文本（不允许空字符串） |
 | `description` | string | 否 | — | 命令简述（5-10 词，LLM 自填，未强校验） |
 | `timeout` | int | 否 | `120000` (120s) | 超时毫秒数，超过 `600000` 自动截断；`<=0` 回退默认值 |
-| `run_in_background` | bool | 否 | `false` | `true` 走后台路径，立即返回 task_id |
+| `run_in_background` | bool | 否 | `false` | `true` 走后台路径，立即返回 task_id；命令完成后输出由 `ReActLoop` 自动回传模型（#166） |
 | `dangerously_disable_sandbox` | bool | 否 | `false` | `true` 使用 `SandboxConfig::permissive()` |
 
 > `additionalProperties: false` 对齐其他工具 schema 严格策略，禁止额外字段。

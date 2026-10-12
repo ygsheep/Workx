@@ -903,6 +903,10 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
         }
     }
 
+    // #166 方案 B：创建 run 级后台任务结果回传追踪器，经 ToolContext 注入 shell 工具。
+    // 每次 run() 重建，避免复用实例时残留上一轮的 pending / 已完成结果。
+    m_background_tracker = tool::BackgroundTaskTracker::create();
+
     while (!graceful_stop && budget > 0) {
         result.total_iterations = iteration;
 
@@ -1045,6 +1049,34 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
         // ================================================================
 
         if (thought.tool_uses.empty()) {
+            // === #166 方案 B：收尾前后台结果等待 ===
+            // 模型未调用工具（想收尾）但仍有未完成的后台任务时，先等待它们完成，
+            // 把结果注入对话再继续迭代——否则 run_in_background 的结果会随本轮结束丢失，
+            // "非阻塞"就退化为"发射后不管"。等待可被用户取消中断。
+            if (m_background_tracker && m_background_tracker->has_pending()) {
+                LOG_INFO(
+                    "[react_loop] iteration={} final answer deferred: {} background task(s) "
+                    "pending, waiting for completion",
+                    iteration, m_background_tracker->pending_count());
+                bool cancelled_during_wait = false;
+                while (m_background_tracker->has_pending()) {
+                    if (sleep_cancellable(std::chrono::milliseconds(200), should_cancel)) {
+                        cancelled_during_wait = true;
+                        break;
+                    }
+                }
+                if (cancelled_during_wait) {
+                    result.was_interrupted = true;
+                    result.partial_content = thought.content;
+                    result.partial_reasoning = thought.reasoning;
+                    break;
+                }
+                inject_background_results(messages);
+                --budget;
+                ++iteration;
+                continue;  // 带着后台结果进入下一轮 Thought，由模型决定是否收尾
+            }
+
             // === #147：拦截"无效答复"，别把白卷当 FinalAnswer ===
             // 旧逻辑只看"有没有 tool_use"，于是空 content 也被当成 LLM 主动结束 ——
             // 实测 cancel-async-tasks 就是这样交了一个空 final_answer 结束任务的。
@@ -1316,6 +1348,8 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
         ctx.config_manager_ptr = m_config_manager;
         // BashTool 后台任务 DI：注入任务管理器（可选）
         ctx.task_manager_ptr = m_task_manager;
+        // #166 方案 B：注入后台任务结果回传追踪器（shell 工具 run_in_background 用）
+        ctx.background_tracker = m_background_tracker;
         // AskUserTool 事件发布 DI：注入事件总线（可选）
         ctx.event_bus_ptr = m_event_bus;
         // conditional skills：注入 touch 回调（可选），工具上报访问过的文件
@@ -1536,6 +1570,8 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
         // 工具轮边界：冲刷排队用户消息（Ctrl+Enter）——注入下一轮 Thought 一并发送
         // 位于 Action + Observation 全部完成后、预算递减前
         maybe_inject_queue(messages);
+        // #166 方案 B：取回已完成的后台任务结果一并注入（非阻塞——未完成的不等待）
+        inject_background_results(messages);
 
         // 继续下一轮 Thought（LLM 根据 tool_result 决定下一步）
         --budget;
@@ -1693,6 +1729,33 @@ ReActResult ReActLoop::run(std::vector<ChatMessage>& messages, const std::string
     }
 
     return result;
+}
+
+// ============================================================
+// #166 方案 B：后台任务结果回传
+// ============================================================
+
+void ReActLoop::inject_background_results(std::vector<ChatMessage>& messages) {
+    if (!m_background_tracker) {
+        return;
+    }
+    auto completed = m_background_tracker->drain_completed();
+    if (completed.empty()) {
+        return;
+    }
+    // 合并为单条 user 消息注入（与 AgentTool 的 drain_pending 注入语义一致）：
+    // tool_result 需匹配 tool_use_id 且须紧跟 assistant tool_use，故用 user 角色承载。
+    std::string merged;
+    for (const auto& r : completed) {
+        if (!merged.empty()) {
+            merged += "\n\n";
+        }
+        merged += std::format(
+            "[Background task completed: {} ({})]\n<shell_result>\n{}\n</shell_result>",
+            r.task_name, r.tool_name, r.output);
+    }
+    messages.push_back(ChatMessage::user(std::move(merged)));
+    LOG_INFO("[react_loop] injected {} completed background task result(s)", completed.size());
 }
 
 }  // namespace agent

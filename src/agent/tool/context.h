@@ -3,7 +3,7 @@
  * @brief ToolContext — 工具执行上下文
  * @details 在工具执行过程中传递的运行时信息：会话 ID、工作目录、权限模式、取消信号、
  *          任务管理器、进度回调
- * @version 1.7.0
+ * @version 1.8.0
  * @date 2026-07
  */
 
@@ -17,7 +17,8 @@
 #include <memory>
 #include <nlohmann/json.hpp>
 
-#include "agent/api/chat_types.h"  // #159：ForkContextSnapshot 携带消息前缀
+#include "agent/api/chat_types.h"                    // #159：ForkContextSnapshot 携带消息前缀
+#include "agent/tool/background_task_tracker.h"      // #166：后台任务结果回传追踪器
 
 namespace agent {
 
@@ -320,6 +321,16 @@ struct ToolContext {
     ///          用于 BashTool 等需要启动后台任务的工具。
     ///          生命周期由调用方保证（通常为 ChatSession 引用的 TaskManager 单例）。
     ITaskManager* task_manager_ptr = nullptr;
+
+    /// @brief #166：后台任务结果回传追踪器（可选，非拥有——shared_ptr 共享）
+    /// @details 由调用方（ReActLoop）在 run() 开始时创建并注入。shell 工具以
+    ///          run_in_background=true 启动后台任务时 add_pending，任务结束
+    ///          （成功/失败/取消）时 mark_done 暂存格式化输出；ReActLoop 在工具轮
+    ///          边界 drain 结果注入对话，并在收尾前等待未完成任务，使"后台命令
+    ///          完成后结果自动回传模型"闭环（此前 run_in_background 只通知 UI）。
+    ///          nullptr 表示不启用回传（未走 ReActLoop 的路径，如单元测试）。
+    ///          后台任务 lambda 捕获其副本，保证追踪器存活至任务结束。
+    std::shared_ptr<BackgroundTaskTracker> background_tracker;
 
     /// @brief 事件总线指针（可选，非拥有）
     /// @details 由调用方（ReActLoop）显式注入，工具通过 event_bus() 访问。

@@ -4,10 +4,14 @@
  * @details 实现 Thought/Action/Observation 三阶段显式分离的 agent 循环，
  *          替代 ChatSession 中的扁平 while 循环。
  *          使用原生 function calling（Anthropic/OpenAI），不依赖文本解析。
- * @version 1.10.0
+ * @version 1.11.0
  * @date 2026-07
  *
  * @par 版本沿革
+ * - 1.11.0（Issue #166 方案 B）：run_in_background 后台命令结果自动回传。
+ *   新增 BackgroundTaskTracker（经 ToolContext 注入工具），工具轮边界 drain 已完成结果
+ *   注入对话；模型想收尾但仍有未完成后台任务时先阻塞等待（可取消），
+ *   使"非阻塞 + 结果必达"闭环（此前后台结果只通知 UI、不回传模型）。
  * - 1.9.0（Issue #157）：新增 set_query_chain() 调用链注入（chain_id/chain_depth），
  *   run() 开始时空链 id 自动生成链根，工具轮 ToolContext 注入链路字段。
  * - 1.6.0（Issue #147 回归修正）：`reasoning_budget_chars` 默认值 64000 → 0（关闭熔断）。
@@ -629,6 +633,12 @@ class WORKX_API ReActLoop {
         }
     }
 
+    /// @brief #166 方案 B：取回已完成的后台任务结果，注入对话（工具轮边界调用）
+    /// @details 从 m_background_tracker drain 已完成结果，合并为一条 user 消息
+    ///          （下一轮 Thought 一并发送）。无已完成结果时为空操作。
+    /// @param messages 会话历史（可能被追加一条 user 消息）
+    void inject_background_results(std::vector<ChatMessage>& messages);
+
     // ============================================================
     // 成员
     // ============================================================
@@ -660,6 +670,11 @@ class WORKX_API ReActLoop {
     PermissionStateChangedCallback m_perm_state_changed_cb;
     /// @brief 消息队列冲刷回调（可选；工具轮边界把排队用户消息注入 messages）
     std::function<void(std::vector<ChatMessage>&)> m_queue_inject_cb;
+
+    /// @brief #166 方案 B：后台任务结果回传追踪器（run() 开始时创建，注入 ToolContext）
+    /// @details shell 工具 run_in_background=true 时经此登记/回传结果；run() 内使用，
+    ///          成员保持所有权，使工具 lambda 持有的副本在 run() 结束后仍可安全写入。
+    std::shared_ptr<tool::BackgroundTaskTracker> m_background_tracker;
 
     /// @brief #157：调用链（m_chain_id 空 = 未生成，run() 开始时生成链根）
     std::string m_chain_id;
