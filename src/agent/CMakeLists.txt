@@ -89,6 +89,7 @@ target_sources(workx_agent PRIVATE
     # prompt: 系统提示素材（memory.h / system_prompt.h 为纯头，仅 #82 / #83 有 cpp）
     prompt/environment_probe.cpp
     prompt/budget_hint.cpp
+    prompt/wall_clock_hint.cpp
 
     # api
     api/sse_parser.cpp

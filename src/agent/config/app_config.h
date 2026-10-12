@@ -65,6 +65,11 @@ constexpr const char* AGENT_MAX_ITERATIONS = "agent.max_iterations";
 /// 用于按剩余时间封顶单次 shell 命令超时，避免一条卡住的命令独吞整轮预算。
 /// 评测/无人值守场景也可用环境变量 WORKX_AGENT_TIMEOUT_SEC 注入（优先用配置项）。
 constexpr const char* AGENT_WALL_CLOCK_BUDGET_SEC = "agent.wall_clock_budget_sec";
+/// #166 方案 C：剩余墙钟收敛阈值（秒，默认 90）。仅当 `AGENT_WALL_CLOCK_BUDGET_SEC > 0`
+/// 时生效：剩余墙钟 <= 该值时注入一条 system 提示，把模型推向「收尾 + 验证」；
+/// 剩余 <= 阈值/3 时升级为「立即交卷」。<= 0 = 关闭（不注入）。
+/// 评测/无人值守场景也可用环境变量 WORKX_WALL_CLOCK_RESERVE_SEC 覆盖。
+constexpr const char* AGENT_WALL_CLOCK_RESERVE_SEC = "agent.wall_clock_reserve_sec";
 /// #144：Thought 阶段 LLM 请求失败后的最大重试次数（默认 2，0 = 失败即终止）。
 /// 仅对可重试错误生效（网络错误 / 超时 / 429 / 5xx）；4xx 保持快速失败。
 /// 评测/无人值守场景也可用环境变量 WORKX_THOUGHT_MAX_RETRIES 覆盖。

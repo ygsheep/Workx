@@ -5,7 +5,7 @@
 
 | 脚本 | 作用 | 对应的翻车 |
 | --- | --- | --- |
-| [`run-harbor-replay.sh`](run-harbor-replay.sh) | 复跑一轮 Harbor（含**五道跑前卡口** + `dry` 体检模式） | 拿旧二进制/坏模型跑满一小时才发现白跑 |
+| [`run-harbor-replay.sh`](run-harbor-replay.sh) | 复跑一轮 Harbor（含**六道跑前卡口** + `dry` 体检模式） | 拿旧二进制/坏模型跑满一小时才发现白跑 |
 | [`harbor-proxy.sh`](harbor-proxy.sh) | 代理桥（HTTP→SOCKS5）起停 + docker 构建期代理 + 运行期 env 注入 | 容器直连境外源被干扰，caffe 题下 170MB 数据+源码编译全废 |
 | [`build-linux-container.sh`](build-linux-container.sh) | 在 Docker 里重建 Linux 二进制的完整配方 | 构建配方没留过档；不同潜意识复用错了 IOC 配置 |
 | [`check_binary_signature.py`](check_binary_signature.py) | 校验产物二进制是否含目标改动 | 用没编进 #133 的二进制得出「#133 有效」的假结论 |
@@ -19,7 +19,7 @@
 ## 跑一轮 Harbor：`run-harbor-replay.sh`
 
 唯一变量是**二进制**：用 `--config` 喂 JobConfig，datasets / agents / mounts / 并发数
-全部与基准轮对齐。跑前五道卡口缺一不可：
+全部与基准轮对齐。跑前六道卡口缺一不可：
 
 ```bash
 MSYS_NO_PATHCONV=1 bash scripts/harness/harbor-proxy.sh start         # 跑分前：起代理桥（见下节）
@@ -35,6 +35,7 @@ MSYS_NO_PATHCONV=1 bash scripts/harness/run-harbor-replay.sh dry      # 只体�
 | ③ 数据集行尾 | `.cache/tb2/terminal-bench` 是否 LF | checksum 题必挂、`*.sh` bad interpreter |
 | ④ 模型名对齐 | JobConfig 的 `model_name` = `WORKX_MODEL` | 产物元信息与实际调用不符，无法追溯 |
 | ⑤ 代理桥连通 | `harbor-proxy.sh check`（HTTP→SOCKS5 桥真拉一次境外文件） | 容器直连境外源被干扰，整轮耗在重试上 |
+| ⑥ 每题墙钟预算可推导 | 逐题读 `task.toml` 的 `[agent] timeout_sec`（×0.9） | 该题不下发墙钟 → agent 不知道 deadline → 被硬超时杀 |
 
 前提：仓库根有 `.env.harbor`（`WORKX_API_KEY=...`，已被 gitignore，模板见
 `.env.harbor.example`）。Windows/Git Bash 下三个必踩的坑已在脚本注释里写明：
@@ -80,6 +81,32 @@ bash scripts/harness/harbor-proxy.sh stop        # docker-off + 停桥
 2. 同样因为不再转路径，把 `/c/Users/...` 当参数传给 Windows 版 python，会被解析成
    **当前盘符**下的路径（在 D: 盘跑就写进 `D:\c\Users\...`），静默写错位置。
    碰 `~/.docker/config.json` 的 python 代码一律在 python 侧 `os.path.expanduser("~")` 自己算路径。
+
+## 墙钟预算与主动收敛（#166 方案 C / #137 建议 3）
+
+#137 的核心结论：**抬时钟 ROI 极低，真正的瓶颈是「agent 不知道自己有 deadline」**。
+实测 20 题里 3 题以 `AgentTimeoutError` 收场（adaptive-rejection-sampler 900s /
+caffe-cifar-10 1200s / feal-linear-cryptanalysis 1800s）——被外层硬超时杀掉，
+已完成的成果不会被验证。方案 C 两端配合：
+
+| 端 | 做什么 | 落点 |
+| --- | --- | --- |
+| 适配器 | **按题**下发 `WORKX_AGENT_TIMEOUT_SEC` = `task.timeout_sec × 0.9` | `agents/workx/__init__.py` |
+| agent | 剩余墙钟进入阈值后注入收敛提示（收尾+验证 → 立即交卷） | `prompt/wall_clock_hint.*` + `react_loop` |
+
+**为什么由适配器推导，而不是在 JobConfig 里注入**：harbor 的 agent 超时是**按题**的
+（题面 `task.toml`），而 JobConfig 的 `agents[].env` 是 **job 级**（一份值给所有题），
+表达不了「20 题各自 900/1200/1800s」。适配器在宿主侧运行，且 trial 产物目录的
+`config.json` 里带着 `task.path`，于是可以就地读出本题真实超时——20 题各自的预算都对。
+宿主若已显式设置 `WORKX_AGENT_TIMEOUT_SEC`（单题调试）则以宿主为准。
+
+agent 侧两档（阈值默认 90s，`WORKX_WALL_CLOCK_RESERVE_SEC` 可调，0 = 关闭）：
+
+- **Warn**（剩余 ≤ 90s）：停止扩大范围 → 跑一次验证 → 给最终答复；
+- **Critical**（剩余 ≤ 30s）：立即停止工具调用，把已完成部分整理成最终答复。
+
+守卫条件：仅当 `wall_clock_budget_sec > 0`（即评测路径）才生效，**交互式场景行为不变**。
+日志检索：`grep "wall clock low" /tmp/workx-run.log`（`.cache` 采集器按 `wall clock` 抓）。
 
 ## 重建 Linux 二进制：`build-linux-container.sh`
 

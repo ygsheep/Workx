@@ -1426,6 +1426,7 @@ TEST_CASE("apply_react_knobs: 配置键优先，env 兜底仅在没有配置时�
     ReActLoop::Config defaults;
     apply_react_knobs(defaults, cfg_mgr);
     REQUIRE(defaults.wall_clock_budget_sec == 0);
+    REQUIRE(defaults.wall_clock_reserve_sec == 90);  // #166C：阈值默认值不因未启用而改变
     REQUIRE(defaults.thought_max_retries == 2);
     REQUIRE(defaults.empty_answer_max_retries >= 0);
 
@@ -1458,6 +1459,20 @@ TEST_CASE("apply_react_knobs: 配置键优先，env 兜底仅在没有配置时�
     REQUIRE(tuned.thought_max_retries == 5);
     REQUIRE(tuned.reasoning_budget_chars == 64000);
     REQUIRE(tuned.empty_answer_max_retries == 3);
+
+    // (e) #166 方案 C：墙钟收敛阈值。默认 90s（见 (a)）；配置键可调 —— 该键已注册 schema，
+    //     实机上 WORKX_WALL_CLOCK_RESERVE_SEC 由 ConfigManager::load_from_env() 统一覆盖，
+    //     MockConfigManager 不参与 env，故此处只验配置键路径。
+    cfg_mgr.set_value(agent::keys::AGENT_WALL_CLOCK_RESERVE_SEC, 120);
+    ReActLoop::Config reserve_cfg;
+    apply_react_knobs(reserve_cfg, cfg_mgr);
+    REQUIRE(reserve_cfg.wall_clock_reserve_sec == 120);
+
+    // 0 = 关闭收敛提示 —— 必须与"未配置"（回落到结构体默认 90）区分开
+    cfg_mgr.set_value(agent::keys::AGENT_WALL_CLOCK_RESERVE_SEC, 0);
+    ReActLoop::Config reserve_off;
+    apply_react_knobs(reserve_off, cfg_mgr);
+    REQUIRE(reserve_off.wall_clock_reserve_sec == 0);
 }
 
 TEST_CASE("apply_react_knobs: 子循环模式（include_wall_clock=false）+ 守护标志",
@@ -1511,6 +1526,8 @@ TEST_CASE("apply_react_knobs: 子循环模式（include_wall_clock=false）+ 守
     ReActLoop::Config sub;
     apply_react_knobs(sub, cfg_mgr, /*include_wall_clock=*/false);
     REQUIRE(sub.wall_clock_budget_sec == 0);
+    // #166C：阈值保留结构体默认，但预算为 0 → 收敛提示的开关条件不成立，同样不生效
+    REQUIRE(sub.wall_clock_reserve_sec == 90);
     REQUIRE(sub.thought_max_retries == 5);
     REQUIRE(sub.reasoning_budget_chars == 64000);
     REQUIRE(sub.empty_answer_max_retries == 3);
@@ -1715,6 +1732,76 @@ TEST_CASE_METHOD(ReActLoopFixture, "#83: 预算充裕时完全不注入（零开
 
     REQUIRE(result.final_answer == "做完了。");
     CHECK_FALSE(budget_hint_seen(messages, "预算提醒"));
+}
+
+// ============================================================================
+// Issue #166 方案 C / #137 建议 3 — 剩余墙钟不足时主动收敛
+//
+// 背景：#137 实测「轮次还够、墙钟先到」才是评测场景的真实瓶颈（20 题里 3 题
+//      AgentTimeout：adaptive-rejection-sampler / caffe-cifar-10 / feal-linear）。
+// 策略：剩余墙钟 <= reserve 注入收敛提示（Warn=收尾+验证；Critical=立即交卷）；
+//      未配置 wall_clock_budget_sec 时整体关闭（交互式场景行为不变）。
+// ============================================================================
+
+TEST_CASE_METHOD(ReActLoopFixture, "#166C: 墙钟进入收敛阈值后注入收尾提示",
+                 "[react_loop][issue166]") {
+    ReActLoop::Config config;
+    config.max_iterations = 10;
+    config.review_max_grants = 0;
+    // 预算 90s = 阈值 90s：循环刚开始时剩余≈90s，落在 Warn（> 阈值/3 = 30s）
+    config.wall_clock_budget_sec = 90;
+    config.wall_clock_reserve_sec = 90;
+    auto loop = make_loop(config);
+
+    for (int i = 1; i <= 3; ++i) {
+        make_tool_call_reader("tu_" + std::to_string(i), "Echo",
+                              R"({"text":"step)" + std::to_string(i) + R"("})");
+    }
+    make_text_reader("收到，收尾。");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("长任务")};
+    loop->run(messages, "", registry->get_all_schemas(), should_cancel);
+
+    CHECK(budget_hint_seen(messages, "[墙钟提醒]"));
+    CHECK(budget_hint_seen(messages, "转入收敛与收尾"));
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#166C: 墙钟极短时升级为立即交卷（Critical）",
+                 "[react_loop][issue166]") {
+    ReActLoop::Config config;
+    config.max_iterations = 10;
+    config.review_max_grants = 0;
+    config.wall_clock_budget_sec = 3;  // 3s << 90/3 → 一开始就是 Critical
+    config.wall_clock_reserve_sec = 90;
+    auto loop = make_loop(config);
+
+    make_tool_call_reader("tu_1", "Echo", R"({"text":"step1"})");
+    make_text_reader("交卷。");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("长任务")};
+    loop->run(messages, "", registry->get_all_schemas(), should_cancel);
+
+    CHECK(budget_hint_seen(messages, "[墙钟提醒]"));
+    CHECK(budget_hint_seen(messages, "立即停止"));
+    // Critical 档不提验证命令（那一刻要的是交卷，不是再跑一遍测试）
+    CHECK_FALSE(budget_hint_seen(messages, "构建/测试"));
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#166C: 未配置墙钟预算时完全不注入（交互式零影响）",
+                 "[react_loop][issue166]") {
+    ReActLoop::Config config;
+    config.max_iterations = 10;
+    config.review_max_grants = 0;
+    // wall_clock_budget_sec 保持默认 0 → 整体关闭，即便阈值有默认值（90）也不注入
+    auto loop = make_loop(config);
+
+    make_tool_call_reader("tu_1", "Echo", R"({"text":"step1"})");
+    make_text_reader("做完了。");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("短任务")};
+    loop->run(messages, "", registry->get_all_schemas(), should_cancel);
+
+    CHECK_FALSE(budget_hint_seen(messages, "[墙钟提醒]"));
 }
 
 // ============================================================================
