@@ -108,6 +108,11 @@ jobs:
       #   vcpkg            —— ports 仓库 + vcpkg 自举产物（含 baseline 所需的 git 历史）
       #   build/vcpkg_installed —— manifest 模式下载/编译出的依赖库（curl/openssl 是大头）
       # 只缓存前者会让每轮 CI 重新编译一遍依赖，反而比不缓存更慢。
+      #
+      # ⚠️ key 含 hashFiles('vcpkg.json')，而版本升级会改其中的 version-string ⇒
+      # **每次升版本精确 key 必然 miss**；此时 restore-keys 前缀会命中旧缓存并把
+      # vcpkg/ 整份还原到工作目录，但 cache-hit 仍为 'false'（只有精确命中才是 true）。
+      # 所以下面的 clone 步骤必须容忍"目录已存在"（#186）。
       - name: Restore vcpkg cache
         uses: actions/cache@v4
         id: vcpkg-cache
@@ -119,10 +124,19 @@ jobs:
           restore-keys: |
             vcpkg-${{ runner.os }}-
 
+      # #186：restore-keys 前缀命中会还原出旧 vcpkg 目录（cache-hit 仍为 false），
+      # 此时直接 `git clone` 会因目标目录非空而 `fatal: destination path 'vcpkg'
+      # already exists` + exit 128，把硬门禁打红。已有可用 git 副本就复用（含 baseline
+      # 所需历史），否则先清掉残目录再克隆，最后统一自举（bootstrap 幂等）。
       - name: Clone & bootstrap vcpkg
         if: steps.vcpkg-cache.outputs.cache-hit != 'true'
         run: |
-          git clone https://github.com/microsoft/vcpkg.git vcpkg
+          if [ -d vcpkg/.git ]; then
+            echo "复用 restore-keys 还原的 vcpkg 副本"
+          else
+            rm -rf vcpkg
+            git clone https://github.com/microsoft/vcpkg.git vcpkg
+          fi
           ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
 
       # ripgrep（#107）：GrepTool **没有 C++ 回退实现** —— 找不到 rg 就直接返回
