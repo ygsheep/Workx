@@ -56,6 +56,13 @@ std::vector<std::string> probe_directory_skeleton(const std::filesystem::path& c
 ///          单条 1200ms 超时。任一环节失败都不影响其余工具。
 std::vector<ToolchainInfo> probe_toolchain();
 
+/// @brief 只做存在性检查的常用工具探测（**不起子进程**）
+/// @details 覆盖比 `probe_toolchain()` 更大的工具集（git/curl/ffmpeg/tesseract/…），
+///          但**不查询版本** —— 供「环境自建」提示（`format_env_setup_hint`）判断
+///          「这个环境里缺哪些常用工具」。因为不 spawn，扩大清单不拖慢启动。
+/// @return 固定顺序的探测结果（未安装也占一项，version 恒为空）
+std::vector<ToolchainInfo> probe_common_tools();
+
 /// @brief 从项目标记文件推导构建 / 测试 / lint 命令
 /// @details test 与 lint 直接取 #78 P4 的 `detect_goal_command()` —— 提示词给的
 ///          命令必须与验证门禁实际执行的命令同源，否则模型按提示跑一遍、门禁按

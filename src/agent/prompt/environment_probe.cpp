@@ -76,6 +76,13 @@ constexpr std::string_view kToolNames[] = {"cmake", "ctest", "python", "python3"
                                            "npm",   "cargo", "go",     "rg"};
 constexpr auto kVersionTimeout = std::chrono::milliseconds(1200);
 
+// 常用工具（**仅存在性检查**，不查版本）—— 供「环境自建」提示判断缺什么。
+// 这里可以放心列得长一点：find_on_path 只扫 PATH，不起子进程，不会拖慢启动。
+constexpr std::string_view kCommonTools[] = {
+    "git",  "curl", "wget",    "pip3",  "node",      "npm",     "make",   "gcc",
+    "g++",  "ffmpeg", "tesseract", "Rscript", "sqlite3", "7z",  "uv",     "docker",
+};
+
 /// @brief 在 PATH 中查找可执行文件（不起子进程，纯文件系统扫描）
 std::optional<std::filesystem::path> find_on_path(std::string_view name) {
     const char* path_env = std::getenv("PATH");
@@ -225,6 +232,18 @@ std::vector<ToolchainInfo> probe_toolchain() {
             info.found = true;
             info.version = query_version(*exe);
         }
+        out.push_back(std::move(info));
+    }
+    return out;
+}
+
+std::vector<ToolchainInfo> probe_common_tools() {
+    std::vector<ToolchainInfo> out;
+    out.reserve(std::size(kCommonTools));
+    for (std::string_view name : kCommonTools) {
+        ToolchainInfo info;
+        info.name = std::string(name);
+        info.found = find_on_path(name).has_value();  // 只查存在性，不 spawn
         out.push_back(std::move(info));
     }
     return out;

@@ -79,6 +79,27 @@ AUDIT_PATH = "/tmp/workx-audit.jsonl"
 #: 头文件不是必需的；源码构建需要的 -dev 在 BUILD_PACKAGES 里单独装。
 APT_PACKAGES = "ca-certificates curl git libcurl4 tzdata"
 
+#: 容器内 apt 源替换（2026-10-13）。评测机在中国大陆，容器访问
+#: archive.ubuntu.com 的 HTTP 大文件下载被干扰：TCP 握手成功、HEAD 200 OK，
+#: 但 `apt-get update` 拉 Release/Packages 会卡到几分钟甚至超时（实测 >600s 未完），
+#: 直接导致 harbor 的 360s AgentSetupTimeoutError。实测换清华 http 源后
+#: apt-get update 8.9s、装 curl+git 10.8s（快 60×+）。
+#: ⚠️ 必须用 **http**（非 https）且 apt **不走代理**：走代理会碰证书校验失败
+#: （bridge 不解密 TLS）。故这里 sed 换源，并在 install 命令里显式 unset 代理变量。
+#: 覆盖 Ubuntu（deb822 `*.sources` 与老式 `sources.list`）与 Debian 两套源
+#: （cobol / count-dataset-tokens 等题基于 `python:3.13-slim-bookworm`）。
+APT_MIRROR_SED = (
+    r"sed -i "
+    r'-e "s|http://archive.ubuntu.com/ubuntu|http://mirrors.tuna.tsinghua.edu.cn/ubuntu|g" '
+    r'-e "s|http://security.ubuntu.com/ubuntu|http://mirrors.tuna.tsinghua.edu.cn/ubuntu|g" '
+    r'-e "s|http://ports.ubuntu.com/ubuntu-ports|http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports|g" '
+    r'-e "s|http://deb.debian.org/debian|http://mirrors.tuna.tsinghua.edu.cn/debian|g" '
+    r'-e "s|http://security.debian.org/debian-security|http://mirrors.tuna.tsinghua.edu.cn/debian-security|g" '
+    r"/etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list "
+    r"2>/dev/null || true"
+)
+
+
 #: 源码构建所需的编译依赖
 BUILD_PACKAGES = (
     "build-essential cmake ninja-build pkg-config unzip zip tar "
@@ -194,10 +215,17 @@ class WorkxAgent(BaseInstalledAgent):
         编译期依赖（cmake / build-essential …）**只在走源码构建时才装**：
         预构建快路径下它们毫无用处，却要把 install 阶段拖慢数分钟（每 trial 各装一次）。
         """
+        # 先换国内 apt 源、并**显式清掉代理**（见 APT_MIRROR_SED 注释：
+        # 评测机在中国大陆，直连 archive.ubuntu.com 会卡死到远超 360s setup 超时；
+        # 走代理则遇 TLS 证书校验失败。换清华 http 源 + 不走代理 = 8.9s）。
         await self.exec_as_root(
             environment,
-            command=f"apt-get update -qq && apt-get install -y --no-install-recommends "
-            f"{APT_PACKAGES}",
+            command=(
+                f"unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY 2>/dev/null; "
+                f"{APT_MIRROR_SED}; "
+                f"apt-get update -qq && apt-get install -y --no-install-recommends "
+                f"{APT_PACKAGES}"
+            ),
         )
 
         if self.prebuilt_url:
