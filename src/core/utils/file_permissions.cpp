@@ -7,6 +7,7 @@
 
 #include <format>
 #include <system_error>
+#include <vector>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -44,29 +45,68 @@ PSID read_owner_sid(const std::filesystem::path& path) {
     return copy;
 }
 
-/// 构造「属主 + SYSTEM」两条 ACE 的 DACL（调用方须 LocalFree）
+/// 读取当前进程令牌的用户 SID（LocalAlloc 副本，调用方须 LocalFree）
 /// @return 失败返回 nullptr
-PACL build_private_dacl(PSID owner, bool is_dir) {
+/// @details 提权进程创建对象的属主可能是 BUILTIN\Administrators（取决于令牌的 Owner 字段），
+///          而「真实登录用户」始终是令牌用户 —— 只按 owner 加固会把该用户锁在门外（#177）。
+PSID read_process_user_sid() {
+    HANDLE token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+        return nullptr;
+    }
+    DWORD len = 0;
+    GetTokenInformation(token, TokenUser, nullptr, 0, &len);
+    PSID copy = nullptr;
+    if (len > 0) {
+        std::vector<BYTE> buf(len);
+        if (GetTokenInformation(token, TokenUser, buf.data(), len, &len)) {
+            PSID sid = static_cast<TOKEN_USER*>(static_cast<void*>(buf.data()))->User.Sid;
+            const DWORD sid_len = GetLengthSid(sid);
+            copy = LocalAlloc(LPTR, sid_len);
+            if (copy) {
+                CopySid(sid_len, copy, sid);
+            }
+        }
+    }
+    CloseHandle(token);
+    return copy;
+}
+
+/// 构造「属主 + 令牌用户 + SYSTEM」去重后的 DACL（调用方须 LocalFree）
+/// @param owner      目标路径的属主 SID
+/// @param token_user 当前进程令牌用户 SID；为空则退化为「属主 + SYSTEM」
+/// @return 失败返回 nullptr
+/// @details 按 SID 去重而非固定两条：非提权时 owner 通常就是 token_user，提权时二者不同，
+///          缺任何一个都会把某一方（尤其是真实登录用户）锁死（#177）。
+PACL build_private_dacl(PSID owner, PSID token_user, bool is_dir) {
     BYTE sys_buf[SECURITY_MAX_SID_SIZE];
     DWORD sys_len = sizeof(sys_buf);
     if (!CreateWellKnownSid(WinLocalSystemSid, nullptr, sys_buf, &sys_len)) {
         return nullptr;
     }
 
-    EXPLICIT_ACCESS_W ea[2];
+    EXPLICIT_ACCESS_W ea[3];
     ZeroMemory(ea, sizeof(ea));
-    ea[0].grfAccessPermissions = FILE_ALL_ACCESS;
-    ea[0].grfAccessMode = SET_ACCESS;
-    ea[0].grfInheritance = is_dir ? SUB_CONTAINERS_AND_OBJECTS_INHERIT : NO_INHERITANCE;
-    ea[0].Trustee.TrusteeForm = TRUSTEE_IS_SID;
-    ea[0].Trustee.TrusteeType = TRUSTEE_IS_USER;
-    ea[0].Trustee.ptstrName = static_cast<LPWSTR>(owner);
-    ea[1] = ea[0];
-    ea[1].Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
-    ea[1].Trustee.ptstrName = reinterpret_cast<LPWSTR>(sys_buf);
+    DWORD count = 0;
+    auto append = [&](PSID sid, TRUSTEE_TYPE type) {
+        for (DWORD i = 0; i < count; ++i) {
+            if (EqualSid(reinterpret_cast<PSID>(ea[i].Trustee.ptstrName), sid)) return;  // 已授权
+        }
+        EXPLICIT_ACCESS_W& e = ea[count];
+        e.grfAccessPermissions = FILE_ALL_ACCESS;
+        e.grfAccessMode = SET_ACCESS;
+        e.grfInheritance = is_dir ? SUB_CONTAINERS_AND_OBJECTS_INHERIT : NO_INHERITANCE;
+        e.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+        e.Trustee.TrusteeType = type;
+        e.Trustee.ptstrName = static_cast<LPWSTR>(sid);
+        ++count;
+    };
+    append(owner, TRUSTEE_IS_USER);
+    if (token_user) append(token_user, TRUSTEE_IS_USER);
+    append(reinterpret_cast<PSID>(sys_buf), TRUSTEE_IS_WELL_KNOWN_GROUP);
 
     PACL acl = nullptr;
-    return SetEntriesInAclW(2, ea, nullptr, &acl) == ERROR_SUCCESS ? acl : nullptr;
+    return SetEntriesInAclW(count, ea, nullptr, &acl) == ERROR_SUCCESS ? acl : nullptr;
 }
 
 ResultV2<void> harden_windows(const std::filesystem::path& path, bool is_dir) {
@@ -80,8 +120,11 @@ ResultV2<void> harden_windows(const std::filesystem::path& path, bool is_dir) {
     if (!owner) {
         return ResultV2<void>::err(Error::Code::PermissionDenied, "cannot read owner SID", ctx);
     }
-    PACL acl = build_private_dacl(owner, is_dir);
+    // 提权场景 owner 可能是 Administrators，而真实登录用户是令牌用户 —— 两者都必须授权（#177）
+    PSID token_user = read_process_user_sid();
+    PACL acl = build_private_dacl(owner, token_user, is_dir);
     LocalFree(owner);
+    LocalFree(token_user);
     if (!acl) {
         return ResultV2<void>::err(Error::Code::PermissionDenied, "cannot build private DACL", ctx);
     }
@@ -99,8 +142,8 @@ ResultV2<void> harden_windows(const std::filesystem::path& path, bool is_dir) {
     return ResultV2<void>::ok();
 }
 
-/// @brief 查询 DACL 是否只向「属主 + SYSTEM」授权
-/// @details 与 build_private_dacl 的产出对齐：任何**会授予访问**的 ACE 都必须属于这两个主体，
+/// @brief 查询 DACL 是否只向「属主 + 当前用户 + SYSTEM」授权
+/// @details 与 build_private_dacl 的产出对齐：任何**会授予访问**的 ACE 都必须属于这三个主体，
 ///          其余一律判为过宽。空 DACL 意味着 everyone 全权，比任何显性授权都更开放，同样判过宽。
 ///          DENY ACE 只**收回**权限，不参与判定 —— 一条针对陌生主体的 DENY 不会让文件变宽。
 ResultV2<bool> inspect_dacl_privacy(const std::filesystem::path& path) {
@@ -122,11 +165,13 @@ ResultV2<bool> inspect_dacl_privacy(const std::filesystem::path& path) {
         return ResultV2<bool>::err(Error::Code::PermissionDenied, "cannot read ACL size", ctx);
     }
     PSID owner = read_owner_sid(path);
+    PSID token_user = read_process_user_sid();
     BYTE sys_buf[SECURITY_MAX_SID_SIZE];
     DWORD sys_len = sizeof(sys_buf);
     const bool sys_ok = CreateWellKnownSid(WinLocalSystemSid, nullptr, sys_buf, &sys_len) == TRUE;
     if (!owner || !sys_ok) {
         LocalFree(owner);
+        LocalFree(token_user);
         LocalFree(sd);
         return ResultV2<bool>::err(Error::Code::PermissionDenied, "cannot resolve trusted SIDs",
                                    ctx);
@@ -139,9 +184,13 @@ ResultV2<bool> inspect_dacl_privacy(const std::filesystem::path& path) {
         if (static_cast<ACE_HEADER*>(entry)->AceType == ACCESS_DENIED_ACE_TYPE) continue;
         // ALLOWED 与 OBJECT_ALLOWED 在 SidStart 处布局一致，统一取这一段
         PSID sid = &static_cast<ACCESS_ALLOWED_ACE*>(entry)->SidStart;
-        if (!EqualSid(sid, owner) && !EqualSid(sid, sys_buf)) trusted_only = false;
+        const bool trusted = EqualSid(sid, owner) ||
+                             (token_user != nullptr && EqualSid(sid, token_user)) ||
+                             EqualSid(sid, sys_buf);
+        if (!trusted) trusted_only = false;
     }
     LocalFree(owner);
+    LocalFree(token_user);
     LocalFree(sd);
     return ResultV2<bool>::ok(trusted_only);
 }
