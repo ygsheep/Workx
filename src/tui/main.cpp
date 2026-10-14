@@ -36,6 +36,7 @@
 #include "core/events/event_bus.h"
 #include "core/task/task_manager.h"
 #include "core/utils/file_index.h"
+#include "core/utils/utf8_path.h"
 
 #include "island/balance_fetcher.h"
 #include "island/cost_accumulator.h"
@@ -400,7 +401,9 @@ int main(int argc, char** argv) try {
         }
 
         island::IslandServerConfig isc;
-        isc.project_root = fs::current_path().string();
+        // #182：project_root 会进 island.registry 的 JSON。必须用 UTF-8；
+        // path::string() 在中文系统返回 GBK，会让 registry 的 dump() 抛 type_error.316。
+        isc.project_root = core::util::path_to_utf8(fs::current_path());
         isc.model = model_name;
         island_server =
             std::make_unique<island::IslandServer>(std::move(isc), nullptr, island_registry.get());
@@ -468,7 +471,8 @@ int main(int argc, char** argv) try {
     deps.model_catalog = model_catalog;
     deps.command_registry = command_registry;
     deps.mcp_manager = mcp_manager;  // #27 M4：MCP server 状态（侧栏展示）
-    deps.project = fs::current_path().filename().string();
+    // #182：侧栏项目名 —— 中文目录名必须走 UTF-8，否则侧栏显示乱码
+    deps.project = core::util::path_to_utf8(fs::current_path().filename());
     // B3：侧栏 Agent 显示真实会话 ID（非硬编码 "default"），
     //     与审计日志 / 事件流的 session_id 一致，便于对照
     deps.agent_name =

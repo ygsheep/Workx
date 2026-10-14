@@ -8,6 +8,8 @@
 #include <filesystem>
 #include <fstream>
 
+#include <nlohmann/json.hpp>
+
 #include "agent/api/provider/openai_adapter.h"
 
 using namespace agent;
@@ -83,6 +85,55 @@ TEST_CASE("OpenAIAdapter build_request_body", "[provider][openai]") {
     REQUIRE(body.find("\"role\":\"system\"") != std::string::npos);
     REQUIRE(body.find("\"role\":\"user\"") != std::string::npos);
     REQUIRE(body.find("\"role\":\"assistant\"") != std::string::npos);
+}
+
+// #182 回归：请求体里混入非法 UTF-8 字节时，默认的 dump() strict 策略会抛
+// nlohmann type_error.316，整个请求直接发不出去（表现为会话零输出）。
+// 非法字节来源：中文 cwd / 目录名经 path::string() 变成 GBK，进了系统提示词。
+TEST_CASE("OpenAIAdapter build_request_body 容忍非 UTF-8 字节（#182）",
+          "[provider][openai][utf8]") {
+    OpenAIAdapter adapter;
+
+    // "表情包" 的 GBK 字节（B1 ED C7 E9 B0 FC）—— 不是合法 UTF-8
+    const std::string gbk = "\xB1\xED\xC7\xE9\xB0\xFC";
+    std::string text = "## Project layout\n" + gbk + "/\n";
+
+    CompletionRequest request;
+    request.stream = true;
+    request.messages.push_back(ChatMessage::system(text));
+    request.messages.push_back(ChatMessage::user("hi"));
+
+    std::string body;
+    REQUIRE_NOTHROW(body = adapter.build_request_body(request, "deepseek-flash"));
+
+    // 非法字节被替换为 U+FFFD（EF BF BD），而不是抛异常
+    REQUIRE(body.find("\xEF\xBF\xBD") != std::string::npos);
+    // 结果仍是合法 JSON，可被下游解析
+    REQUIRE_NOTHROW(nlohmann::json::parse(body));
+}
+
+TEST_CASE("OpenAIAdapter build_request_body 容忍工具入参里的非 UTF-8（#182）",
+          "[provider][openai][utf8]") {
+    OpenAIAdapter adapter;
+
+    CompletionRequest request;
+    request.stream = true;
+    request.messages.push_back(ChatMessage::system("sys"));
+
+    ChatMessage asst;
+    asst.role = ChatMessage::Role::Assistant;
+    ToolUse tu;
+    tu.id = "call_1";
+    tu.name = "Bash";
+    tu.input = nlohmann::json::parse("{}");
+    // 工具入参字符串值里混入 GBK 字节
+    tu.input["cmd"] = std::string("\xB1\xED\xC7\xE9\xB0\xFC");
+    asst.tool_uses.push_back(tu);
+    request.messages.push_back(asst);
+
+    std::string body;
+    REQUIRE_NOTHROW(body = adapter.build_request_body(request, "deepseek-flash"));
+    REQUIRE_NOTHROW(nlohmann::json::parse(body));
 }
 
 TEST_CASE("OpenAIAdapter reasoning_content roundtrip (DS_CACHE P2)",

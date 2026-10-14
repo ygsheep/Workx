@@ -32,9 +32,10 @@
 #include "agent/mcp/mcp_client_manager.h"
 #include "agent/model/provider_preset.h"
 #include "agent/prompt/environment_probe.h"  // #82：环境探测（目录骨架 / 工具链 / 项目命令）
-#include "agent/prompt/env_setup_hint.h"     // #176：环境自建提示（缺哪些工具 + 后台并行装）
-#include "agent/prompt/memory.h"             // 项目记忆加载（CLAUDE.md / AGENT.md）
+#include "agent/prompt/env_setup_hint.h"  // #176：环境自建提示（缺哪些工具 + 后台并行装）
+#include "agent/prompt/memory.h"          // 项目记忆加载（CLAUDE.md / AGENT.md）
 #include "agent/session/session_store.h"  // 项目会话恢复
+#include "core/utils/utf8_path.h"  // #182：路径 → UTF-8（提示词里的 cwd 必须合法 UTF-8）
 #include "agent/tool/AgentTool/agent_tool.h"
 #include "agent/tool/BashTool/bash_tool.h"
 #include "agent/tool/AskUser/AskUserTool.h"
@@ -235,8 +236,7 @@ SessionResult create_session(IConfigManager& cfg, const ProviderPreset* preset,
     // 仅换 provider）。与主装配同样分两条路：preset 解析（create_backend）与
     // 自定义供应商条目（create_backend_for_entry，主后端 URL 来自条目时）。
     result.session->set_fallback_provider_factory(
-        [&cfg, preset, &event_bus,
-         active_provider = cfg.get_or<std::string>(keys::PROVIDER, "")](
+        [&cfg, preset, &event_bus, active_provider = cfg.get_or<std::string>(keys::PROVIDER, "")](
             const std::string& model) -> std::unique_ptr<ICompletionProvider> {
             auto r = create_backend(cfg, preset, event_bus, model);
             if (!r.provider && !active_provider.empty()) {
@@ -492,7 +492,9 @@ prompt::EnvironmentProbe make_project_probe() {
 /// @brief 构建环境上下文段（对齐 cc computeEnvInfo 的 <env> 块）
 std::string build_environment_context() {
     namespace fs = std::filesystem;
-    std::string cwd = fs::current_path().string();
+    // #182：cwd 会进 `<env>` 段。path::string() 在中文系统返回 GBK，
+    // 非法 UTF-8 会让后续请求体的 json::dump() 抛 type_error.316（请求发不出去）。
+    std::string cwd = core::util::path_to_utf8(fs::current_path());
     std::string platform = get_platform_string();
     std::string os_version = get_os_version_string();
     std::string shell_line = get_shell_info_line();

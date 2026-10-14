@@ -17,6 +17,7 @@
 
 #include "agent/core/verdict.h"  // #78 P4：detect_goal_command()（命令单一来源）
 #include "core/process/subprocess.h"
+#include "core/utils/utf8_path.h"  // #182：路径 → UTF-8（骨架里的文件名必须合法 UTF-8）
 
 namespace agent::prompt {
 namespace {
@@ -57,8 +58,12 @@ std::vector<Entry> list_dir(const std::filesystem::path& dir, size_t limit) {
         if (ec) break;
         const bool is_dir = item.is_directory(ec);
         if (!is_dir && !item.is_regular_file(ec)) continue;
-        if (is_dir && is_noise_dir(item.path().filename().string())) continue;
-        entries.push_back({item.path().filename().string(), is_dir});
+        // #182：路径名必须转 UTF-8。path::string() 在中文系统返回 GBK，非法 UTF-8
+        // 字节经目录骨架进入提示词后，会让请求体的 json::dump() 抛 type_error.316，
+        // 表现为首个请求静默失败（会话零输出）。
+        const std::string name = core::util::path_to_utf8(item.path().filename());
+        if (is_dir && is_noise_dir(name)) continue;
+        entries.push_back({name, is_dir});
     }
     std::stable_sort(entries.begin(), entries.end(), [](const Entry& a, const Entry& b) {
         if (a.is_dir != b.is_dir) return a.is_dir;  // 目录在前
@@ -79,8 +84,8 @@ constexpr auto kVersionTimeout = std::chrono::milliseconds(1200);
 // 常用工具（**仅存在性检查**，不查版本）—— 供「环境自建」提示判断缺什么。
 // 这里可以放心列得长一点：find_on_path 只扫 PATH，不起子进程，不会拖慢启动。
 constexpr std::string_view kCommonTools[] = {
-    "git",  "curl", "wget",    "pip3",  "node",      "npm",     "make",   "gcc",
-    "g++",  "ffmpeg", "tesseract", "Rscript", "sqlite3", "7z",  "uv",     "docker",
+    "git", "curl",   "wget",      "pip3",    "node",    "npm", "make", "gcc",
+    "g++", "ffmpeg", "tesseract", "Rscript", "sqlite3", "7z",  "uv",   "docker",
 };
 
 /// @brief 在 PATH 中查找可执行文件（不起子进程，纯文件系统扫描）
