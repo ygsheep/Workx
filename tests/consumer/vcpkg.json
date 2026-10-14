@@ -1,6 +1,6 @@
 {
     "name": "workx-consumer-smoke",
-    "version-string": "0.10.1",
+    "version-string": "0.10.2",
     "description": "External consumer smoke project (Issue #21): exercises find_package / add_subdirectory consumption of workx",
     "dependencies": [
         "nlohmann-json",
