@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  build:
     name: Build & package (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -82,6 +82,30 @@ jobs:
             -OutDir $msi `
             -WixBin $env:WIX_BIN
           Get-ChildItem $msi -Filter *.msi | ForEach-Object { "MSI artifact: $($_.Name) ($([math]::Round($_.Length/1MB,1)) MB)" }
+
+      - name: Upload dist as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+
+  # 唯一发布 owner：两个 matrix job 若各自调用 action-gh-release，会并发抢建/改写同一个
+  # Release，后到者 Finalizing release 撞 HttpError 并耗尽重试，使整个 run 判红（#180）。
+  # 故各平台只上传 artifact，由本 job 汇总后发布一次。
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List collected artifacts
+        run: ls -lh dist
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
