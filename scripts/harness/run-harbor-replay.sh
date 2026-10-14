@@ -28,7 +28,19 @@ export PATH="$HOME/.local/bin:$PATH"   # harbor 由 uv tool 装在这里，非�
 # 它会顺带**关掉** Git Bash 对 PYTHONPATH 的路径转换 —— 于是 Windows 版 Python
 # 收到 /d/develop/... 这种 POSIX 路径，sys.path 里就找不到 agents.workx。
 export PYTHONPATH=$(pwd -W)
-export WORKX_BASE_URL=https://api.deepseek.com
+# BASE_URL 可由 .env.harbor 覆盖（如自建/第三方中转端点），默认官方 DeepSeek。
+# 读取在下方「读取 .env.harbor」块，放这里是因为 agents/workx 的 _workx_env()
+# 只透传宿主已存在的 WORKX_* —— 必须提前 export 才能进容器。
+WORKX_BASE_URL_OVERRIDE=""
+if [ -f .env.harbor ]; then
+  # 兼容两种写法：WORKX_BASE_URL（项目标准）/ WORKX_URL_BASE（易记反写）
+  while IFS='=' read -r k v; do
+    case "$k" in
+      WORKX_BASE_URL|WORKX_URL_BASE) WORKX_BASE_URL_OVERRIDE="$(echo "$v" | tr -d '\r')" ;;
+    esac
+  done < .env.harbor
+fi
+export WORKX_BASE_URL="${WORKX_BASE_URL_OVERRIDE:-https://api.deepseek.com}"
 # ⚠️ 模型改名过两次：首轮是 `deepseek-v4-flash`；2026-10-04 实测
 # `deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` 仍能调用（服务端统一映射到 deepseek-flash）；
 # 2026-10-11 起官方名称即 `deepseek-flash`（见 .env.harbor.example）。
@@ -44,7 +56,10 @@ export WORKX_AGENT_BINARY_PATH=/opt/workx-bin/workx-linux-amd64
 
 MODE=${1:-full}
 SRC_CONFIG=jobs/2026-10-03__13-45-16/config.json
-OUT_CONFIG=build/linux/replay20.json
+# 输出配置与数据集都可用环境变量覆盖：
+#   WORKX_DATASET=...  用「预装依赖」的数据集副本（scripts/harness/prepare_envs.py 生成）
+#   WORKX_OUT_CONFIG=...  自定义输出配置路径
+OUT_CONFIG=${WORKX_OUT_CONFIG:-build/linux/replay20.json}
 
 if [ ! -f .env.harbor ]; then
   echo "❌ 缺少 .env.harbor，请先创建并写入：WORKX_API_KEY=<你的 DeepSeek key>" >&2
@@ -57,24 +72,46 @@ python scripts/harness/check_binary_signature.py build/linux/workx-linux-amd64
 
 # --- 卡口 ②：模型真的能调通，别等一小时才发现整轮空转 ---
 python - <<'PY'
-import json, os, urllib.request
+import json, os, urllib.request, urllib.error
 
 key = ""
+base_from_env = ""
 for line in open(".env.harbor", encoding="utf-8"):
+    line = line.rstrip("\r\n")
     if line.startswith("WORKX_API_KEY="):
         key = line.split("=", 1)[1].strip()
+    # 兼容 WORKX_BASE_URL（标准）/ WORKX_URL_BASE（易记反写）
+    elif line.startswith("WORKX_BASE_URL=") or line.startswith("WORKX_URL_BASE="):
+        base_from_env = line.split("=", 1)[1].strip()
+
 model = os.environ.get("WORKX_MODEL", "")
-base = os.environ.get("WORKX_BASE_URL", "https://api.deepseek.com")
+# 优先级：宿主 export 的 WORKX_BASE_URL > .env.harbor 的 WORKX_BASE_URL > 官方默认
+base = os.environ.get("WORKX_BASE_URL") or base_from_env or "https://api.deepseek.com"
+# 端点归一化：base 可能已经是完整 chat/completions（自建中转常见），别重复追加
+endpoint = base.rstrip("/")
+if not (endpoint.endswith("/chat/completions") or endpoint.endswith("/v1/chat/completions")):
+    endpoint = endpoint + "/chat/completions"
+print(f"  端点: {endpoint}  (base={base})")
+
 req = urllib.request.Request(
-    base.rstrip("/") + "/chat/completions",
+    endpoint,
     data=json.dumps(
         {"model": model, "messages": [{"role": "user", "content": "say OK"}], "max_tokens": 16}
     ).encode(),
     headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
 )
-with urllib.request.urlopen(req, timeout=60) as r:
-    body = json.loads(r.read())
-print(f"✅ 模型连通：{model} -> HTTP {r.status} / 服务端 {body.get('model')}")
+try:
+    with urllib.request.urlopen(req, timeout=60) as r:
+        body = json.loads(r.read())
+    print(f"✅ 模型连通：{model} -> HTTP {r.status} / 服务端 {body.get('model')}")
+except urllib.error.HTTPError as exc:
+    detail = exc.read().decode("utf-8", "replace")[:300]
+    if exc.code == 402:
+        print(f"❌ 卡口②失败：HTTP 402 余额不足（{detail}）")
+        print("   端点可达但账户余额不足 —— 充值后重跑；不得据此判定模型不可用。")
+    else:
+        print(f"❌ 卡口②失败：HTTP {exc.code} {detail}")
+    raise SystemExit(1)
 PY
 
 # --- 卡口 ③：数据集行尾必须 LF ---
@@ -83,13 +120,48 @@ PY
 python scripts/harness/fix_dataset_lineendings.py --check \
   || { echo "请跑：python scripts/harness/fix_dataset_lineendings.py --fix"; exit 1; }
 
+# --- 卡口 ⑤a：WORKX_DATASET 路径归一化 ---
+# ⚠️ 开了 MSYS_NO_PATHCONV=1 后，`$PWD` 是 POSIX 路径（/d/develop/...），
+# Windows 版 Python 的 os.path.join 拼出来打不开 → 卡口⑥ 误报「20 题读不到 timeout_sec」
+# （假阴性）。且**不能**直接喂 `/d/...` 给 Windows python（会按当前盘符解析成 D:\d\...）。
+# 根治：用 `cygpath -w` 转成 Windows 路径（/d/develop → D:\develop）。
+if [ -n "${WORKX_DATASET:-}" ]; then
+  if command -v cygpath >/dev/null 2>&1; then
+    WORKX_DATASET="$(cygpath -w "$WORKX_DATASET")"
+  else
+    # 无 cygpath 时手动转换：/d/foo → D:/foo
+    WORKX_DATASET="$(printf '%s' "$WORKX_DATASET" | sed -E 's#^/([a-zA-Z])/#\U\1:/#')"
+  fi
+  export WORKX_DATASET
+  echo "数据集路径已归一化：$WORKX_DATASET"
+fi
+
 # --- 卡口 ⑤：代理桥连通（#166 方案 A）---
 # 容器直连境外数据集/源码会被干扰（caffe 实测 SSL UNEXPECTED_EOF / aria2c 报错 /
 # wget 92KB/s），挂代理后 apt/git 秒过。桥不通就别开跑，否则整轮都耗在重试上。
 # 桥的启动与 docker 构建期代理见 scripts/harness/harbor-proxy.sh。
+# ⚠️ 这里用 start 而不是 check：本环境下后台进程会随「上一次工具调用结束」被回收
+#    （pproxy 曾两次因此消失，下一轮构建 apt 直接 Connection refused），
+#    所以每次跑分都**幂等拉起**（已在跑则复用），而不是只探测。
 # 必须 export：下面的 python 块是独立进程，普通 shell 变量读不到
 export PROXY_ENV_JSON="$(bash scripts/harness/harbor-proxy.sh env-json)"
-bash scripts/harness/harbor-proxy.sh check
+bash scripts/harness/harbor-proxy.sh start
+
+# --- 卡口 ⑤b：docker daemon 可用（带重试）---
+# Docker Desktop 偶发自动重启（构建结束瞬间尤其常见），harbor 会直接
+# 报 "Docker daemon is not running" 退出，白白浪费一轮。这里最多等 60s。
+for i in $(seq 1 12); do
+  if docker info >/dev/null 2>&1; then
+    echo "✅ docker daemon 就绪"
+    break
+  fi
+  if [ "$i" -eq 12 ]; then
+    echo "❌ docker daemon 不可用（等了 60s），请确认 Docker Desktop 已启动" >&2
+    exit 1
+  fi
+  echo "… 等待 docker daemon（$i/12）"
+  sleep 5
+done
 
 python - "$SRC_CONFIG" "$OUT_CONFIG" "$MODE" <<'PY'
 import json, os, sys
@@ -97,6 +169,12 @@ import json, os, sys
 # --- 运行期注入：environment.env 写入代理（#166 方案 A）---
 src, out, mode = sys.argv[1:4]
 c = json.load(open(src, encoding="utf-8"))
+# 数据集路径可覆盖：跑「预装依赖」副本时用 WORKX_DATASET 指向它
+# （见 scripts/harness/prepare_envs.py 与 env-prep.json）
+ds_override = os.environ.get("WORKX_DATASET")
+if ds_override:
+    c["datasets"][0]["path"] = ds_override
+    print(f"✅ 数据集路径覆盖：{ds_override}")
 if mode == "smoke":
     # 选首轮因 uv 下载失败而没有任何有效判定的题 —— 最直接的「修复是否生效」观测点
     watch = {"custom-memory-heap-crash", "adaptive-rejection-sampler", "caffe-cifar-10"}

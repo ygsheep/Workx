@@ -32,6 +32,7 @@
 #include "agent/mcp/mcp_client_manager.h"
 #include "agent/model/provider_preset.h"
 #include "agent/prompt/environment_probe.h"  // #82：环境探测（目录骨架 / 工具链 / 项目命令）
+#include "agent/prompt/env_setup_hint.h"     // #176：环境自建提示（缺哪些工具 + 后台并行装）
 #include "agent/prompt/memory.h"             // 项目记忆加载（CLAUDE.md / AGENT.md）
 #include "agent/session/session_store.h"  // 项目会话恢复
 #include "agent/tool/AgentTool/agent_tool.h"
@@ -479,14 +480,13 @@ bool is_git_repo() {
 /// @details 省掉 agent 前若干轮用 Bash+Glob 摸索环境的开销，也让 #78 验证门禁有可
 ///          引用的命令来源。探测只读且只在启动时做一次；推导不出内容时返回空串，
 ///          调用方据此不注入，避免给模型塞一段无意义的空标题。
-std::string build_project_probe_section() {
+prompt::EnvironmentProbe make_project_probe() {
     namespace fs = std::filesystem;
-    const prompt::EnvironmentProbe probe{
+    return prompt::EnvironmentProbe{
         .dir_entries = prompt::probe_directory_skeleton(fs::current_path()),
         .toolchains = prompt::probe_toolchain(),
         .commands = prompt::probe_project_commands(fs::current_path()),
     };
-    return prompt::format_environment_probe(probe);
 }
 
 /// @brief 构建环境上下文段（对齐 cc computeEnvInfo 的 <env> 块）
@@ -529,10 +529,20 @@ std::string build_environment_context() {
     }
 #endif
 
-    const std::string probe_text = build_project_probe_section();
+    const prompt::EnvironmentProbe probe = make_project_probe();
+    const std::string probe_text = prompt::format_environment_probe(probe);
     if (!probe_text.empty()) {
         env_block += "\n";
         env_block += probe_text;
+    }
+
+    // #176：环境自建提示 —— 评测题目镜像常刻意极简（裸 ubuntu:24.04），
+    // 系统依赖要 agent 自己装（官方参考解亦然），实测会吃掉大量墙钟预算。
+    // 这里显式点出「缺哪些常用工具」，并建议把安装/构建放后台、与后续工作重叠。
+    const std::string setup_hint = prompt::format_env_setup_hint(prompt::probe_common_tools());
+    if (!setup_hint.empty()) {
+        env_block += "\n";
+        env_block += setup_hint;
     }
     return env_block;
 }

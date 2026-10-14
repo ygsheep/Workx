@@ -1,0 +1,50 @@
+{
+  "_comment": [
+    "环境预装配置（#176 关联）。",
+    "背景：Terminal-Bench 的题目镜像刻意极简（多为裸 ubuntu:24.04），",
+    "依赖要求 agent 自己 apt/pip 安装（官方 solve.sh 同样自装）。",
+    "这会让 agent 把大量墙钟预算花在『搭环境』而非『解题』上。",
+    "本配置把各题 solve.sh 里**属于环境搭建**的步骤提前烘焙进镜像，",
+    "让评测聚焦解题能力。代价：偏离官方基线，题目相对变简单。",
+    "注意：只预装『环境前置』，不预装『题目产物』（如 build-cython-ext 的编译、",
+    "crack-7z-hash 的 john 构建已经是镜像内容，不在本配置里重复）。"
+  ],
+  "tasks": {
+    "adaptive-rejection-sampler": {
+      "reason": "solve.sh: apt-get install openssl + r-base-core=4.3.3-2build2",
+      "snippet": "RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssl r-base-core && rm -rf /var/lib/apt/lists/*"
+    },
+    "caffe-cifar-10": {
+      "reason": "solve.sh: Caffe 全套编译依赖（Dockerfile 只装了 git/curl/cmake/wget）",
+      "snippet": "RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential cmake git pkg-config wget libprotobuf-dev libleveldb-dev libsnappy-dev libopencv-dev libhdf5-serial-dev protobuf-compiler libatlas-base-dev libboost-all-dev libgflags-dev libgoogle-glog-dev liblmdb-dev && rm -rf /var/lib/apt/lists/*"
+    },
+    "configure-git-webserver": {
+      "reason": "solve.sh: apt-get install git nginx openssh-server（Dockerfile 只装了 curl）",
+      "snippet": "RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git nginx openssh-server && rm -rf /var/lib/apt/lists/*"
+    },
+    "extract-moves-from-video": {
+      "reason": "裸 ubuntu:24.04；任务需下载 YouTube 视频并 OCR，agent 实测缺 python3/ffmpeg/yt-dlp",
+      "snippet": "RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-pip ffmpeg tesseract-ocr ca-certificates && rm -rf /var/lib/apt/lists/* && pip3 install --break-system-packages --no-cache-dir yt-dlp pytesseract opencv-python-headless"
+    },
+    "chess-best-move": {
+      "reason": "solve.sh: apt install stockfish + pip numpy==2.3.2 python-chess==1.2.0。⚠️ stockfish 装在 /usr/games（Debian 惯例），非登录 shell 的 PATH 不含它 → 补软链到 /usr/local/bin 让 agent 直接 `stockfish` 可用",
+      "snippet": "RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends stockfish python3-pip && rm -rf /var/lib/apt/lists/* && ln -sf /usr/games/stockfish /usr/local/bin/stockfish && pip3 install --break-system-packages --no-cache-dir numpy==2.3.2 python-chess==1.2.0"
+    },
+    "crack-7z-hash": {
+      "reason": "solve.sh: apt-get install libcompress-raw-lzma-perl 7zip。⚠️ 7zip 提供 `7zz`（/usr/bin），部分脚本按 `7z` 调用 → 补软链",
+      "snippet": "RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libcompress-raw-lzma-perl 7zip && rm -rf /var/lib/apt/lists/* && { [ -e /usr/bin/7z ] || ln -sf /usr/bin/7zz /usr/bin/7z; }"
+    },
+    "cobol-modernization": {
+      "reason": "solve.sh: apt-get install gnucobol3",
+      "snippet": "RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gnucobol3 && rm -rf /var/lib/apt/lists/*"
+    },
+    "count-dataset-tokens": {
+      "reason": "solve.sh: pip install datasets==4.0.0 transformers==4.56.0 jinja2==3.1.6",
+      "snippet": "RUN pip3 install --no-cache-dir datasets==4.0.0 transformers==4.56.0 jinja2==3.1.6"
+    },
+    "financial-document-processor": {
+      "reason": "solve.sh: apt-get install tesseract-ocr（target 阶段是裸 ubuntu）",
+      "snippet": "RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tesseract-ocr && rm -rf /var/lib/apt/lists/*"
+    }
+  }
+}

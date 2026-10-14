@@ -7,6 +7,8 @@
 | --- | --- | --- |
 | [`run-harbor-replay.sh`](run-harbor-replay.sh) | 复跑一轮 Harbor（含**六道跑前卡口** + `dry` 体检模式） | 拿旧二进制/坏模型跑满一小时才发现白跑 |
 | [`harbor-proxy.sh`](harbor-proxy.sh) | 代理桥（HTTP→SOCKS5）起停 + docker 构建期代理 + 运行期 env 注入 | 容器直连境外源被干扰，caffe 题下 170MB 数据+源码编译全废 |
+| [`prepare_envs.py`](prepare_envs.py) | 全量换源 + 把 9 题依赖**预装**进数据集副本（非破坏性） | 裸镜像题里 agent 把大部分预算花在 `apt install` 上，掩盖真实解题能力；且不换源镜像根本建不出来 |
+| [`verify_prep_images.py`](verify_prep_images.py) | 逐题实跑探测预装镜像依赖**真的可用**（含 PATH 陷阱） | 「Dockerfile 写了 RUN」≠「容器里能跑」，stockfish 装进 `/usr/games` 非默认 PATH |
 | [`build-linux-container.sh`](build-linux-container.sh) | 在 Docker 里重建 Linux 二进制的完整配方 | 构建配方没留过档；不同潜意识复用错了 IOC 配置 |
 | [`check_binary_signature.py`](check_binary_signature.py) | 校验产物二进制是否含目标改动 | 用没编进 #133 的二进制得出「#133 有效」的假结论 |
 | [`fix_dataset_lineendings.py`](fix_dataset_lineendings.py) | 数据集行尾守卫（CRLF → LF） | Windows `autocrlf=true` 让 checksum 校验题**必然失败** |
@@ -81,6 +83,89 @@ bash scripts/harness/harbor-proxy.sh stop        # docker-off + 停桥
 2. 同样因为不再转路径，把 `/c/Users/...` 当参数传给 Windows 版 python，会被解析成
    **当前盘符**下的路径（在 D: 盘跑就写进 `D:\c\Users\...`），静默写错位置。
    碰 `~/.docker/config.json` 的 python 代码一律在 python 侧 `os.path.expanduser("~")` 自己算路径。
+
+## 环境预装：`prepare_envs.py` + `env-prep.json`（#176）
+
+Terminal-Bench 的题目镜像**刻意极简**（多为裸 `ubuntu:24.04`），系统依赖要求 agent
+自己 `apt/pip` 安装 —— **官方 `solution/solve.sh` 也是这么做的**，所以「环境没装」是
+题目设计、不是缺陷。但实测它会吃掉大量墙钟预算（caffe 题 **98%** 的工具耗时花在
+装/编依赖上、adaptive 题 **100%**），把模型真实的解题能力淹没了。
+
+`prepare_envs.py` 把各题 `solve.sh` 里**属于环境搭建**的步骤提前烘焙进镜像，且只改动
+**数据集副本** —— 原始 `.cache/tb2/terminal-bench` 一个字节都不动：
+
+```bash
+python scripts/harness/prepare_envs.py --dry-run    # 先看将做什么（不落盘）
+python scripts/harness/prepare_envs.py              # 生成 .cache/tb2/terminal-bench-prep/
+WORKX_DATASET="$PWD/.cache/tb2/terminal-bench-prep" \
+  MSYS_NO_PATHCONV=1 bash scripts/harness/run-harbor-replay.sh dry   # 体检
+```
+
+脚本对**全部 77 题**做两件事，都只写进**数据集副本**：
+
+1. **全量换源**（所有题）：把每个 `RUN ... apt-get ...` 的 apt 源迁到清华 http 镜像。
+   这是**环境适配**（不改变题目难度）——不换源的话，构建期直连 `archive.ubuntu.com`
+   会卡死，镜像根本建不出来（详见下节）。
+2. **依赖预装**（仅 [`env-prep.json`](env-prep.json) 登记的 9 题）：在 `environment/Dockerfile`
+   末尾追加一段带标记的 `RUN`（**幂等**：重复跑不会越叠越多），并把副本 `task.toml` 的
+   `docker_image` 删掉（`force_build=false` 时也强制走我们改过的 Dockerfile）。
+
+> 🔴 **为什么保留原始 `FROM`、而不是重定向到官方预构建镜像**（2026-10-13 反复踩坑）：
+> 曾把 `FROM ubuntu:24.04` 改成 `FROM alexgshaw/<task>:20251031`（官方镜像），
+> 但本机 Docker daemon **没有 HTTPS 代理**、坏 registry mirror 又已移除，**拉不到 Docker Hub**，
+> 构建直接失败。而「原始 `FROM`（`ubuntu:24.04` / `python:3.13-slim-bookworm` 等本地已缓存）
+> + 换源」**零 Docker Hub 依赖**，自给自足。实测 9 题预装镜像全部本地构建成功：
+> adaptive 42s、caffe 291s（预装 protobuf/boost 较重）。
+
+⚠️ 这是**偏离官方基线**的做法：题目相对变简单，分数**不能**与官方榜直接比。
+它的用途是把「环境噪声」从评测里剥掉，看模型真正的解题能力。
+
+### 🔴 apt 换国内源（评测机在中国大陆的硬性前提）
+
+容器内直连 `archive.ubuntu.com` 拉大文件会被干扰：**TCP 握手成功、`HEAD` 请求 200 OK，
+但 `apt-get update` 拉 `Release`/`Packages.gz` 会卡到几分钟甚至超时**（实测 >600s 未完）。
+走代理又遇 TLS 证书校验失败（bridge 不解密 TLS）。实测换**清华 http 源 + 不走代理**后：
+
+| 操作 | archive.ubuntu.com | 清华 http 源（不走代理） |
+| --- | --- | --- |
+| `apt-get update` | >600s（超时） | **8.9s** |
+| 装 curl+git+libcurl4+tzdata | — | **10.8s** |
+
+三处已固化：
+- **构建期**：`prepare_envs.py` 给**每个含 `apt-get` 的 RUN**（全 77 题）前置换源 `sed`（`MIRROR_PRELUDE`）；
+- **运行期**：`agents/workx/__init__.py` 的 `install()` 先换源、并**显式 `unset` 代理变量**；
+- `harbor-proxy.sh` 的 `no_proxy` 已加 `mirrors.tuna.tsinghua.edu.cn` / `.ustc.edu.cn` 等。
+
+### 闭环校验：`verify_prep_images.py`（必跑）
+
+「Dockerfile 里写了 `RUN`」≠「容器里真能跑」——apt 可能被代理/网络静默跳过，
+包也可能装到了**非默认 PATH**（如 `stockfish` 在 Debian 惯例的 `/usr/games`，
+非登录 shell 的 PATH 不含它 → agent 直呼 `stockfish` 会 command not found）。
+所以预装完**必须**逐题实跑探测：
+
+```bash
+MSYS_NO_PATHCONV=1 python scripts/harness/verify_prep_images.py          # 9 题全探
+MSYS_NO_PATHCONV=1 python scripts/harness/verify_prep_images.py --json r.json
+```
+
+⚠️ 必须 `MSYS_NO_PATHCONV=1`：否则 Git Bash 会把 `--entrypoint /bin/bash` 的
+`/bin/bash` 转成 Windows 路径，容器起不来（报 "no such file or directory"）。
+探测命令刻意用**非登录 shell**（`docker run … -c`）——与 agent 的真实执行环境一致，
+PATH 类问题才能暴露。当前 9/9 通过；`cube`/`stockfish` 这类 PATH 陷阱已在
+`env-prep.json` 里用 `/usr/local/bin` 软链修掉。
+
+## 模型端点：`WORKX_BASE_URL`（可指向自建/中转）
+
+`.env.harbor` 的 `WORKX_BASE_URL` 支持两类写法，脚本与客户端都兼容：
+
+| 写法 | 例子 | 说明 |
+| --- | --- | --- |
+| 基础地址 | `https://api.deepseek.com` | 客户端自动补 `/v1/chat/completions` |
+| 完整端点 | `https://<host>/v1/chat/completions` | 已含端点则不重复追加 |
+
+脚本会读 `.env.harbor` 的 `WORKX_BASE_URL`（兼容反写 `WORKX_URL_BASE`）并 export，
+再由 `agents/workx` 的 `_workx_env()` 透传进容器。留空回落官方 `api.deepseek.com`。
+卡口② 对 **402 余额不足** 单独提示「端点可达、账户缺钱」，不会误判成 key/端点错误。
 
 ## 墙钟预算与主动收敛（#166 方案 C / #137 建议 3）
 

@@ -47,8 +47,13 @@ BRIDGE_PORT="${BRIDGE##*:}"
 # 容器视角的宿主地址：Docker Desktop 下固定是 host.docker.internal
 CONTAINER_HOST="host.docker.internal"
 
-# 直连白名单：DeepSeek API 绝不能走代理（会拖慢 + 代理一断全轮跑分废）
-DEFAULT_NO_PROXY="localhost,127.0.0.1,::1,host.docker.internal,.deepseek.com,api.deepseek.com"
+# 直连白名单：LLM 端点绝不能走代理（会拖慢 + 代理一断全轮跑分废）。
+# ⚠️ 当前端点是中转 `tokenrhythm.studio`（阿里云北京 ALB，容器直连 TCP 443 可达）
+#    —— 与旧的 api.deepseek.com **不是同一个域**，必须一并列出，否则请求会被绕进
+#    pproxy，实测出现过 10s 连接超时（rc=28）导致整题 instant fail。
+# 国内 apt 源也必须直连：走代理会遇 TLS 证书校验失败（bridge 不解密 TLS），
+# 且评测机在国内直连清华/USTC 源比经代理快得多（实测 8.9s vs >600s 超时）。
+DEFAULT_NO_PROXY="localhost,127.0.0.1,::1,host.docker.internal,.deepseek.com,api.deepseek.com,tokenrhythm.studio,.tokenrhythm.studio,mirrors.tuna.tsinghua.edu.cn,mirrors.ustc.edu.cn,mirrors.aliyun.com,.tsinghua.edu.cn,.ustc.edu.cn"
 NO_PROXY_LIST="${WORKX_PROXY_NO_PROXY:-$DEFAULT_NO_PROXY}"
 
 DOCKER_CFG_LABEL="~/.docker/config.json"
