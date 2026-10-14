@@ -61,7 +61,11 @@ agent::ResultV2<void> RegistryWriter::write(const RegistryEntry& entry) {
                   entries.end());
     entries.push_back(entry);
 
-    const std::string content = to_json(entries).dump();
+    // #182：error_handler=replace —— project_root 等字段此前由 path::string() 填入，
+    // 中文路径在 Windows 上是 GBK（非法 UTF-8），默认 strict 会抛 type_error.316，
+    // 而这里正处在 IslandServer::start 的启动路径上 → 直接表现为**启动即崩**。
+    const std::string content =
+        to_json(entries).dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
     return atomic_write(m_path, content);
 }
 
@@ -72,7 +76,8 @@ agent::ResultV2<void> RegistryWriter::remove(uint32_t pid) {
     entries.erase(std::remove_if(entries.begin(), entries.end(),
                                  [&](const RegistryEntry& e) { return e.pid == pid; }),
                   entries.end());
-    return atomic_write(m_path, to_json(entries).dump());
+    return atomic_write(
+        m_path, to_json(entries).dump(-1, ' ', false, nlohmann::json::error_handler_t::replace));
 }
 
 agent::ResultV2<std::vector<RegistryEntry>> RegistryWriter::read_all(

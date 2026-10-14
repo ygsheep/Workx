@@ -50,4 +50,5 @@ target_sources(workx_core PRIVATE
     utils/line_diff.cpp
     utils/uuid.cpp
     utils/path_encoder.cpp
+    utils/utf8_path.cpp
 )

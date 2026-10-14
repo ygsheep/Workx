@@ -205,12 +205,15 @@ std::string OpenAIAdapter::build_request_body(const CompletionRequest& request,
         if (msg.role == ChatMessage::Role::Assistant && !msg.tool_uses.empty()) {
             nlohmann::json tool_calls = nlohmann::json::array();
             for (const auto& tu : msg.tool_uses) {
-                tool_calls.push_back(
-                    {{"id", tu.id},
-                     {"type", "function"},
-                     {"function",
-                      {{"name", tu.name},
-                       {"arguments", tu.input.is_null() ? "{}" : tu.input.dump()}}}});
+                // #182：arguments 按 replace 序列化 —— 入参里的非 UTF-8 字节（如 GBK 命令输出）
+                // 若用默认 strict 会在外层 dump 时抛 type_error.316，连带整个请求失败。
+                const std::string args =
+                    tu.input.is_null()
+                        ? std::string("{}")
+                        : tu.input.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+                tool_calls.push_back({{"id", tu.id},
+                                      {"type", "function"},
+                                      {"function", {{"name", tu.name}, {"arguments", args}}}});
             }
             m["tool_calls"] = std::move(tool_calls);
         }
@@ -250,7 +253,10 @@ std::string OpenAIAdapter::build_request_body(const CompletionRequest& request,
         j["stop"] = request.stop_words;
     }
 
-    return j.dump();
+    // #182：error_handler=replace —— 请求体里若混入非 UTF-8 字节（如中文 cwd / 目录名
+    // 经本机窄编码变成 GBK），默认的 strict 会抛 type_error.316，导致**整个请求发不出去**
+    // （会话零输出）。改为把非法字节替换成 U+FFFD，保证请求一定发得出去。
+    return j.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
 
 bool OpenAIAdapter::parse_sse_event(const std::string& /*event_type*/, const std::string& data,

@@ -159,7 +159,9 @@ std::string AnthropicAdapter::build_request_body(const CompletionRequest& reques
         j["stop"] = request.stop_words;
     }
 
-    return j.dump();
+    // #182：与 OpenAI 适配器同口径 —— 非法 UTF-8 字节用 U+FFFD 替换，
+    // 而不是抛 type_error.316 让请求直接失败。
+    return j.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
 
 bool AnthropicAdapter::parse_sse_event(const std::string& event_type, const std::string& data,
