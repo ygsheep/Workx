@@ -191,7 +191,7 @@
     <li><b>#166 方案 B · 工具非阻塞</b> ✅ — Bash/PowerShell <b>后台任务结果自动回传</b>，长命令不再让 agent 空转轮询（PR #168）。</li>
     <li><b>#166 方案 C · 墙钟预算</b> ✅ — 预算<b>按题下发</b>（适配器从 trial 目录 <code>config.json</code> 读 <code>timeout_sec</code> × 0.9）+ 剩余墙钟<b>主动收敛</b>（分级提示，critical 档立即交卷）（PR #170）。<br><span>⚠️ 只注入提示、<b>不强停</b> —— <code>adaptive</code> 冒烟仍撞 <code>AgentTimeoutError</code>。</span></li>
     <li><b>#176 环境治理</b> ✅（PR #178）— 全 <b>77 题</b> apt 源迁清华 http 镜像（构建期 + 运行期）；<b>9 题</b>依赖预装进<b>数据集副本</b>（非破坏性）；<code>verify_prep_images.py</code> 逐题实跑 <b>9/9 通过</b>；agent 侧新增<b>环境自建提示</b>。<br><span>→ 镜像构建<b>零 Docker Hub 依赖</b>（保留原始 <code>FROM</code> + 换源）。⚠️ 预装让题目相对官方基线变简单，分数<b>不能</b>与官方榜直接比。</span></li>
-    <li><b>基线复现</b> ✅ — job <code>2026-10-12__13-59-16</code>（develop <code>321d2a5</code>，20 题 × 1，墙钟 <b>1h23m</b>）：<b>Mean reward 0.750（15/20）</b>，相比首轮 9/20 <b>净增 4 题、零回归</b>。<br><span>失败 4 题：<code>adaptive-rejection-sampler</code> / <code>caffe-cifar-10</code> / <code>configure-git-webserver</code> / <code>extract-moves-from-video</code>。</span></li>
+    <li><b>基线复现</b> ✅ — job <code>2026-10-12__13-59-16</code>（develop <code>321d2a5</code>，20 题 × 1，墙钟 <b>1h23m</b>）：<b>Mean reward 0.750（15/20）</b>，相比首轮 9/20 <b>净增 4 题、零回归</b>。<br><span>20 trial = <b>15 通过</b> + <b>4 答错</b>（<code>adaptive-rejection-sampler</code> / <code>caffe-cifar-10</code> / <code>configure-git-webserver</code> / <code>extract-moves-from-video</code>）+ <b>1 报错</b>（<code>filter-js-from-html</code> 的 <code>VerifierTimeoutError</code>，计 0）。<br>⚠️ <b>「19」是拿到明确判定的 trial 数（20 − 1 报错），不是通过数</b> —— 别读成 19/20。</span></li>
   </ul>
 </div>
 

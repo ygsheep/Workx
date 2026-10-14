@@ -65,8 +65,10 @@
 >   （非破坏性，原始数据集一字节不动）、`verify_prep_images.py` 逐题实跑 **9/9 通过**；agent 侧新增**环境自建提示**
 >   （点出缺哪些常用工具 + 建议后台并行安装）。
 > - **基线复现**：job `2026-10-12__13-59-16`（develop `321d2a5`，`terminal-bench@2.0` 20 题 × 1 次，墙钟 **1h23m**），
->   **Mean reward 0.750（15/20）** —— 相比首轮 9/20 **净增 4 题、零回归**。失败 4 题：
->   `adaptive-rejection-sampler` / `caffe-cifar-10` / `configure-git-webserver` / `extract-moves-from-video`。
+>   **Mean reward 0.750（= 15 / 20）** —— 相比首轮 9/20 **净增 4 题、零回归**。
+>   20 个 trial 的构成：**15 通过**（reward 1.0）· **4 答错**（reward 0.0：`adaptive-rejection-sampler`、
+>   `caffe-cifar-10`、`configure-git-webserver`、`extract-moves-from-video`）· **1 报错**
+>   （`filter-js-from-html` 的 `VerifierTimeoutError`，harbor 计为 0）。
 > - **P1-1 / P1-2 两项落地**：环境上下文注入（#82）+ 时间/墙钟预算提示（#166C）—— 「上下文工程」维度因此重估 **70 → 80**。
 > - 🔴 **同时挖出两个新的真问题（都不在环境层，是 harness 自身缺陷）**：**#173（P0）** BashTool **超时判定滞后约 379s**
 >   （请求 `timeout=600000` 实际 `duration=979084ms` 才生效）；**#174（P1）** 主推理 `max_tokens` **无上限**（`chat_types.h` 默认 `-1`
@@ -840,11 +842,16 @@ job `2026-10-12__13-59-16` · develop `321d2a5` · `terminal-bench@2.0` 20 题 �
 
 | 口径 | 值 |
 | --- | --- |
-| **Mean reward** | **0.750** |
-| 通过 / 失败 | **15 / 20**（另有 1 个 trial 报错，**19** 个计分） |
+| **Mean reward** | **0.750**（= 15 / 20；harbor 把报错的 1 题也计为 0） |
+| 计分构成（20 trial） | **15 通过**（reward 1.0）· **4 答错**（reward 0.0）· **1 报错**（计 0） |
 | 对比首轮（同 20 题） | 9/20 → **15/20**，**净增 4 题、零回归** |
 
-失败 4 题：`adaptive-rejection-sampler`、`caffe-cifar-10`、`configure-git-webserver`、`extract-moves-from-video`。
+**答错 4 题**：`adaptive-rejection-sampler`、`caffe-cifar-10`、`configure-git-webserver`、`extract-moves-from-video`。
+**报错 1 题**：`filter-js-from-html`（`VerifierTimeoutError`，verifier 侧 900s 超时，模型侧无定论）。
+
+> ⚠️ **别把口径读成 19/20**：20 个 trial 里是 **15 通过 / 4 答错 / 1 报错**，
+> 「19」只是**拿到明确判定**的 trial 数（20 − 1 报错），不是通过数。想只看「有判定的题」的通过率 = **15 / 19 ≈ 0.789**，
+> 但 harbor 报的 **Mean 0.750 是按 20 题算的**（报错题记 0），故文档统一采用 **15 / 20**。
 
 > 📌 与 §2.6 的 45.0% / 60.0% **不可直接相减**：那批是 10-03 的数据、CRLF 污染仍在；
 > 本批同时换了数据集状态、端点、代理链路与镜像。**能说的是「修完之后同一批题从 9 → 15」，不是「提分 30 个点」。**
