@@ -39,6 +39,7 @@
 #include <thread>
 #include <fstream>
 #include <filesystem>
+#include <system_error>
 #include <ctime>
 
 namespace agent {
@@ -1977,7 +1978,15 @@ Result<void, std::string> ChatSession::save_session(const std::string& path) con
 }
 
 Result<void, std::string> ChatSession::load_session(const std::string& path) {
-    if (!std::filesystem::exists(path)) {
+    // 无 ec 的重载在权限不足时会抛 filesystem_error（#177）—— 会话恢复路径不该让进程猝死。
+    // 本函数的返回值本就是可诊断的错误通道，直接把「不可访问」与「不存在」分流。
+    std::error_code ec;
+    const bool exists = std::filesystem::exists(path, ec);
+    if (ec) {
+        return Result<void, std::string>::err(
+            std::format("Cannot access file: {} ({})", path, ec.message()));
+    }
+    if (!exists) {
         return Result<void, std::string>::err(std::format("File not found: {}", path));
     }
 

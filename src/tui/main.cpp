@@ -6,6 +6,7 @@
  */
 
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -14,6 +15,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include <liblogger/logger.h>
@@ -68,7 +70,7 @@ void ensure_console_utf8() {
 
 }  // namespace
 
-int main(int argc, char** argv) {
+int main(int argc, char** argv) try {
     crash::InstallHandlers();
 #if defined(_WIN32)
     // 检测/加载 UTF-8 中文字符集（见 ensure_console_utf8），放在向导/主界面
@@ -131,8 +133,18 @@ int main(int argc, char** argv) {
 
     // 载入默认配置文件（存在则读）
     auto config_path = agent::default_config_path();
-    const bool first_run = !fs::exists(config_path);
-    if (!first_run) agent::load_from_config_file(cfg, config_path);
+    // ⚠️ 无 ec 的 exists 在权限不足时会抛 filesystem_error（#177）—— 配置目录被 ACL 锁死时
+    // 进程会静默猝死。这里显式取 ec：不可访问时既**不**当作首次运行（避免误触发向导去写配置），
+    // 也不尝试加载，明确告警后继续；后续步骤各自处理不可写。
+    std::error_code config_ec;
+    const bool config_exists = fs::exists(config_path, config_ec);
+    const bool first_run = !config_exists && !config_ec;
+    if (config_ec) {
+        std::cerr << "Warning: 配置文件 " << config_path.string()
+                  << " 不可访问: " << config_ec.message() << "\n";
+    } else if (!first_run) {
+        agent::load_from_config_file(cfg, config_path);
+    }
     agent::load_from_env(cfg);
 
     // ---- 日志 / 审计日志初始化（Issue #121）----
@@ -495,4 +507,13 @@ int main(int argc, char** argv) {
     session.reset();
     bus.clear();
     return exit_code;
+} catch (const std::exception& e) {
+    // 启动段兜底（#177）：此前启动路径上任何未捕获异常都会变成 MSVC 的 0xE06D7363 ——
+    // stdout/stderr 零输出、用户完全无从定位（配置目录被 ACL 锁死时的典型表现）。
+    // 用 function-try-block 包住整个 main 体，避免把所有局部变量挪进一层额外作用域。
+    std::cerr << "workx: 启动失败: " << e.what() << "\n";
+    return 1;
+} catch (...) {
+    std::cerr << "workx: 启动失败: 未知异常\n";
+    return 1;
 }

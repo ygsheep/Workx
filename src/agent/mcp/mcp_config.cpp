@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <system_error>
 #include <nlohmann/json.hpp>
 
 #include "liblogger/logger.h"
@@ -101,7 +102,21 @@ bool parse_one_server(const std::string& name, const nlohmann::json& obj, McpSer
 /// 从单个文件加载 server 配置（文件不存在返回空，不视为错误）
 ResultV2<std::vector<McpServerConfig>> load_from_file(const std::filesystem::path& path) {
     std::vector<McpServerConfig> result;
-    if (path.empty() || !std::filesystem::exists(path)) {
+    if (path.empty()) {
+        return ResultV2<std::vector<McpServerConfig>>::ok(std::move(result));
+    }
+    // ⚠️ 无 ec 的 exists 重载在权限不足时会抛 filesystem_error。本函数位于启动路径
+    // （TUI 装配 MCP 时读 ~/.workx/mcp.json），调用链上没有任何捕获 → 进程静默猝死（#177）。
+    // 这里显式取 ec：「不存在」保持原语义（返回空）；「不可访问」降级为可诊断错误，
+    // 调用方 mcp_client_manager 只记 LOG_ERROR，表现为「MCP 不可用」而非整体启动失败。
+    std::error_code ec;
+    const bool exists = std::filesystem::exists(path, ec);
+    if (ec) {
+        return ResultV2<std::vector<McpServerConfig>>::err(
+            Error::Code::PermissionDenied,
+            "无法访问 MCP 配置文件: " + path.string() + " (" + ec.message() + ")", path.string());
+    }
+    if (!exists) {
         return ResultV2<std::vector<McpServerConfig>>::ok(std::move(result));
     }
 

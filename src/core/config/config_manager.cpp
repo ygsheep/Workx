@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <filesystem>
+#include <system_error>
 
 namespace agent {
 
@@ -195,7 +196,18 @@ ResultV2<void> ConfigManager::set_value(const std::string& key, ConfigValue conf
 }
 
 ResultV2<void> ConfigManager::load_from_file(const std::filesystem::path& path) {
-    if (!std::filesystem::exists(path)) {
+    // 无 ec 的重载在权限不足时会抛 filesystem_error（#177）—— 本函数在启动路径上被调用，
+    // 异常会一路冒到 main。这里把「不存在」与「不可访问」分流：后者是权限问题，
+    // 必须走可诊断的错误路径，而不是让整个进程静默猝死。
+    std::error_code ec;
+    const bool exists = std::filesystem::exists(path, ec);
+    if (ec) {
+        return ResultV2<void>::err(
+            Error::Code::PermissionDenied,
+            std::format("Config file not accessible: {} ({})", path.string(), ec.message()),
+            path.string());
+    }
+    if (!exists) {
         return ResultV2<void>::err(Error::Code::ResourceNotFound,
                                    std::format("Config file not found: {}", path.string()),
                                    path.string());
