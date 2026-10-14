@@ -161,7 +161,7 @@
   <div class="kpi"><div class="k">加权总分</div><div class="v v-blue">77.4</div><div class="n">七维度加权 / 满分 100</div></div>
   <div class="kpi"><div class="k">最强维度</div><div class="v v-green">90</div><div class="n">评测与迭代（权重 5）</div></div>
   <div class="kpi"><div class="k">P0 关键项</div><div class="v v-green">5 / 5</div><div class="n">全部完整落地</div></div>
-  <div class="kpi"><div class="k">基线复现</div><div class="v v-cyan">75.0%</div><div class="n">Mean 0.750 · 15/20 · 同批净增 4 零回归</div></div>
+  <div class="kpi"><div class="k">基线复现</div><div class="v v-cyan">75.0%</div><div class="n">Mean 0.750 · 15/20 · 同批净增 6 零回归</div></div>
   <div class="kpi"><div class="k">待补齐</div><div class="v v-yellow">+6</div><div class="n">补齐剩余 P1 后约 83</div></div>
 </div>
 
@@ -246,8 +246,9 @@
   SWE-bench 可达 10–20 分；HarnessTax 研究表明 harness 更影响<b>成本</b>（最高 5 倍）而非成功率，
   因此最终评估需画<b>成本–成功率 Pareto 前沿</b>，只看成功率会奖励「烧钱换分」。<br>
   ⚠️ <b>关于 15/20</b>：它是 20 题容量筛选子集（<b>非随机</b>）× <code>-k 1</code> 单次采样、<b>无对照组</b>，
-  且用了<b>预装 9 题依赖的副本数据集</b> —— 与官方榜、与此前首轮的 9/20 <b>都不能直接相减</b>，
-  能说的是「四层环境噪声清完后，同一批题从 9 → 15」。<br>
+  且用了<b>预装 9 题依赖的副本数据集</b> —— 与官方榜 <b>不能直接相减</b>。
+  能说的是「四层环境噪声清完后，同一批题从 9 → 15」（<b>净增 6 题</b>，逐题核对零回归）；
+  这 6 题里混着环境与 harness 的改动，<b>不是纯粹的模型提分</b>，故与此前 45.0% <b>也不可直接相减</b>。<br>
   📌 <b>「15/20」的构成</b>：20 个 trial = <b>15 通过</b> + <b>4 答错</b> + <b>1 报错</b>（`filter-js-from-html` 的
   <code>VerifierTimeoutError</code>，计 0）。<b>不是 19/20</b> —— 19 只是拿到明确判定的 trial 数（20 − 1 报错）。
 </div>
@@ -469,7 +470,7 @@
   <div class="ev2 ok mile">
     <div class="date">2026-10-12</div>
     <div class="ttl">提分三件套 + 基线复现：15 / 20</div>
-    <div class="dsc">#166 三方案落地 —— <b>网络代理固化</b>（构建期 + 运行期双注入点）、<b>工具非阻塞</b>（后台任务结果自动回传，长命令不再空转轮询）、<b>墙钟预算</b>（按题下发 + 剩余墙钟主动收敛）；并修掉代理脚本在异常路径下的假成功。同批 20 题复现到 <b>Mean 0.750（15/20）</b>，相较首轮 <b>净增 4 题、零回归</b>。</div>
+    <div class="dsc">#166 三方案落地 —— <b>网络代理固化</b>（构建期 + 运行期双注入点）、<b>工具非阻塞</b>（后台任务结果自动回传，长命令不再空转轮询）、<b>墙钟预算</b>（按题下发 + 剩余墙钟主动收敛）；并修掉代理脚本在异常路径下的假成功。同批 20 题复现到 <b>Mean 0.750（15/20）</b>，相较首轮 <b>净增 6 题、零回归</b>。</div>
     <div class="refs"><span class="ref pr">PR #168</span><span class="ref pr">PR #169</span><span class="ref pr">PR #170</span><span class="ref pr">PR #172</span><span class="ref ok">job 2026-10-12__13-59-16</span></div>
   </div>
 

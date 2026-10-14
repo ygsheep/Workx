@@ -88,7 +88,7 @@
 <header>
   <h1>Workx · Agent Harness 审计日志</h1>
   <div class="sub">v0.10.1 · 静态代码审计 + 业界 Harness 评测方法论对齐 + <b>基线复现与提分对照实验</b> · 基线 develop <code style="color:var(--purple)">321d2a5</code> · 最近审计 2026-10-14（十二次更新）</div>
-  <div class="badge">⚠ 本文为<b>代码审计日志</b>（含逐次修正记录）。<b>九次更新起不再只是预估分</b>（真的跑过基准）；<b>十二次更新起更进一步</b> —— 清掉四层环境噪声后把同一批 20 题<b>复现到 Mean 0.750（15/20）</b>，净增 4 题零回归。作品集概览见 <code style="color:var(--purple)">docs/agent-harness-portfolio.html</code>。</div>
+  <div class="badge">⚠ 本文为<b>代码审计日志</b>（含逐次修正记录）。<b>九次更新起不再只是预估分</b>（真的跑过基准）；<b>十二次更新起更进一步</b> —— 清掉四层环境噪声后把同一批 20 题<b>复现到 Mean 0.750（15/20）</b>，净增 6 题零回归。作品集概览见 <code style="color:var(--purple)">docs/agent-harness-portfolio.html</code>。</div>
   <div class="badge" style="background:rgba(63,185,80,.14);color:var(--green);border-color:rgba(63,185,80,.4)">✅ <b>P0 五项已全部完整落地</b>（#77 headless / #78 验证闭环 / #79 子 Agent 护栏 / #80 schema 校验 / #81 git 检查点）· CI 已成硬门禁且经真实运行复核</div>
   <div class="badge" style="background:rgba(63,185,80,.14);color:var(--green);border-color:rgba(63,185,80,.4)">📈 <b>十二次更新：基线复现 15/20</b> —— #166 提分三件套（网络代理 / 工具非阻塞 / 墙钟预算）+ <b>#176 环境治理</b>（77 题换源 + 9 题预装 + 环境自建提示）。「上下文工程」70 → <b>80</b>、「评测与迭代」72 → <b>90</b>，加权 <b>73.5 → 77.4</b></div>
   <div class="badge" style="background:rgba(248,81,73,.14);color:var(--red);border-color:rgba(248,81,73,.4)">🔴 <b>仍存在的真实缺口</b>：<b>#173</b> BashTool 超时判定滞后 ~379s（P0）、<b>#174</b> 主推理 <code>max_tokens</code> 无上限（单轮 65536 tokens 烧掉 79% 预算）、<b>#117</b> 验证命令执行率 6.7% 未达标、<b>#118</b> island 重连 flaky、<b>4/20 轨迹仍为 0 字节</b></div>
@@ -165,7 +165,7 @@
             <td class="score v-green">85</td><td class="dim-ev">结构化审计 JSONL · headless usage 统计 + 收尾 diff 报告 · 常驻导出器 <code>export_run.py</code>。<br>✅ <b>十二次 +3</b>：#166B 结果回传 + #142 <code>trial_metrics.py</code> 量化「无有效判定」+ 环境修复端到端报告。<br>⚠️ <b>4/20 轨迹仍 0 字节</b>；#173 / #174 说明耗时观测本身还有失真</td></tr>
         <tr><td class="dim-name">评测与迭代</td><td>5</td>
             <td><div class="bar"><i style="width:90%;background:var(--green)"></i></div></td>
-            <td class="score v-green">90</td><td class="dim-ev">✅ <b>十二次 +18（本轮最大变动）</b>：从「跑过一轮」进到「<b>能复现、能对照、能归因</b>」—— 基线复现 <b>Mean 0.750（15/20，净增 4 零回归）</b> + #166 A/B/C 对照实验 + 环境治理工具链（换源/预装/去噪/LF 守卫）+ 6 道卡口 + 失败归因方法论。<br>⚠️ 不给满分：仍 <code>-k 1</code>、无置信区间、无 Claude/GPT 对照组、选题非随机、trace 回路仍手工</td></tr>
+            <td class="score v-green">90</td><td class="dim-ev">✅ <b>十二次 +18（本轮最大变动）</b>：从「跑过一轮」进到「<b>能复现、能对照、能归因</b>」—— 基线复现 <b>Mean 0.750（15/20，净增 6 零回归）</b> + #166 A/B/C 对照实验 + 环境治理工具链（换源/预装/去噪/LF 守卫）+ 6 道卡口 + 失败归因方法论。<br>⚠️ 不给满分：仍 <code>-k 1</code>、无置信区间、无 Claude/GPT 对照组、选题非随机、trace 回路仍手工</td></tr>
       </tbody>
     </table>
   </div>
@@ -191,7 +191,7 @@
     <li><b>#166 方案 B · 工具非阻塞</b> ✅ — Bash/PowerShell <b>后台任务结果自动回传</b>，长命令不再让 agent 空转轮询（PR #168）。</li>
     <li><b>#166 方案 C · 墙钟预算</b> ✅ — 预算<b>按题下发</b>（适配器从 trial 目录 <code>config.json</code> 读 <code>timeout_sec</code> × 0.9）+ 剩余墙钟<b>主动收敛</b>（分级提示，critical 档立即交卷）（PR #170）。<br><span>⚠️ 只注入提示、<b>不强停</b> —— <code>adaptive</code> 冒烟仍撞 <code>AgentTimeoutError</code>。</span></li>
     <li><b>#176 环境治理</b> ✅（PR #178）— 全 <b>77 题</b> apt 源迁清华 http 镜像（构建期 + 运行期）；<b>9 题</b>依赖预装进<b>数据集副本</b>（非破坏性）；<code>verify_prep_images.py</code> 逐题实跑 <b>9/9 通过</b>；agent 侧新增<b>环境自建提示</b>。<br><span>→ 镜像构建<b>零 Docker Hub 依赖</b>（保留原始 <code>FROM</code> + 换源）。⚠️ 预装让题目相对官方基线变简单，分数<b>不能</b>与官方榜直接比。</span></li>
-    <li><b>基线复现</b> ✅ — job <code>2026-10-12__13-59-16</code>（develop <code>321d2a5</code>，20 题 × 1，墙钟 <b>1h23m</b>）：<b>Mean reward 0.750（15/20）</b>，相比首轮 9/20 <b>净增 4 题、零回归</b>。<br><span>20 trial = <b>15 通过</b> + <b>4 答错</b>（<code>adaptive-rejection-sampler</code> / <code>caffe-cifar-10</code> / <code>configure-git-webserver</code> / <code>extract-moves-from-video</code>）+ <b>1 报错</b>（<code>filter-js-from-html</code> 的 <code>VerifierTimeoutError</code>，计 0）。<br>⚠️ <b>「19」是拿到明确判定的 trial 数（20 − 1 报错），不是通过数</b> —— 别读成 19/20。</span></li>
+    <li><b>基线复现</b> ✅ — job <code>2026-10-12__13-59-16</code>（develop <code>321d2a5</code>，20 题 × 1，墙钟 <b>1h23m</b>）：<b>Mean reward 0.750（15/20）</b>，相比首轮 9/20 <b>净增 6 题、零回归</b>。<br><span>20 trial = <b>15 通过</b> + <b>4 答错</b>（<code>adaptive-rejection-sampler</code> / <code>caffe-cifar-10</code> / <code>configure-git-webserver</code> / <code>extract-moves-from-video</code>）+ <b>1 报错</b>（<code>filter-js-from-html</code> 的 <code>VerifierTimeoutError</code>，计 0）。<br>⚠️ <b>「19」是拿到明确判定的 trial 数（20 − 1 报错），不是通过数</b> —— 别读成 19/20。</span></li>
   </ul>
 </div>
 
@@ -203,7 +203,7 @@
     <li><b>🔴 #117 / #132 验证口径未达标</b><span> — 原始标准「结束前执行过测试/构建命令的比例 <b>≥90%</b>」，首轮实测 <b>6.7%（1/15）</b>。<br>⚠️ <b>别误读成「agent 不验证」</b>：它确实用 <code>python3 -c</code> / <code>od -c</code> / <code>probe*.sh</code> 在自检，问题是<b>验证行为没规范化成可识别的构建/测试命令</b>。更根本的是 <b>verifier 测试跑在独立容器，agent 拿不到 <code>tests/</code></b>，故该口径在「空目录做题」场景先天不适用 → #132「口径分场景」<b>尚未拍板</b>。</span></li>
     <li><b>🔴 #118 island 重连 flaky</b><span> — 同一用例 <code>server: ring buffer replays missed events on reconnect</code> 在 8 次 CI 首次运行中失败 <b>3 次（37.5%）</b>，同 commit 重跑即翻转。根因：<code>transport_posix.cpp:105-115</code> 在 <code>accept()</code> 成功后<b>立刻关闭监听端点</b> → 整个服务期间端点上没有监听者。</span></li>
     <li><b>⚠️ 4/20 轨迹为 0 字节（观测盲区）</b><span> — agent 撞超时被强杀 → 容器销毁 → <code>tee</code> 的 stream 没取回。这 4 个<b>不是「没验证」，是「不知道它做了什么」</b>。讽刺的是：<b>跑得最久、最可能撞超时的题恰恰最看不到</b>。</span></li>
-    <li><b>⚠️ 分数口径仍不对齐 HarnessTax</b><span> — 仍是 <code>-k 1</code>（无置信区间）、无 Claude/GPT 对照组、选题是容量排除后按字母序取前 20（<b>非随机</b>）；本批还用了<b>预装 9 题依赖的副本数据集</b>。<b>能说的是「修完之后同一批题 9 → 15」，不是「提分 30 个点」。</b></span></li>
+    <li><b>⚠️ 分数口径仍不对齐 HarnessTax</b><span> — 仍是 <code>-k 1</code>（无置信区间）、无 Claude/GPT 对照组、选题是容量排除后按字母序取前 20（<b>非随机</b>）；本批还用了<b>预装 9 题依赖的副本数据集</b>。<b>能说的是「修完之后同一批题 9 → 15」（+6 题），不是纯粹的模型提分</b> —— 那 +30 个百分点里混着环境与 harness 的改动，<b>两批的环境、端点、代理链路与镜像都变了，不可与 45.0% 直接相减</b>。</span></li>
     <li><b>#175（P3）/ #176 自身（P2）</b><span> — 产物采集 <code>compose cp</code> 相对路径报错（Windows 下靠 engine cp 重试兜底，本 job 命中 21 处）；建议采集侧分列 <code>env_setup_ms</code> / <code>solve_ms</code>，把「环境自建耗时」显式量出来。</span></li>
   </ul>
 </div>
@@ -240,7 +240,7 @@
   <div class="step">
     <div class="n">STEP 2 · 已完成 2026-10-12</div>
     <div class="t"><span class="tag t-ok">DONE</span> 清四层噪声 → 基线复现 15/20</div>
-    <p>#166 A/B/C 三方案 + #176 环境治理落地后，同批 20 题跑到 <b>Mean 0.750（15/20）</b>，净增 4 题零回归。⚠️ 仍是 <code>-k 1</code>、非随机选题、无对照组。</p>
+    <p>#166 A/B/C 三方案 + #176 环境治理落地后，同批 20 题跑到 <b>Mean 0.750（15/20）</b>，净增 6 题零回归。⚠️ 仍是 <code>-k 1</code>、非随机选题、无对照组。</p>
   </div>
   <div class="step">
     <div class="n">待办 A · 最高优先</div>
@@ -271,7 +271,7 @@
 
 <div class="note">
   <b>评分口径提醒</b>：同一模型换 harness，Terminal-Bench 可摆动 3–5 分，SWE-bench 可达 10–20 分；HarnessTax 发现 harness 更影响<b>成本</b>（最高 5 倍）而非成功率 —— 所以最终要画<b>成本–成功率 Pareto 前沿</b>，只看成功率会奖励「烧钱换分」。<br>
-  <b>⚠️ 本页数据的口径</b>：<b>75.0%（15/20）</b>是 20 题容量筛选子集 × 1 次采样、且使用<b>预装了 9 题依赖的副本数据集</b>（<code>.cache/tb2/terminal-bench-prep</code>）—— 与官方榜、与此前 45.0% <b>都不可直接相减</b>。能说的是「四层噪声清完后，同一批题从 9 → 15」。<br>
+  <b>⚠️ 本页数据的口径</b>：<b>75.0%（15/20）</b>是 20 题容量筛选子集 × 1 次采样、且使用<b>预装了 9 题依赖的副本数据集</b>（<code>.cache/tb2/terminal-bench-prep</code>）—— 与官方榜 <b>不可直接相减</b>。能说的是「四层噪声清完后，同一批题从 9 → 15」（<b>净增 6 题</b>，逐题核对零回归）；这 6 题里混着环境与 harness 的改动，<b>不是纯粹的模型提分</b>，故与此前 45.0% <b>也不可直接相减</b>。<br>
   <b>本页是审计日志</b>：完整沿革、逐次修正过程与「预估 vs 实测」的差异账均保留在此。若只想看结论与横向对比，见 <code>docs/agent-harness-portfolio.html</code>。
 </div>
 
