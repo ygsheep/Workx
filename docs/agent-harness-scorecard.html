@@ -61,6 +61,7 @@
   .t-p0{background:rgba(248,81,73,.16);color:var(--red);border:1px solid rgba(248,81,73,.4)}
   .t-p1{background:rgba(210,153,34,.14);color:var(--yellow);border:1px solid rgba(210,153,34,.35)}
   .t-p2{background:rgba(139,148,158,.14);color:var(--muted);border:1px solid rgba(139,148,158,.3)}
+  .t-ok{background:rgba(63,185,80,.16);color:var(--green);border:1px solid rgba(63,185,80,.4)}
   .find ul{list-style:none;padding:6px 0}
   .find li{padding:8px 16px;border-top:1px solid rgba(48,54,61,.5);font-size:13px}
   .find li code{background:#21262d;color:var(--purple);padding:1px 5px;border-radius:4px;font-size:11.5px;font-family:ui-monospace,Consolas,monospace}
@@ -86,20 +87,20 @@
 
 <header>
   <h1>Workx · Agent Harness 审计日志</h1>
-  <div class="sub">v0.10.1 · 静态代码审计 + 业界 Harness 评测方法论对齐 + <b>首轮真实跑分</b> · 基线 develop <code style="color:var(--purple)">49d0ca4</code> · 最近审计 2026-10-03（九次更新）</div>
-  <div class="badge">⚠ 本文为<b>代码审计日志</b>（含逐次修正记录）。<b>九次更新起不再只是预估分</b>：已真的跑过一次基准（<code>terminal-bench@2.0</code> 20 题 × 1，<b>pass@1 45.0%</b>），但<b>仅三个维度拿到实测证据</b>，其余四维仍为代码评估。作品集概览见 <code style="color:var(--purple)">docs/agent-harness-portfolio.html</code>。</div>
-  <div class="badge" style="background:rgba(63,185,80,.14);color:var(--green);border-color:rgba(63,185,80,.4)">✅ <b>P0 五项已全部完整落地</b>（#77 headless / #78 验证闭环 / #79 子 Agent 护栏 / #80 schema 校验 / #81 git 检查点）· CI 已成为硬门禁且经真实运行复核</div>
-  <div class="badge" style="background:rgba(63,185,80,.14);color:var(--green);border-color:rgba(63,185,80,.4)">🎯 <b>九次更新：首轮跑分已完成</b> —— pass@1 <b>45.0%（9/20）</b>，墙钟 1h49m；「评测与迭代」45 → <b>72</b>，「可观测性与成本」78 → <b>82</b>。⚠️ 但 #117 实测<b>验证命令执行率仅 6.7%</b>（未达 ≥90%）→「验证闭环」70 → <b>65</b>，已另开 <b>#132</b></div>
-  <div class="badge" style="background:rgba(248,81,73,.14);color:var(--red);border-color:rgba(248,81,73,.4)">🔴 <b>仍存在的真实缺口</b>：45% 是 <code>-k 1</code> 单次采样、无对照组、非随机选题的产物，<b>不能据此说达成目标</b>；#117 行为统计未达标（<b>#132</b>）；4/20 轨迹为 0 字节（观测盲区）；island 重连用例 flaky（阶段 6.3，<b>#118</b>）</div>
+  <div class="sub">v0.10.1 · 静态代码审计 + 业界 Harness 评测方法论对齐 + <b>基线复现与提分对照实验</b> · 基线 develop <code style="color:var(--purple)">321d2a5</code> · 最近审计 2026-10-14（十二次更新）</div>
+  <div class="badge">⚠ 本文为<b>代码审计日志</b>（含逐次修正记录）。<b>九次更新起不再只是预估分</b>（真的跑过基准）；<b>十二次更新起更进一步</b> —— 清掉四层环境噪声后把同一批 20 题<b>复现到 Mean 0.750（15/20）</b>，净增 4 题零回归。作品集概览见 <code style="color:var(--purple)">docs/agent-harness-portfolio.html</code>。</div>
+  <div class="badge" style="background:rgba(63,185,80,.14);color:var(--green);border-color:rgba(63,185,80,.4)">✅ <b>P0 五项已全部完整落地</b>（#77 headless / #78 验证闭环 / #79 子 Agent 护栏 / #80 schema 校验 / #81 git 检查点）· CI 已成硬门禁且经真实运行复核</div>
+  <div class="badge" style="background:rgba(63,185,80,.14);color:var(--green);border-color:rgba(63,185,80,.4)">📈 <b>十二次更新：基线复现 15/20</b> —— #166 提分三件套（网络代理 / 工具非阻塞 / 墙钟预算）+ <b>#176 环境治理</b>（77 题换源 + 9 题预装 + 环境自建提示）。「上下文工程」70 → <b>80</b>、「评测与迭代」72 → <b>90</b>，加权 <b>73.5 → 77.4</b></div>
+  <div class="badge" style="background:rgba(248,81,73,.14);color:var(--red);border-color:rgba(248,81,73,.4)">🔴 <b>仍存在的真实缺口</b>：<b>#173</b> BashTool 超时判定滞后 ~379s（P0）、<b>#174</b> 主推理 <code>max_tokens</code> 无上限（单轮 65536 tokens 烧掉 79% 预算）、<b>#117</b> 验证命令执行率 6.7% 未达标、<b>#118</b> island 重连 flaky、<b>4/20 轨迹仍为 0 字节</b></div>
 </header>
 
 <div class="kpis">
-  <div class="kpi"><div class="label">加权总分</div><div class="val v-yellow">73.5<small style="font-size:15px;color:var(--dim)">/100</small></div><div class="note">七维度加权 · 三维度含首轮实测证据</div></div>
-  <div class="kpi"><div class="label">最强维度</div><div class="val v-green" style="font-size:22px">工具层 82</div><div class="note">25 个内置工具 + schema 执行侧兜底校验</div></div>
-  <div class="kpi"><div class="label">最大失分维度</div><div class="val v-red" style="font-size:22px">验证闭环 65</div><div class="note">加权失分 7.0 · 🔴 行为统计实测 <b>6.7%</b>（目标 ≥90%）</div></div>
+  <div class="kpi"><div class="label">加权总分</div><div class="val v-yellow">77.4<small style="font-size:15px;color:var(--dim)">/100</small></div><div class="note">七维度加权 · 五维度含实测证据</div></div>
+  <div class="kpi"><div class="label">最强维度</div><div class="val v-green" style="font-size:22px">评测与迭代 90</div><div class="note">基线可复现 + 提分对照 + 环境治理工具链</div></div>
+  <div class="kpi"><div class="label">最大失分维度</div><div class="val v-red" style="font-size:22px">验证闭环 65</div><div class="note">加权失分 7.0 · 行为统计实测仍 <b>6.7%</b>（目标 ≥90%）</div></div>
   <div class="kpi"><div class="label">P0 进度</div><div class="val v-green">5<small style="font-size:15px;color:var(--dim)">/5</small></div><div class="note">五项全部完整落地</div></div>
-  <div class="kpi"><div class="label">首轮跑分</div><div class="val v-blue" style="font-size:22px">45.0%</div><div class="note">pass@1 · 9/20 · <code>-k 1</code> 无对照组</div></div>
-  <div class="kpi"><div class="label">剩余提升空间</div><div class="val v-blue">+8</div><div class="note">补齐 P1 八项后约 82</div></div>
+  <div class="kpi"><div class="label">最新跑分</div><div class="val v-green" style="font-size:22px">75.0%</div><div class="note">Mean 0.750 · 15/20 · 20 题 × 1（<code>-k 1</code> 无对照组）</div></div>
+  <div class="kpi"><div class="label">剩余提升空间</div><div class="val v-blue">+6</div><div class="note">补齐剩余 P1 后约 83</div></div>
 </div>
 
 <h2>维度评分</h2>
@@ -120,23 +121,23 @@
       <line x1="180" y1="160" x2="94.0" y2="91.4" stroke="#30363d" stroke-width="1" opacity=".5"/>
       <polygon points="180,80.8 240.2,112.0 222.9,169.8 212.5,227.4 150.4,221.4 99.6,178.4 167.1,149.7"
                fill="rgba(139,148,158,.16)" stroke="#6e7681" stroke-width="1.5" stroke-dasharray="4 3"/>
-      <!-- 九次更新：82 / 70 / 65 / 75 / 70 / 82 / 72（中心 180,160，R=110 正七边形） -->
-      <polygon points="180,69.8 240.2,112.0 249.7,175.9 215.8,234.3 146.6,229.4 92.1,180.1 118.1,110.6"
+      <!-- 十二次更新：84 / 80 / 65 / 75 / 73 / 85 / 90（中心 180,160，R=110 正七边形） -->
+      <polygon points="180,67.6 248.8,105.1 249.7,175.9 215.8,234.3 145.2,232.3 88.8,180.8 102.6,98.3"
                fill="rgba(88,166,255,.28)" stroke="#58a6ff" stroke-width="2"/>
-      <circle cx="180" cy="69.8" r="3" fill="#58a6ff"/>
-      <circle cx="240.2" cy="112.0" r="3" fill="#58a6ff"/>
+      <circle cx="180" cy="67.6" r="3" fill="#58a6ff"/>
+      <circle cx="248.8" cy="105.1" r="3" fill="#58a6ff"/>
       <circle cx="249.7" cy="175.9" r="3.5" fill="#f85149"/>
       <circle cx="215.8" cy="234.3" r="3" fill="#58a6ff"/>
-      <circle cx="146.6" cy="229.4" r="3" fill="#58a6ff"/>
-      <circle cx="92.1" cy="180.1" r="3" fill="#58a6ff"/>
-      <circle cx="118.1" cy="110.6" r="3" fill="#58a6ff"/>
-      <text x="180" y="26" text-anchor="middle" fill="#8b949e" font-size="11">工具层 82</text>
-      <text x="286" y="76" text-anchor="start" fill="#8b949e" font-size="11">上下文 70</text>
+      <circle cx="145.2" cy="232.3" r="3" fill="#58a6ff"/>
+      <circle cx="88.8" cy="180.8" r="3" fill="#58a6ff"/>
+      <circle cx="102.6" cy="98.3" r="3" fill="#3fb950"/>
+      <text x="180" y="26" text-anchor="middle" fill="#8b949e" font-size="11">工具层 84</text>
+      <text x="286" y="76" text-anchor="start" fill="#8b949e" font-size="11">上下文 80</text>
       <text x="312" y="190" text-anchor="start" fill="#f85149" font-size="11">验证 65</text>
       <text x="240" y="282" text-anchor="start" fill="#8b949e" font-size="11">安全 75</text>
-      <text x="120" y="282" text-anchor="end" fill="#8b949e" font-size="11">编排 70</text>
-      <text x="48" y="190" text-anchor="end" fill="#8b949e" font-size="11">可观测 82</text>
-      <text x="74" y="76" text-anchor="end" fill="#58a6ff" font-size="11">评测 72</text>
+      <text x="120" y="282" text-anchor="end" fill="#8b949e" font-size="11">编排 73</text>
+      <text x="48" y="190" text-anchor="end" fill="#8b949e" font-size="11">可观测 85</text>
+      <text x="74" y="76" text-anchor="end" fill="#3fb950" font-size="11">评测 90</text>
     </svg>
   </div>
 
@@ -145,26 +146,26 @@
       <thead><tr><th style="width:110px">维度</th><th style="width:52px">权重</th><th style="width:110px">得分</th><th style="width:46px"></th><th>关键证据</th></tr></thead>
       <tbody>
         <tr><td class="dim-name">工具设计与执行</td><td>20</td>
-            <td><div class="bar"><i style="width:82%;background:var(--green)"></i></div></td>
-            <td class="score v-green">82</td><td class="dim-ev">25 个内置工具 · #80 schema 兜底校验接入 executor.h:223</td></tr>
+            <td><div class="bar"><i style="width:84%;background:var(--green)"></i></div></td>
+            <td class="score v-green">84</td><td class="dim-ev">25 个内置工具 · #80 schema 兜底校验接入 <code>executor.h:223</code>；<b>#166B 后台任务结果自动回传</b>（PR #168）<br>⚠️ #173 工具超时判定滞后 ~379s</td></tr>
         <tr><td class="dim-name">上下文工程</td><td>20</td>
-            <td><div class="bar"><i style="width:70%;background:var(--green)"></i></div></td>
-            <td class="score v-green">70</td><td class="dim-ev">四级缓存感知压缩 + Stuck 守卫 · #82 环境注入未做</td></tr>
+            <td><div class="bar"><i style="width:80%;background:var(--green)"></i></div></td>
+            <td class="score v-green">80</td><td class="dim-ev">四级缓存感知压缩 + Stuck 守卫。<br>✅ <b>十二次 +10（P1-1 / P1-2 落地）</b>：#82 环境上下文注入（目录骨架 + 工具链 + 项目命令）+ #166C 墙钟预算提示（<code>wall_clock_hint</code>）+ #176 环境自建提示<br>⚠️ 净效应尚无 A/B 对照；墙钟只提示不强停</td></tr>
         <tr><td class="dim-name">验证闭环</td><td>20</td>
             <td><div class="bar"><i style="width:65%;background:var(--red)"></i></div></td>
-            <td class="score v-red">65</td><td class="dim-ev">#78 完整落地 · 门禁进主循环 + <b>headless 与交互式均默认开启</b> + 命令自适应探测。<br>🔴 <b>九次 -5：实测证伪</b> —— #117 验证命令执行率 <b>6.7%（1/15）</b>，远未达 ≥90%（「效果待证」→「效果已证且未达标」）。<br>⚠️ <b>不更低</b>：机制未被证伪 —— 0% 触发是<b>结构性</b>的（<code>/app</code> 无工程标记 → <code>detect_default_goal()</code> 返回 None），且 agent <b>确实在自检</b>（<code>python3 -c</code> / <code>od -c</code> / <code>probe*.sh</code>）。真根因是<b>验证行为未规范化</b> → <b>#132</b></td></tr>
+            <td class="score v-red">65</td><td class="dim-ev">#78 完整落地 · 门禁进主循环 + <b>headless 与交互式均默认开启</b> + 命令自适应探测。<br>🔴 <b>九次 -5：实测证伪</b> —— #117 验证命令执行率 <b>6.7%（1/15）</b>，远未达 ≥90%。<br>🎯 十二次无变动：执行率未复测（#132 口径尚未拍板）；墙钟收敛提示记在「上下文工程」</td></tr>
         <tr><td class="dim-name">安全与权限</td><td>15</td>
             <td><div class="bar"><i style="width:75%;background:var(--yellow)"></i></div></td>
-            <td class="score v-yellow">75</td><td class="dim-ev">#81 基线 + 回滚入口 · Win 沙箱挡位仍不完整（#113）</td></tr>
+            <td class="score v-yellow">75</td><td class="dim-ev">#81 基线 + 回滚入口 · #88 文件权限 0600 · #84 沙箱降级可见化。<br>🎯 十二次无变动：Windows 沙箱（P1-3）与命令白名单（P1-4）本轮未动</td></tr>
         <tr><td class="dim-name">编排与可靠性</td><td>10</td>
-            <td><div class="bar"><i style="width:70%;background:var(--yellow)"></i></div></td>
-            <td class="score v-yellow">70</td><td class="dim-ev">#79 批量 + run 累计双护栏（原子预约）· ⚠️ 唯一自动化回归防线实测有 flaky 误拦</td></tr>
+            <td><div class="bar"><i style="width:73%;background:var(--yellow)"></i></div></td>
+            <td class="score v-yellow">73</td><td class="dim-ev">#79 批量 + run 累计双护栏（原子预约）。<br>✅ <b>十二次 +3</b>：#166A 代理链路固化（HTTP→SOCKS5 桥 + 双注入点）+ #172 修复脚本静默假成功 + <b>6 道跑前卡口</b>。<br>⚠️ island 重连 flaky（#118）仍未修</td></tr>
         <tr><td class="dim-name">可观测性与成本</td><td>10</td>
-            <td><div class="bar"><i style="width:82%;background:var(--green)"></i></div></td>
-            <td class="score v-green">82</td><td class="dim-ev">结构化审计 JSONL · headless usage 统计 + 收尾 diff 报告。<br>✅ <b>九次 +4</b>：常驻导出器 <code>scripts/harness/export_run.py</code> 落地（可读轨迹 + <b>可导入原生会话</b>），补上 P2-1；拿到<b>真实成本数据</b>（均值 prompt 52,145 / generated 898 tokens，425s/run，32.5 次工具调用）。<br>⚠️ 不给更高：<b>4/20 轨迹为 0 字节</b>，观测仍有 20% 盲区</td></tr>
+            <td><div class="bar"><i style="width:85%;background:var(--green)"></i></div></td>
+            <td class="score v-green">85</td><td class="dim-ev">结构化审计 JSONL · headless usage 统计 + 收尾 diff 报告 · 常驻导出器 <code>export_run.py</code>。<br>✅ <b>十二次 +3</b>：#166B 结果回传 + #142 <code>trial_metrics.py</code> 量化「无有效判定」+ 环境修复端到端报告。<br>⚠️ <b>4/20 轨迹仍 0 字节</b>；#173 / #174 说明耗时观测本身还有失真</td></tr>
         <tr><td class="dim-name">评测与迭代</td><td>5</td>
-            <td><div class="bar"><i style="width:72%;background:var(--green)"></i></div></td>
-            <td class="score v-green">72</td><td class="dim-ev">✅ <b>九次 +27（本轮最大变动）</b>：从「无 adapter、无 eval 集、未跑过任何基准」到<b>三者齐备并真跑完一轮</b> —— Harbor adapter + <code>terminal-bench@2.0</code>（77 题本地副本）+ 五项指标采集器，实测 <b>pass@1 45.0%（9/20）</b>。<br>⚠️ 不给满分：<code>-k 1</code> 无置信区间、<b>无对照组</b>、选题非随机、Step 3 trace 回路未跑起来</td></tr>
+            <td><div class="bar"><i style="width:90%;background:var(--green)"></i></div></td>
+            <td class="score v-green">90</td><td class="dim-ev">✅ <b>十二次 +18（本轮最大变动）</b>：从「跑过一轮」进到「<b>能复现、能对照、能归因</b>」—— 基线复现 <b>Mean 0.750（15/20，净增 4 零回归）</b> + #166 A/B/C 对照实验 + 环境治理工具链（换源/预装/去噪/LF 守卫）+ 6 道卡口 + 失败归因方法论。<br>⚠️ 不给满分：仍 <code>-k 1</code>、无置信区间、无 Claude/GPT 对照组、选题非随机、trace 回路仍手工</td></tr>
       </tbody>
     </table>
   </div>
@@ -173,24 +174,37 @@
 <h2>P0 交付与当前缺口</h2>
 
 <div class="find">
-  <div class="find-h"><span class="tag t-p0" style="background:rgba(63,185,80,.16);color:var(--green);border-color:rgba(63,185,80,.4)">DONE</span>P0 五项全部落地 — commit 级核实</div>
+  <div class="find-h"><span class="tag t-ok">DONE</span>P0 五项全部落地 — commit 级核实</div>
   <ul>
-    <li><b>#77 headless 非交互模式</b> ✅ — <code>src/agent/headless/headless.{h,cpp}</code>；CLI <code>-p/--print</code> + <code>--output-format text|json|stream-json</code>（<code>main.cpp:89-166</code>）；退出码 0/1/2 语义化。<br><span>→ 评测链路前置解除。<code>test_headless.cpp</code> 13 个 TEST_CASE 覆盖 <b>HL-01~HL-12</b>；配套 <code>headless_internal.h</code> 暴露 <code>run_headless_with_provider()</code>，解决无法注入 mock 后端的问题。</span></li>
-    <li><b>#80 json_schema 执行侧校验</b> ✅ — <code>util/json_schema.{h,cpp}</code>（275 行，type/properties/required/enum/range/length/pattern/items），接入 <code>executor.h:223</code> 作为 <code>validate_input</code> 之后的兜底。<br><span>→ 新工具漏写 validate_input 不再裸奔，错误结构化可回灌自纠。</span></li>
-    <li><b>#79 子 Agent 派生护栏</b> ✅ — <code>SubAgentBudget</code>（批量上限 + run 累计上限，atomic CAS 预约），配置 <code>agent.sub_agent_max_batch/total</code>。<br><span>📌 修正：issue 标题的「递归深度」其实<b>已被结构性禁止</b>——<code>agent_tool.cpp:80</code> 构建子工具集时 <code>continue</code> 掉 <code>kAgentToolName</code>，深度恒为 1；真实缺口是横向规模，实现按这个做的。</span></li>
+    <li><b>#77 headless 非交互模式</b> ✅ — <code>src/agent/headless/headless.{h,cpp}</code>；CLI <code>-p/--print</code> + <code>--output-format text|json|stream-json</code>（<code>main.cpp:89-166</code>）；退出码 0/1/2 语义化。<br><span>→ 评测链路前置解除。<code>test_headless.cpp</code> 13 个 TEST_CASE 覆盖 <b>HL-01~HL-12</b>。</span></li>
+    <li><b>#80 json_schema 执行侧校验</b> ✅ — <code>util/json_schema.{h,cpp}</code>（275 行），接入 <code>executor.h:223</code> 作为 <code>validate_input</code> 之后的兜底。<br><span>→ 新工具漏写 validate_input 不再裸奔，错误结构化可回灌自纠。</span></li>
+    <li><b>#79 子 Agent 派生护栏</b> ✅ — <code>SubAgentBudget</code>（批量上限 + run 累计上限，atomic CAS 预约）。<br><span>📌 「递归深度」其实<b>已被结构性禁止</b>（<code>agent_tool.cpp:80</code> <code>continue</code> 掉 <code>kAgentToolName</code>，深度恒为 1）；真实缺口是横向规模。</span></li>
     <li><b>#81 git 检查点</b> ✅ — <code>util/git_checkpoint.{h,cpp}</code>；<code>react_loop.cpp:622</code> 捕获基线、<code>chat_session.cpp:496</code> reset、headless 输出 <code>git_diff_summary</code>、TUI <code>/diff</code> + <code>/rollback --confirm</code>。<br><span>→ 只读安全网 + 人工回滚入口；不自动回滚，避免误删用户改动。</span></li>
-    <li><b>#78 强制验证闭环（P1~P4 + VF-01~VF-11）</b> ✅ <b>已完整落地，issue 已关闭</b> — <code>run_verification_gate()</code> 位于 <code>react_loop.cpp</code> 主循环（FinalAnswer 落地之前）：未通过 → 回灌失败原因重试，达 <code>verify_max_attempts</code> → 带警告降级终止。<br><span>→ <b>headless 与交互式均默认开启</b>；命令经 <code>detect_goal_command()</code> 自适应探测（CMake 须真生成过 CTestTestfile / Cargo / Go / npm script / Makefile / pytest），探测不到返回 <code>unavailable</code> 放行，不把「没得跑」误判成「跑了没过」；顺带修掉 lint 假绿（旧 <code>echo 'no lint config'</code> 恒退出 0）。<br>→ <code>[issue78]</code> <b>20 用例 / 105 断言全绿</b>，含「回灌必须消耗预算」的死循环守卫。<br>→ 📌 本项性质是<b>接线 + 改默认值</b>，非从零实现：等价能力（<code>check_goal</code> / <code>GuardCommand</code> / <code>GoalGuardedAgent</code>）早已存在于 <code>#31/#32</code>。</span></li>
+    <li><b>#78 强制验证闭环（P1~P4 + VF-01~VF-11）</b> ✅ <b>已完整落地，issue 已关闭</b> — <code>run_verification_gate()</code> 位于 <code>react_loop.cpp</code> 主循环（FinalAnswer 落地之前）。<br><span>→ headless 与交互式均默认开启；命令经 <code>detect_goal_command()</code> 自适应探测，探测不到返回 <code>unavailable</code> 放行。<br>→ <code>[issue78]</code> <b>20 用例 / 105 断言全绿</b>。⚠️ 原始「行为统计 ≥90%」验收口径仍未达标（实测 6.7%）→ <b>#117</b> / <b>#132</b>。</span></li>
   </ul>
 </div>
 
 <div class="find">
-  <div class="find-h"><span class="tag t-p0" style="background:rgba(248,81,73,.16);color:var(--red);border-color:rgba(248,81,73,.4)">未闭环</span>当前剩余的真实缺口</div>
+  <div class="find-h"><span class="tag t-ok">DONE</span>#166 提分三件套 + #176 环境治理 — 基线复现 15/20</div>
   <ul>
-    <li><b>🔴 CI 硬门禁存在 flaky 误拦（<b>#118</b>）</b><span> — 同一用例 <code>server: ring buffer replays missed events on reconnect</code> 在 8 次 CI 首次运行中失败 <b>3 次（37.5%）</b>，同 commit 重跑即由红转绿。<br>→ 根因：<code>island_server.cpp:122-156</code> 的 accept 循环里 <code>handle_connection()</code> 阻塞，而 <code>transport_posix.cpp:105-115</code> 在 <code>accept()</code> 成功后<b>立刻关闭监听端点</b> → <b>整个服务连接期间端点上没有监听者</b>，重连只能靠 <code>connect()</code> 的 600ms 固定重试（6×100ms）撞运气。次要缺陷：测试 <code>read_until</code> 在 read 立即失败时不 break，空转满 3 秒，掩盖真因。<br>→ 建议：让 listen socket 生命周期内保持开放（AF_UNIX 常规做法），从根本上消除窗口。见 <code>docs/p0-test-plan.md</code> 阶段 6.3 / <b>#118</b>。</span></li>
-    <li><b>🔴 #78 行为统计验收口径：已实测，<b>未达标</b></b><span> — 原始标准是「结束前执行过测试/构建命令的比例 <b>≥90%</b>」，首轮实测 <b>6.7%（1/15）</b>。<b>#117 保持打开</b>。<br>→ ⚠️ <b>别误读成「agent 不验证」</b>：逐条 dump 命令显示它确实用 <code>python3 -c</code> / <code>od -c</code> / <code>probe*.sh</code> 在自检，问题是<b>验证行为没规范化成可识别的构建/测试命令</b>。<br>→ 🔴 更根本：<b>Terminal-Bench 的 verifier 测试跑在独立容器里，agent 容器内拿不到 <code>tests/</code></b>，所以「跑可识别的测试运行器」这个口径在「空目录做题」场景下<b>先天不适用</b> → 已开 <b>#132</b>，含「口径分场景」建议（<b>尚未拍板</b>）。</span></li>
-    <li><b>⚠️ 45% 只能说明「能跑通」，不能说「达成」</b><span> — 首轮跑分已跑完（Harbor adapter + <code>terminal-bench@2.0</code> 20 题 × 1），但 <code>-k 1</code> 单次采样<b>无置信区间</b>、<b>无对照组</b>（harness 与模型贡献分不开）、选题是容量排除后按字母序取前 20（<b>非随机</b>）。<br>→ 要坐实分数：更大随机子集 + <code>-k 3</code> + Claude/GPT 对照组，并画<b>成本–成功率 Pareto 前沿</b>（HarnessTax：harness 更影响成本，最高 5 倍）。</span></li>
-    <li><b>⚠️ 4/20 轨迹为 0 字节（观测盲区）</b><span> — agent 撞任务超时被强杀 → 容器销毁 → <code>tee</code> 的 <code>workx-stream.jsonl</code> 没取回。这 4 个<b>不是「没验证」，是「不知道它做了什么」</b>，已从验证类分母剔除（其中 3 个 verifier 反而判了通过）。<br>→ 讽刺的是：<b>跑得最久、最可能撞超时的题恰恰最看不到</b>。建议 agent 端定期 flush + 退出前落盘，或用 Harbor <code>--artifact</code> 回收。</span></li>
-    <li><b>#106 Windows ctest 中文测试名</b><span> — <b>196 / 1319 必然失败</b>（与该批次含中文名用例数精确吻合）。ctest 把中文测试名当过滤参数传给测试进程时 argv 被 GBK 破坏。仅影响 Windows 本地，不阻塞已生效的 Linux 硬门禁。</span></li>
+    <li><b>#166 方案 A · 网络代理固化</b> ✅ — 容器 <code>--HTTP--&gt;</code> 宿主桥 pproxy <code>0.0.0.0:18888</code> <code>--SOCKS5--&gt;</code> <code>127.0.0.1:10808</code>；<b>双注入点</b>：构建期 = <code>~/.docker/config.json</code> 的 <code>proxies</code>，运行期 = JobConfig <code>environment.env</code>（PR #169）。</li>
+    <li><b>#166 方案 B · 工具非阻塞</b> ✅ — Bash/PowerShell <b>后台任务结果自动回传</b>，长命令不再让 agent 空转轮询（PR #168）。</li>
+    <li><b>#166 方案 C · 墙钟预算</b> ✅ — 预算<b>按题下发</b>（适配器从 trial 目录 <code>config.json</code> 读 <code>timeout_sec</code> × 0.9）+ 剩余墙钟<b>主动收敛</b>（分级提示，critical 档立即交卷）（PR #170）。<br><span>⚠️ 只注入提示、<b>不强停</b> —— <code>adaptive</code> 冒烟仍撞 <code>AgentTimeoutError</code>。</span></li>
+    <li><b>#176 环境治理</b> ✅（PR #178）— 全 <b>77 题</b> apt 源迁清华 http 镜像（构建期 + 运行期）；<b>9 题</b>依赖预装进<b>数据集副本</b>（非破坏性）；<code>verify_prep_images.py</code> 逐题实跑 <b>9/9 通过</b>；agent 侧新增<b>环境自建提示</b>。<br><span>→ 镜像构建<b>零 Docker Hub 依赖</b>（保留原始 <code>FROM</code> + 换源）。⚠️ 预装让题目相对官方基线变简单，分数<b>不能</b>与官方榜直接比。</span></li>
+    <li><b>基线复现</b> ✅ — job <code>2026-10-12__13-59-16</code>（develop <code>321d2a5</code>，20 题 × 1，墙钟 <b>1h23m</b>）：<b>Mean reward 0.750（15/20）</b>，相比首轮 9/20 <b>净增 4 题、零回归</b>。<br><span>失败 4 题：<code>adaptive-rejection-sampler</code> / <code>caffe-cifar-10</code> / <code>configure-git-webserver</code> / <code>extract-moves-from-video</code>。</span></li>
+  </ul>
+</div>
+
+<div class="find">
+  <div class="find-h"><span class="tag t-p0">未闭环</span>当前剩余的真实缺口</div>
+  <ul>
+    <li><b>🔴🔴 #173（P0）BashTool 超时判定滞后约 379s</b><span> — 请求 <code>timeout=600000</code>，实际 <code>duration=979084ms</code> 才生效。分层证据：<code>react_loop.cpp:1609</code>（ReAct 观测 979s）vs <code>executor.h:287</code>（工具内部 939s）vs <code>executor.h:351</code>（<code>elapsed=978993</code>）。<br>⚠️ <code>&lt;error&gt;Command timed out&lt;/error&gt;</code> <b>只在 <code>stream.jsonl</code> 的 observation 里</b>，<code>run.log</code> grep 该串 = 0 —— 别据此误判「没超时」。<b>当前优先级最高。</b></span></li>
+    <li><b>🔴 #174（P1）主推理 <code>max_tokens</code> 无上限</b><span> — <code>chat_types.h:91</code> 默认 <code>-1</code>，且 <code>openai_adapter.cpp:240</code> 仅在 <code>&gt;0</code> 时才写该字段 → OpenAI 兼容请求不带上限（anthropic 侧有 <code>:4096</code> 兜底）。实证：adaptive 单轮生成 <b>65536 tokens / 361s</b>，烧掉约 79% 墙钟预算。</span></li>
+    <li><b>🔴 #117 / #132 验证口径未达标</b><span> — 原始标准「结束前执行过测试/构建命令的比例 <b>≥90%</b>」，首轮实测 <b>6.7%（1/15）</b>。<br>⚠️ <b>别误读成「agent 不验证」</b>：它确实用 <code>python3 -c</code> / <code>od -c</code> / <code>probe*.sh</code> 在自检，问题是<b>验证行为没规范化成可识别的构建/测试命令</b>。更根本的是 <b>verifier 测试跑在独立容器，agent 拿不到 <code>tests/</code></b>，故该口径在「空目录做题」场景先天不适用 → #132「口径分场景」<b>尚未拍板</b>。</span></li>
+    <li><b>🔴 #118 island 重连 flaky</b><span> — 同一用例 <code>server: ring buffer replays missed events on reconnect</code> 在 8 次 CI 首次运行中失败 <b>3 次（37.5%）</b>，同 commit 重跑即翻转。根因：<code>transport_posix.cpp:105-115</code> 在 <code>accept()</code> 成功后<b>立刻关闭监听端点</b> → 整个服务期间端点上没有监听者。</span></li>
+    <li><b>⚠️ 4/20 轨迹为 0 字节（观测盲区）</b><span> — agent 撞超时被强杀 → 容器销毁 → <code>tee</code> 的 stream 没取回。这 4 个<b>不是「没验证」，是「不知道它做了什么」</b>。讽刺的是：<b>跑得最久、最可能撞超时的题恰恰最看不到</b>。</span></li>
+    <li><b>⚠️ 分数口径仍不对齐 HarnessTax</b><span> — 仍是 <code>-k 1</code>（无置信区间）、无 Claude/GPT 对照组、选题是容量排除后按字母序取前 20（<b>非随机</b>）；本批还用了<b>预装 9 题依赖的副本数据集</b>。<b>能说的是「修完之后同一批题 9 → 15」，不是「提分 30 个点」。</b></span></li>
+    <li><b>#175（P3）/ #176 自身（P2）</b><span> — 产物采集 <code>compose cp</code> 相对路径报错（Windows 下靠 engine cp 重试兜底，本 job 命中 21 处）；建议采集侧分列 <code>env_setup_ms</code> / <code>solve_ms</code>，把「环境自建耗时」显式量出来。</span></li>
   </ul>
 </div>
 
@@ -198,8 +212,8 @@
 <div class="find">
   <div class="find-h"><span class="tag t-p1">P1</span>高分位差 — 直接对应分数</div>
   <ul>
-    <li><b>P1-1 无环境上下文注入</b><span> — 启动时未注入目录树骨架、工具链探测、项目构建/测试命令（LangChain LocalContextMiddleware）。</span></li>
-    <li><b>P1-2 无时间 / 轮次预算提示</b><span> — 模型极不擅长估计时间，需注入 budget warning 推它从"改"切到"验"。</span></li>
+    <li><b>P1-1 无环境上下文注入</b><span> — ✅ <b>已落地</b>（#82；#176 追加「环境自建提示」）。</span></li>
+    <li><b>P1-2 无时间 / 轮次预算提示</b><span> — ✅ <b>已落地</b>（#166C，PR #170）。⚠️ 只提示不强停。</span></li>
     <li><b>P1-3 Windows 无真实沙箱</b><span> — <code>sandbox_adapter.cpp:418</code> 降级为 <code>"none"</code>，而 Windows 是 README 宣称的一等平台。</span></li>
     <li><b>P1-4 命令拦截是黑名单</b><span> — <code>permission_ask.cpp:124-144</code> 固定 pattern 列表，天然可绕过；补白名单严格档。</span></li>
     <li><b>P1-5 AGENTS.md 加载不到</b><span> — <code>memory.h:68/80</code> 只认 <code>CLAUDE.md</code> / <code>AGENT.md</code>（无 S）。本仓库根目录的 AGENTS.md 静默不生效，只因同时存在 CLAUDE.md 才没暴露。</span></li>
@@ -212,60 +226,62 @@
 <div class="find">
   <div class="find-h"><span class="tag t-p2">P2</span>工程化与文档债</div>
   <ul>
-    <li><span>无 run trace 导出与失败模式聚类（<code>ExecutionTrace</code> 已删，挂"后续 issue"）；token 计数是启发式 chars/4，与真实 tokenizer 偏差大；文档与实现漂移：<code>docs/full-guide.md</code> 仍描述不存在的 <code>src/app/</code>、压缩水位文档 0.60/0.75/0.85/0.95 vs 代码 0.5/0.6/0.8/0.9、max_iterations 文档 25 vs 代码 40；残留 <code>chat_session.{h,cpp}.bak</code>；22 个工具接近"选择困难"阈值，需按意图合并 + namespacing。</span></li>
+    <li><span>token 计数是启发式 chars/4，与真实 tokenizer 偏差大；文档与实现漂移：<code>docs/full-guide.md</code> 仍描述不存在的 <code>src/app/</code>、压缩水位文档 0.60/0.75/0.85/0.95 vs 代码 0.5/0.6/0.8/0.9、max_iterations 文档 25 vs 代码 40；残留 <code>chat_session.{h,cpp}.bak</code>；22 个工具接近"选择困难"阈值，需按意图合并 + namespacing。</span></li>
   </ul>
 </div>
 
-<h2>下一步：怎么真跑一次分</h2>
+<h2>下一步：怎么把分数坐实</h2>
 <div class="steps">
   <div class="step">
     <div class="n">STEP 1 · 已完成 2026-10-03</div>
-    <div class="t"><span class="tag t-p0" style="background:rgba(63,185,80,.16);color:var(--green);border-color:rgba(63,185,80,.4)">DONE</span> Harbor adapter + 首轮子集跑分</div>
-    <p><code>agents/workx/{install.sh,run.sh}</code> 已接入 Harbor，<code>terminal-bench@2.0</code> 题库已本地化（77 题），并<b>真的跑完 20 题 × 1 次</b>：<b>pass@1 45.0%（9/20）</b>，墙钟 1h49m。<br>⚠️ 但这是 <code>-k 1</code>、非随机选题、无对照组的量级确认，<b>还不是 HarnessTax 口径的分数</b> → 见下方待办 A。</p>
+    <div class="t"><span class="tag t-ok">DONE</span> Harbor adapter + 首轮子集跑分</div>
+    <p>接入 Harbor，<code>terminal-bench@2.0</code> 题库本地化（77 题），跑完 20 题 × 1：首轮 <b>pass@1 45.0%（9/20）</b>。</p>
   </div>
   <div class="step">
-    <div class="n">STEP 2 · 已完成 2026-10-03</div>
-    <div class="t"><span class="tag t-p0" style="background:rgba(63,185,80,.16);color:var(--green);border-color:rgba(63,185,80,.4)">DONE</span> 采集 #78 行为统计口径 → <b>未达标</b></div>
-    <p>实测<b>验证命令执行率 6.7%（1/15）</b>，未达 ≥90%。<b>#117 保持打开</b>，并按判定规则另开 <b>#132</b>。<br>→ 采集链路本身已通（<code>collect_metrics.py</code> 五项指标 + 常驻导出器 <code>export_run.py</code>），后续可反复复测。</p>
+    <div class="n">STEP 2 · 已完成 2026-10-12</div>
+    <div class="t"><span class="tag t-ok">DONE</span> 清四层噪声 → 基线复现 15/20</div>
+    <p>#166 A/B/C 三方案 + #176 环境治理落地后，同批 20 题跑到 <b>Mean 0.750（15/20）</b>，净增 4 题零回归。⚠️ 仍是 <code>-k 1</code>、非随机选题、无对照组。</p>
   </div>
   <div class="step">
     <div class="n">待办 A · 最高优先</div>
-    <div class="t">把 45% 坐实成一个可信分数</div>
-    <p>更大<b>随机</b>子集 + <code>-k 3</code>（bootstrap 10k 取 95% CI，对齐 HarnessTax）+ <b>Claude / GPT 对照组</b>，把 harness 贡献与模型贡献分开；并画<b>成本–成功率 Pareto 前沿</b>（harness 更影响成本，最高 5 倍）。在此之前，45% 只能说明「能跑通」。</p>
+    <div class="t">修 harness 自身缺陷（#173 / #174）</div>
+    <p><b>#173</b> BashTool 超时判定滞后 ~379s（P0，工具层时间语义硬伤）；<b>#174</b> 主推理 <code>max_tokens</code> 无上限（单轮 65536 tokens / 361s 烧掉 79% 预算）。这两条<b>不在环境层</b>，是下一轮提分最可能的直接来源。</p>
   </div>
   <div class="step">
-    <div class="n">待办 B · #132</div>
+    <div class="n">待办 B · #117 / #132</div>
     <div class="t">修正验证口径：分场景 + 采集器三档化</div>
-    <p>① <b>口径分场景</b>：真实工程仓库沿用 ≥90%；Terminal-Bench 类「空目录做题」改判「有过针对性自检动作」（因 verifier 测试在独立容器，agent 拿不到 <code>tests/</code>）。<b>待拍板</b>。<br>② 采集器三档：<code>strict</code>（可识别运行器）/ <code>loose</code>（含自写脚本）/ <code>probe</code>（<b>新增</b>，<code>python3 -c</code>、<code>od -c</code>、临时探针）。<br>③ adapter 注入 <code>WORKX_GOAL</code>，填上「无工程标记 → 门禁 0% 介入」的结构性空洞。</p>
+    <p>① <b>口径分场景</b>：真实工程仓库沿用 ≥90%；Terminal-Bench 类「空目录做题」改判「有过针对性自检动作」。<b>待拍板</b>。<br>② 采集器三档：<code>strict</code> / <code>loose</code> / <code>probe</code>（新增，含 <code>python3 -c</code> 等）。<br>③ adapter 注入 <code>WORKX_GOAL</code>，填上「无工程标记 → 门禁 0% 介入」的结构性空洞。</p>
   </div>
   <div class="step">
     <div class="n">待办 C</div>
-    <div class="t">补上 20% 的观测盲区</div>
-    <p><b>4/20 轨迹是 0 字节</b>：agent 撞超时被强杀 → 容器销毁 → <code>tee</code> 产物没取回。建议 agent 端定期 flush + 退出前落盘，或用 Harbor <code>--artifact</code> 回收 stream。<b>跑得最久的题恰恰最看不到</b>，这个洞不补，后面所有行为统计都有偏。</p>
+    <div class="t">对齐 HarnessTax 口径，把 75% 坐实</div>
+    <p>更大<b>随机</b>子集 + <code>-k 3</code>（bootstrap 10k 取 95% CI）+ <b>Claude / GPT 对照组</b>，把 harness 贡献与模型贡献分开；并画<b>成本–成功率 Pareto 前沿</b>（harness 更影响成本，最高 5 倍）。</p>
   </div>
   <div class="step">
     <div class="n">待办 D</div>
-    <div class="t">trace 分析回路</div>
-    <p>补 run manifest（每轮工具 / 参数 / 结果 / token / 耗时 / 错误类型），然后：拉失败 run → 并行错误分析 agent → 汇总成 harness 改动 → <b>复测</b>。每次改动都要检查是否在别的题上回归（防过拟合到单题）。<br>→ 现在已有 19 份可读轨迹 + 15 份可导入会话（<code>~/.workx/projects/terminal-bench-*</code>），素材是齐的。</p>
+    <div class="t">补上 20% 的观测盲区</div>
+    <p><b>4/20 轨迹是 0 字节</b>：agent 撞超时被强杀 → 容器销毁 → <code>tee</code> 产物没取回。建议 agent 端定期 flush + 退出前落盘，或用 Harbor <code>--artifact</code> 回收 stream。</p>
   </div>
   <div class="step">
     <div class="n">待办 E</div>
-    <div class="t">修复 island flaky（阶段 6.3 · #118）</div>
-    <p>让 listen socket 在整个生命周期保持开放，从根本上消除重连窗口；并让测试的 <code>read_until</code> 在 read 立即失败时 break，不再空转满 3 秒掩盖真因。见 <code>docs/p0-test-plan.md</code> 阶段 6.3、<b>#118</b>。</p>
+    <div class="t">修复 island flaky（#118）</div>
+    <p>让 listen socket 在整个生命周期保持开放，从根本上消除重连窗口；并让测试的 <code>read_until</code> 在 read 立即失败时 break，不再空转满 3 秒掩盖真因。</p>
   </div>
 </div>
 
 <div class="note">
   <b>评分口径提醒</b>：同一模型换 harness，Terminal-Bench 可摆动 3–5 分，SWE-bench 可达 10–20 分；HarnessTax 发现 harness 更影响<b>成本</b>（最高 5 倍）而非成功率 —— 所以最终要画<b>成本–成功率 Pareto 前沿</b>，只看成功率会奖励「烧钱换分」。<br>
+  <b>⚠️ 本页数据的口径</b>：<b>75.0%（15/20）</b>是 20 题容量筛选子集 × 1 次采样、且使用<b>预装了 9 题依赖的副本数据集</b>（<code>.cache/tb2/terminal-bench-prep</code>）—— 与官方榜、与此前 45.0% <b>都不可直接相减</b>。能说的是「四层噪声清完后，同一批题从 9 → 15」。<br>
   <b>本页是审计日志</b>：完整沿革、逐次修正过程与「预估 vs 实测」的差异账均保留在此。若只想看结论与横向对比，见 <code>docs/agent-harness-portfolio.html</code>。
 </div>
 
 <footer>
   参考：HarnessTax（UC Berkeley × Arena）· LangChain《Improving Deep Agents with Harness Engineering》《The Anatomy of an Agent Harness》· Anthropic《Writing effective tools for agents》· Harbor（Terminal-Bench 官方 runner）· Backgrind《Agentic coding benchmarks in 2026》<br>
-  完整文字版：<code>docs/agent-harness-assessment.md</code> · 用例方案：<code>docs/p0-test-plan.md</code> · 题库清单：<code>docs/agent-harness-eval-datasets.md</code> · 作品介绍：<code>docs/agent-harness-portfolio.html</code><br>
-  复审基准：develop <code>49d0ca4</code>（PR #116）· 测试基线：Linux CI 1363 用例 100% 绿 / Windows 本地 1374 用例 9614 断言全绿 · 评分 <b>73.5 / 100</b>（九次更新，含首轮真实跑分）<br>
-  首轮跑分：job <code>2026-10-03__13-45-16</code> · <code>terminal-bench@2.0</code> 20 题 × 1 次 · DeepSeek <code>deepseek-v4-flash</code> · workx 0.10.1（develop <code>1587fd0</code>）· pass@1 <b>45.0%（9/20）</b> · 墙钟 1h49m<br>
-  逐题产物：<code>jobs/2026-10-03__13-45-16/export/RESULTS.md</code> · 指标：<code>metrics.md</code> · 工具：<code>scripts/harness/{collect_metrics,export_run}.py</code>
+  完整文字版：<code>docs/agent-harness-assessment.md</code>（十二次更新，§2.8）· 用例方案：<code>docs/p0-test-plan.md</code> · 题库清单：<code>docs/agent-harness-eval-datasets.md</code> · 作品介绍：<code>docs/agent-harness-portfolio.html</code><br>
+  复审基准：develop <code>321d2a5</code>（PR #172）· 测试基线：Linux CI <code>ctest -LE slow</code> 1363 用例 100% 绿 / Windows 本地 1374 用例 9614 断言全绿 · 评分 <b>77.4 / 100</b>（十二次更新，含基线复现）<br>
+  最新跑分：job <code>2026-10-12__13-59-16</code> · <code>terminal-bench@2.0</code> 20 题 × 1 次 · DeepSeek <code>deepseek-flash</code> · workx 0.10.1（develop <code>321d2a5</code>）· <b>Mean reward 0.750（15/20）</b> · 墙钟 1h23m<br>
+  冒烟对照：job <code>2026-10-14__21-34-33</code>（v2，无环境类失败）vs <code>2026-10-14__21-06-11</code>（v1，3/3 setup 超时）· 环境修复报告：<code>build/linux/env-fix-verification-2026-10-14.md</code><br>
+  工具链：<code>scripts/harness/{run-harbor-replay,harbor-proxy,prepare_envs,verify_prep_images,trial_metrics,fix_dataset_lineendings,collect_metrics,export_run}.py|sh</code>
 </footer>
 
 </div>
