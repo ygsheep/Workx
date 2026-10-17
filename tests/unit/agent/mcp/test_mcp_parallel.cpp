@@ -28,7 +28,12 @@ class ParallelFixture {
         log = dir / "requests.jsonl";
         const auto script =
             std::filesystem::path(SOURCE_DIR) / "tests/unit/agent/mcp/fake_parallel_mcp_server.py";
-        REQUIRE(server.start("python", {script.string()}, {{"PARALLEL_TEST_LOG", log.string()}}).is_ok());
+#ifdef _WIN32
+        const std::string python = "python";
+#else
+        const std::string python = "python3";
+#endif
+        REQUIRE(server.start(python, {script.string()}, {{"PARALLEL_TEST_LOG", log.string()}}).is_ok());
         auto line = server.read_line(10000);
         REQUIRE(line.is_ok());
         REQUIRE_THAT(line.value(), StartsWith("PORT="));
