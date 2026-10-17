@@ -187,6 +187,35 @@ WorkX 的核心是 Agent 自主调用工具完成任务。内置工具集如下�
 
 通过 `MCPClientManager` 按配置启动/连接外部 MCP Server，MCPTool 的 prompt() 里动态列出 server 名与工具列表，call() 时按 tool_name 路由到对应 server 的 `tools/call`。`AgentTool` 支持子作用域 MCP（`mcpServers` 字段）——每个子 Agent 独立 MCP 连接池，父级不污染子级。
 
+### 可选的 Parallel Search MCP
+
+在用户配置 `~/.workx/mcp.json` 的 `mcpServers` 中加入以下条目，重启 Workx 后即可通过现有 `MCP` 工具搜索网页、抓取页面内容：
+
+```json
+{
+  "mcpServers": {
+    "parallel": { "preset": "parallel-search" }
+  }
+}
+```
+
+[Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp) 提供免费、无需账号或 API Key 的搜索与页面抓取，适合查找最新文档和核实引用。服务有使用额度限制；超出额度时会返回错误。预设使用 `https://search.parallel.ai/mcp` 和标识 Workx 的 User-Agent，沿用 HTTP MCP 传输、SSRF 防护及外部工具调用确认。
+
+连接后，工具提示词会列出 `web_search` 和 `web_fetch`。例如，`MCP` 搜索调用的参数为：
+
+```json
+{
+  "server": "parallel",
+  "tool": "web_search",
+  "input": {
+    "objective": "查找 CMake 官方的 FetchContent 用法",
+    "search_queries": ["CMake FetchContent official documentation"]
+  }
+}
+```
+
+再用 `web_fetch` 的 `input.urls` 数组抓取搜索结果中的 HTTP/HTTPS 链接。调用仍需遵守当前权限设置；极简模式不会开放 `MCP` 工具。预设不会改变 `WebSearch` 的 Tavily/SearXNG/Bing 选择，也不会自动添加服务器。显式 `command`、`url` 和 `headers` 配置继续生效；项目 `.mcp.json` 中的同名条目仍覆盖用户配置。要停用该服务，删除相应配置条目后重启（若项目也有同名条目，需一并删除）。
+
 ## 上下文管理 & Token 压缩
 
 ![Token 上下文压缩 + 预算面板](img/05_token_compression.jpg)

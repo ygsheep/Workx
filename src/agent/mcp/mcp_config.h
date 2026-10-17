@@ -4,7 +4,8 @@
  * @details 解析标准 mcp.json 格式（Claude Code / VS Code 兼容）：
  *          - 用户级：~/.workx/mcp.json
  *          - 项目级：<cwd>/.mcp.json（项目级优先合并）
- *          支持 stdio（command/args/env）与 http（url/headers）两类 server。
+ *          支持 stdio（command/args/env）与 http（url/headers）两类 server，
+ *          preset=parallel-search 可显式启用内置 Parallel Search MCP 配置。
  * @version 1.0.0
  * @date 2026-08
  */
