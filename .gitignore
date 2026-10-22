@@ -97,6 +97,10 @@ imgui.ini
 /.claude/
 /plan/
 /AGENT.md
+# 会话工作目录（issue 正文、PR review 记录、memory 笔记等内部资料）
+# ⚠️ 此前只靠 .git/info/exclude 排除，而该文件是**每份克隆本地**的、不随仓库分发：
+#    换机器 / CI checkout 后规则不存在，一次 `git add -A` 就会把这些内部资料推上公开仓库。
+/.workbuddy/
 
 # 独立发布的 workx-tap 仓库（tools/session-trace），由 workx-tap 独立 git 仓库管理
 # 根仓库不跟踪该目录，避免嵌套 gitlink / 内容分叉
