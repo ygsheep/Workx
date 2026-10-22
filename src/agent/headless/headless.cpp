@@ -9,6 +9,7 @@
 #include <chrono>
 #include <filesystem>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -180,6 +181,41 @@ std::unique_ptr<ReActLoop> build_loop(IConfigManager& cfg, ITaskManager& task_ma
                                        /*file_index_invalidator=*/nullptr, session_id);
 }
 
+/// @brief 把一个 ReAct 步骤以单行进度写到 stderr（#191）
+/// @details `-p` 原先在**整轮循环跑完之前不输出任何内容**（`main.cpp` 只在
+///          `run_headless` 返回后 `std::cout << result.output`）：一次要跑多轮工具调用的
+///          任务，从外面看就是"完全卡死"，用户无从判断是在干活还是死了。
+///          这里把进度实时写 stderr —— stdout 仍只放最终结果（保持管道契约），
+///          与 liblogger 的分工一致。
+/// @param tool_names tool_use_id → 工具名（Observation 步骤本身不带名字，靠 Action 记账）
+void print_progress(const ReActStep& s, std::map<std::string, std::string>& tool_names) {
+    switch (s.type) {
+        case ReActStepType::Thought: {
+            const size_t n = s.tool_uses.size();
+            if (n == 0) {
+                std::cerr << "[round] 生成最终回答\n";
+            } else {
+                std::cerr << "[round] 发起 " << n << " 个工具调用\n";
+            }
+            break;
+        }
+        case ReActStepType::Action:
+            tool_names[s.tool_use_id] = s.tool_name;
+            std::cerr << "[tool] " << s.tool_name << " 执行中…\n";
+            break;
+        case ReActStepType::Observation: {
+            const auto it = tool_names.find(s.tool_use_id);
+            std::cerr << "[tool] " << (it != tool_names.end() ? it->second : std::string("tool"))
+                      << (s.is_error ? " 失败 " : " 完成 ") << static_cast<long long>(s.duration_ms)
+                      << "ms\n";
+            break;
+        }
+        case ReActStepType::FinalAnswer:
+            break;
+    }
+    std::cerr.flush();
+}
+
 /// @brief 同步执行一轮 ReAct 循环
 /// @param streamed 输出参数：stream-json 模式下累积的逐步 NDJSON
 ReActResult execute_task(ReActLoop& loop, const std::string& task,
@@ -189,10 +225,13 @@ ReActResult execute_task(ReActLoop& loop, const std::string& task,
     messages.push_back(ChatMessage::user(task));
     std::atomic<bool> should_cancel{false};
 
-    // 步骤回调：stream-json 模式需要逐 step 输出
+    // 步骤回调：stream-json 需要逐 step 记录；其余格式只要"活着的迹象"（#191，走 stderr）
     ReActLoop::StepCallback on_step = nullptr;
+    std::map<std::string, std::string> tool_names;
     if (output_format == "stream-json") {
         on_step = [&streamed](const ReActStep& step) { streamed += step_json(step).dump() + "\n"; };
+    } else {
+        on_step = [&tool_names](const ReActStep& step) { print_progress(step, tool_names); };
     }
     return loop.run(messages, sys_prompt, tools_schema, should_cancel, std::move(on_step),
                     /*on_token=*/nullptr);
@@ -253,6 +292,10 @@ HeadlessResult run_with_provider(IConfigManager& cfg, ITaskManager& task_manager
 
     // ---- 4. 同步执行 + 输出 + 退出码 ----
     std::string streamed;
+    // #191：首轮响应可能要等十几秒，先给一行"已开始"，避免用户以为进程卡死
+    if (opts.output_format != "stream-json") {
+        std::cerr << "[start] 已提交任务，等待模型响应…\n" << std::flush;
+    }
     auto react_result = execute_task(*loop, opts.task, tool_registry->get_all_schemas(), sys_prompt,
                                      opts.output_format, streamed);
 
