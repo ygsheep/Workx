@@ -13,6 +13,10 @@
 
 [特性](#-特性总览why-workx) • [终端工具](#-作为终端工具使用for-end-users) • [Harness 库](#-作为-agent-harness-库嵌入for-c-developers) • [构建](#构建) • [测试](#测试)
 
+[![Workx 宣传 CG：可嵌入 · 缓存友好 · 默认拒绝 · 验证闭环](docs/img/workx-cg-poster.jpg)](docs/img/workx-cg.mp4)
+
+**▶ Workx 宣传 CG** ｜ 1 分 42 秒 · 1080p · 含音轨 —— 点击封面播放
+
 </div>
 
 ***
