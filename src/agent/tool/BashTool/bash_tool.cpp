@@ -301,8 +301,8 @@ ResultV2<ToolResult> BashTool::call(const nlohmann::json& input, const ToolConte
     }
     // #137：按剩余墙钟封顶（未注入预算时 ctx.remaining_wall_clock_ms < 0，行为不变）
     if (ctx.remaining_wall_clock_ms >= 0) {
-        const int clamped = shell_common::clamp_timeout_by_wall_clock(
-            timeout_ms, ctx.remaining_wall_clock_ms);
+        const int clamped =
+            shell_common::clamp_timeout_by_wall_clock(timeout_ms, ctx.remaining_wall_clock_ms);
         if (clamped != timeout_ms) {
             LOG_WARN("[bash_tool] timeout {}ms -> {}ms (remaining wall clock {}ms)", timeout_ms,
                      clamped, ctx.remaining_wall_clock_ms);
@@ -381,8 +381,7 @@ ResultV2<ToolResult> BashTool::call(const nlohmann::json& input, const ToolConte
                     disable_sandbox = true;
                 } else {
                     return ResultV2<ToolResult>::err(Error::Code::PermissionDenied,
-                                                     "Command execution denied by user: " +
-                                                         reason);
+                                                     "Command execution denied by user: " + reason);
                 }
             } else {
                 return ResultV2<ToolResult>::err(
@@ -432,6 +431,11 @@ ResultV2<ToolResult> BashTool::execute_sync(const std::string& command, const st
     process::ExecOptions opts;
     opts.cwd = cwd;
     opts.args = wrapped.args;
+    // #191：把 stdin 接到空设备。默认 StdinMode::Inherit 会让子进程继承**父** stdin ——
+    // 无人值守（`-p`）时父 stdin 可能是永不关闭的终端/管道，于是 `cat`、`git commit`
+    // （无 -m）、REPL 这类读 stdin 的命令会一直阻塞到 timeout（默认 2 分钟、上限 10 分钟），
+    // 外面看就是"完全卡死"。verdict.cpp / environment_probe.cpp 早已显式设 Null，BashTool 漏了。
+    opts.stdin_mode = process::StdinMode::Null;
     // #84 方案 B：把策略侧派生的进程级约束交给执行层（Windows 上落为 Job Object）
     opts.isolation = wrapped.isolation;
     if (timeout_ms > 0) {
@@ -516,8 +520,8 @@ ResultV2<ToolResult> BashTool::execute_background(const std::string& command,
     auto& tm = ctx.task_manager();
     auto task = tm.launch(
         task_name,
-        [command, cwd, timeout_ms, wrapped, task_name, tracker](
-            const std::atomic<bool>& should_cancel) {
+        [command, cwd, timeout_ms, wrapped, task_name,
+         tracker](const std::atomic<bool>& should_cancel) {
             // 保证恰好回传一次（含启动失败/异常路径），否则追踪器 pending 永久挂起。
             bool reported = false;
             auto report = [&](std::string text, bool is_err) {
@@ -531,6 +535,8 @@ ResultV2<ToolResult> BashTool::execute_background(const std::string& command,
                 process::ExecOptions opts;
                 opts.cwd = cwd;
                 opts.args = wrapped.args;
+                // #191：后台路径同样接空设备，避免读 stdin 的命令挂到超时
+                opts.stdin_mode = process::StdinMode::Null;
                 // #84 方案 B：后台路径同样带上进程级约束（超时/取消时连带杀全树）
                 opts.isolation = wrapped.isolation;
                 if (timeout_ms > 0) {
@@ -542,7 +548,8 @@ ResultV2<ToolResult> BashTool::execute_background(const std::string& command,
 
                 auto exec_result = process::exec(wrapped.cmd, opts);
                 // M-1 修复：
-                // 1. exec 启动失败（is_err）抛异常 → TaskManager 标记 Failed（发布 TaskFailedEvent）
+                // 1. exec 启动失败（is_err）抛异常 → TaskManager 标记 Failed（发布
+                // TaskFailedEvent）
                 //    原实现 (void)exec_result 会导致 TaskManager 错误地标记 Completed
                 if (exec_result.is_err()) {
                     const auto& err = exec_result.error();

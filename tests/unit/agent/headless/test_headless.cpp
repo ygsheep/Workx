@@ -15,6 +15,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -163,10 +164,31 @@ TEST_CASE_METHOD(HeadlessFixture, "HL-03 stream-json 输出为逐行可解析 ND
     REQUIRE(rows.back()["result"] == "streamed answer");
 }
 
+TEST_CASE_METHOD(HeadlessFixture, "HL-03b -p 在 stderr 输出实时进度，stdout 契约不变",
+                 "[headless][issue77][issue191]") {
+    queue_text("hi there");
+
+    // 临时把 std::cerr 重定向到内存流；RAII 保证异常路径也复原
+    struct CerrRedirect {
+        std::ostringstream buf;
+        std::streambuf* old;
+        CerrRedirect() : old(std::cerr.rdbuf(buf.rdbuf())) {}
+        ~CerrRedirect() { std::cerr.rdbuf(old); }
+    } redirect;
+
+    const auto r = run(make_opts("say hi", "text"));
+
+    // stdout 契约不变：仍然只有最终答案（不因加进度而重复正文）
+    REQUIRE(r.output == "hi there\n");
+    // 进度走 stderr：至少有"已提交"与"每轮"两种行
+    const std::string err = redirect.buf.str();
+    CHECK(err.find("[start]") != std::string::npos);
+    CHECK(err.find("[round]") != std::string::npos);
+}
+
 // ============================================================================
 // HL-04 ~ HL-07：退出码
 // ============================================================================
-
 TEST_CASE_METHOD(HeadlessFixture, "HL-04 后端创建失败返回 exit 2", "[headless][issue77]") {
     // 走真实入口：空配置 → 无 provider / remote_url → 参数配置错误
     MockConfigManager empty_cfg;
