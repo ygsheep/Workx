@@ -24,7 +24,9 @@
 #include "core/process/subprocess.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
+#include <cwchar>
 #include <thread>
 
 #ifdef _WIN32
@@ -42,6 +44,10 @@
 #include <poll.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+// #188：execv* 的「无 e」版本隐式使用全局 environ，脱敏路径要先把它指到过滤后的数组。
+//         Linux 的 <unistd.h> 未必声明，macOS 完全不声明 —— 显式声明一次。
+extern char** environ;
 #endif
 
 namespace agent::process {
@@ -175,6 +181,29 @@ std::string sanitize_output_to_utf8(std::string s) {
 
 namespace agent::process {
 
+bool is_sensitive_env_name(std::string_view name) noexcept {
+    static constexpr std::string_view kNeedles[] = {
+        "API_KEY", "APIKEY", "SECRET",    "TOKEN",   "PASSWORD",
+        "PASSWD",  "CREDENTIAL", "ACCESS_KEY", "PRIVATE_KEY",
+    };
+    if (name.empty()) return false;
+    // 逐字符做大小写不敏感匹配：不构造临时 string，因此 noexcept 不会因 bad_alloc 终止
+    for (std::string_view needle : kNeedles) {
+        if (name.size() < needle.size()) continue;
+        for (size_t i = 0; i + needle.size() <= name.size(); ++i) {
+            bool hit = true;
+            for (size_t j = 0; j < needle.size(); ++j) {
+                if (std::toupper(static_cast<unsigned char>(name[i + j])) != needle[j]) {
+                    hit = false;
+                    break;
+                }
+            }
+            if (hit) return true;
+        }
+    }
+    return false;
+}
+
 namespace {
 
 #ifdef _WIN32
@@ -251,6 +280,34 @@ std::string wide_to_utf8(const std::wstring& w) {
     std::string s(len - 1, '\0');
     WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, s.data(), len, nullptr, nullptr);
     return s;
+}
+
+/// 构造剔除凭据类变量后的 UNICODE 环境块（#188）
+/// @details 取父进程环境 → 逐条按变量名过滤 → 保持原顺序（GetEnvironmentStringsW
+///          已按大小写不敏感升序返回，过滤后仍满足 CreateProcessW 对顺序的要求）。
+///          取不到环境时返回只含两个 \0 的空块 —— 宁可子进程没有环境，
+///          也不回退成「继承父进程」把凭据漏出去。
+std::wstring build_scrubbed_env_block() {
+    std::wstring block;
+    LPWCH env = GetEnvironmentStringsW();
+    if (env != nullptr) {
+        for (LPWCH p = env; *p != L'\0'; p += std::wcslen(p) + 1) {
+            const wchar_t* eq = std::wcschr(p, L'=');
+            // 以 '=' 开头的条目是 "=C:=C:\path" 这类驱动器当前目录伪变量，跳过
+            if (eq == nullptr || eq == p) continue;
+            const std::wstring wname(p, static_cast<size_t>(eq - p));
+            if (is_sensitive_env_name(wide_to_utf8(wname))) continue;
+            block.append(p);
+            block.push_back(L'\0');
+        }
+        FreeEnvironmentStringsW(env);
+    }
+    if (block.empty()) {
+        block.assign(2, L'\0');  // 空环境块：双 \0 结尾
+    } else {
+        block.push_back(L'\0');  // 末尾补第二个 \0
+    }
+    return block;
 }
 
 /// 从管道读取数据（非阻塞模式）
@@ -447,12 +504,16 @@ ResultV2<ExecOutput> exec_windows(const std::string& cmd, const ExecOptions& opt
     si.hStdInput = (opts.stdin_mode == StdinMode::Null) ? stdin_handle : nullptr;
     PROCESS_INFORMATION pi{};
 
+    // #188：按调用方要求构造脱敏环境块（nullptr = 继承父进程，既有行为）
+    std::wstring scrubbed_env;
+    if (opts.scrub_secrets) scrubbed_env = build_scrubbed_env_block();
+
     if (!CreateProcessW(nullptr,          // lpApplicationName（nullptr 表示从 cmdline 解析）
                         wcmdline.data(),  // lpCommandLine（可写缓冲区）
                         nullptr, nullptr,  // 进程/线程安全属性
                         TRUE,              // bInheritHandles
                         creation_flags,    // dwCreationFlags
-                        nullptr,           // lpEnvironment（继承父进程）
+                        opts.scrub_secrets ? scrubbed_env.data() : nullptr,  // lpEnvironment
                         wcwd.empty() ? nullptr : wcwd.c_str(), &si, &pi)) {
         DWORD err = GetLastError();
         return ResultV2<ExecOutput>::err(
@@ -643,6 +704,23 @@ ResultV2<ExecOutput> exec_posix(const std::string& cmd, const ExecOptions& opts)
                                          "subprocess::exec");
     }
 
+    // #188：凭据类变量脱敏 —— 必须在 fork() **之前**建好数组：
+    //        fork 后的子进程只做指针赋值与 exec，不再分配内存（多线程下更安全）。
+    std::vector<std::string> env_storage;
+    std::vector<char*> envp;
+    if (opts.scrub_secrets) {
+        for (char** e = environ; e != nullptr && *e != nullptr; ++e) {
+            const std::string entry(*e);
+            const size_t eq = entry.find('=');
+            if (eq == std::string::npos || eq == 0) continue;
+            if (is_sensitive_env_name(std::string_view(entry).substr(0, eq))) continue;
+            env_storage.push_back(entry);
+        }
+        envp.reserve(env_storage.size() + 1);
+        for (auto& s : env_storage) envp.push_back(s.data());
+        envp.push_back(nullptr);
+    }
+
     // 2. fork
     pid_t pid = fork();
     if (pid < 0) {
@@ -701,6 +779,11 @@ ResultV2<ExecOutput> exec_posix(const std::string& cmd, const ExecOptions& opts)
             argv.push_back(arg.c_str());
         }
         argv.push_back(nullptr);
+
+        // #188：execvp 隐式使用全局 environ，脱敏路径先把它指到过滤后的数组
+        if (opts.scrub_secrets && !envp.empty()) {
+            environ = envp.data();
+        }
 
         execvp(cmd.c_str(), const_cast<char* const*>(argv.data()));
         // execvp 失败（命令不存在等）

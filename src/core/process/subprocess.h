@@ -23,6 +23,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "core/process/exec_output.h"
@@ -64,6 +65,15 @@ struct ExecOptions {
     ///          验证门禁、headless 评测这类自动命令，一旦读到 stdin 就会挂到
     ///          超时（POSIX 继承父 stdin；Windows 则拿到 STARTF 的空句柄）。
     StdinMode stdin_mode = StdinMode::Inherit;
+
+    /// @brief 是否剔除父进程环境中的凭据类变量后再交给子进程（#188）
+    /// @details 默认 false = 完全继承（既有行为）。**模型驱动的命令执行路径必须置 true**：
+    ///          命令文本由 LLM 生成，一次提示注入就能让模型执行 `echo $WORKX_API_KEY`
+    ///          把模型凭据读进上下文；而子进程默认继承全部环境变量，凭据就在里面。
+    ///          判定规则见 is_sensitive_env_name()。
+    ///          刻意做成 opt-in 而非全局默认：hook / 版本探测等**用户自己配置**的命令
+    ///          依赖完整环境（如自定义脚本读 token），全局剔除会静默破坏它们。
+    bool scrub_secrets = false;
 };
 
 /// @brief 同步执行外部命令，捕获输出
@@ -103,5 +113,15 @@ struct InteractiveExecResult {
 ResultV2<InteractiveExecResult> exec_interactive(const std::string& cmd,
                                                  const std::vector<std::string>& args,
                                                  const std::string& cwd = {});
+
+/// @brief 判定环境变量名是否属于凭据类（#188）
+/// @details 大小写不敏感的「名称片段」匹配，覆盖这些族：
+///          API_KEY / APIKEY / SECRET / TOKEN / PASSWORD / PASSWD / CREDENTIAL /
+///          ACCESS_KEY / PRIVATE_KEY。命中即视为凭据，子进程环境块中剔除。
+///          刻意不收 `AUTH`：会误伤 SSH_AUTH_SOCK 这类「指向凭据的通道」而非凭据本身，
+///          剔掉它反而让 git-over-ssh 静默失效。
+/// @param name 变量名（不含 '='；允许为空）
+/// @return true = 凭据类，不应继承给子进程
+bool is_sensitive_env_name(std::string_view name) noexcept;
 
 }  // namespace agent::process

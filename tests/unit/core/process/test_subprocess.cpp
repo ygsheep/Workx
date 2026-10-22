@@ -22,10 +22,12 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 #ifndef _WIN32
 #include <cerrno>
@@ -384,4 +386,90 @@ TEST_CASE("exec_interactive respects cwd", "[subprocess][interactive]") {
     std::error_code ec;
     fs::remove(marker_path, ec);
     fs::remove(tmp_dir, ec);
+}
+
+// ============================================================
+// #188：凭据类环境变量不继承给子进程
+// ============================================================
+
+TEST_CASE("is_sensitive_env_name classifies credential variable names", "[subprocess][env_scrub]") {
+    SECTION("凭据类变量名一律命中") {
+        const std::vector<const char*> sensitive = {
+            "WORKX_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_APIKEY", "GITHUB_TOKEN",
+            "AWS_SECRET_ACCESS_KEY", "DB_PASSWORD", "DB_PASSWD", "npm_config_authtoken",
+            "GPG_PRIVATE_KEY", "AWS_ACCESS_KEY_ID", "AZURE_CREDENTIALS",
+        };
+        for (const char* name : sensitive) {
+            INFO("name = " << name);
+            REQUIRE(is_sensitive_env_name(name));
+        }
+    }
+
+    SECTION("非凭据变量名不误伤") {
+        // SSH_AUTH_SOCK 指向凭据通道而非凭据本身，剔掉会让 git-over-ssh 静默失效
+        const std::vector<const char*> normal = {"PATH",      "HOME",    "USERPROFILE",
+                                                 "SYSTEMROOT", "LANG",   "TMPDIR",
+                                                 "PYTHONPATH", "SSH_AUTH_SOCK", "http_proxy"};
+        for (const char* name : normal) {
+            INFO("name = " << name);
+            REQUIRE_FALSE(is_sensitive_env_name(name));
+        }
+    }
+
+    SECTION("空名与大小写不敏感") {
+        REQUIRE_FALSE(is_sensitive_env_name(""));
+        REQUIRE(is_sensitive_env_name("workx_api_key"));
+        REQUIRE(is_sensitive_env_name("Github_Token"));
+    }
+}
+
+TEST_CASE("subprocess scrub_secrets withholds credential env vars", "[subprocess][env_scrub]") {
+    // 父进程注入两条测试变量：一条凭据、一条普通 —— 用以区分「剔干净」与「全剔光」
+#ifdef _WIN32
+    _putenv_s("WORKX_TEST_API_KEY", "leaked-secret-value");
+    _putenv_s("WORKX_TEST_SAFE_VAR", "visible-plain-value");
+    const std::string print_cmd =
+        "echo KEY=[%WORKX_TEST_API_KEY%] SAFE=[%WORKX_TEST_SAFE_VAR%]";
+#else
+    setenv("WORKX_TEST_API_KEY", "leaked-secret-value", 1);
+    setenv("WORKX_TEST_SAFE_VAR", "visible-plain-value", 1);
+    const std::string print_cmd =
+        "echo KEY=[${WORKX_TEST_API_KEY:-}] SAFE=[${WORKX_TEST_SAFE_VAR:-}]";
+#endif
+
+    SECTION("scrub_secrets=true：凭据消失，普通变量保留") {
+        ExecOptions opts;
+        opts.scrub_secrets = true;
+#ifdef _WIN32
+        opts.args = {"/c", print_cmd};
+#else
+        opts.args = {"-c", print_cmd};
+#endif
+        auto r = exec(kShell, opts);
+        REQUIRE(r.is_ok());
+        REQUIRE(r.value().stdout_text.find("leaked-secret-value") == std::string::npos);
+        REQUIRE(r.value().stdout_text.find("visible-plain-value") != std::string::npos);
+    }
+
+    SECTION("scrub_secrets=false：保持既有行为（继承全部）") {
+        ExecOptions opts;
+        opts.scrub_secrets = false;
+#ifdef _WIN32
+        opts.args = {"/c", print_cmd};
+#else
+        opts.args = {"-c", print_cmd};
+#endif
+        auto r = exec(kShell, opts);
+        REQUIRE(r.is_ok());
+        REQUIRE(r.value().stdout_text.find("leaked-secret-value") != std::string::npos);
+    }
+
+    // 清理注入的变量，避免影响同进程内的其他用例
+#ifdef _WIN32
+    _putenv_s("WORKX_TEST_API_KEY", "");
+    _putenv_s("WORKX_TEST_SAFE_VAR", "");
+#else
+    unsetenv("WORKX_TEST_API_KEY");
+    unsetenv("WORKX_TEST_SAFE_VAR");
+#endif
 }

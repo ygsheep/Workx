@@ -387,14 +387,22 @@ TEST_CASE("BashTool reports progress via callback", "[tool][bash][progress]") {
 // 沙盒配置
 // ============================================================
 
-TEST_CASE("BashTool accepts dangerously_disable_sandbox", "[tool][bash][sandbox]") {
+TEST_CASE("BashTool requires approval to disable sandbox", "[tool][bash][sandbox]") {
     BashTool tool;
     ToolContext ctx;
     fill_ctx(ctx);
+    ctx.permission_mode = PermissionMode::Default;
 
-    // 禁用沙盒不应导致错误（实际是否降级由平台决定）
     nlohmann::json input = {{"command", "echo no_sandbox"}, {"dangerously_disable_sandbox", true}};
 
+    // #188：该开关由模型写进 tool input，Default 档必须人工确认；
+    //       本 ctx 无确认通道 → ask_user_confirm fail-closed，命令被拒。
+    auto denied = tool.call(input, ctx);
+    REQUIRE(denied.is_err());
+    REQUIRE(denied.error().code == Error::Code::PermissionDenied);
+
+    // Bypass 档本就是全权模式，不再询问（既有行为）
+    ctx.permission_mode = PermissionMode::BypassPermissions;
     auto r = tool.call(input, ctx);
     REQUIRE(r.is_ok());
     REQUIRE(r.value().text.find("no_sandbox") != std::string::npos);

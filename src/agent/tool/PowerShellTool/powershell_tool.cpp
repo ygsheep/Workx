@@ -280,6 +280,22 @@ ResultV2<ToolResult> PowerShellTool::call(const nlohmann::json& input,
         disable_sandbox = input["dangerously_disable_sandbox"].get<bool>();
     }
 
+    // #188：该开关由模型写在 tool input 里 —— 提示注入可借它静默关掉隔离，
+    //       而「关掉隔离」本身不该是模型能单方面决定的事。Bypass 档本就是全权
+    //       （无需再问），其余档一律要人工确认；headless 无确认通道，
+    //       ask_user_confirm 直接返回 false，即 fail-closed 拒绝。
+    if (disable_sandbox && !is_bypass_mode(ctx.permission_mode)) {
+        const std::string question = std::format(
+            "The model asked to run this command with the sandbox DISABLED:\n\n"
+            "```\n{}\n```\n\nAllow running it without sandbox restrictions?",
+            command);
+        if (!ask_user_confirm(ctx, question)) {
+            return ResultV2<ToolResult>::err(
+                Error::Code::PermissionDenied,
+                "Sandbox disable was not approved; refusing to run the command.");
+        }
+    }
+
     // #35：命令级风险检测（破坏性/SSRF/env 泄露）——执行前拦截 + 审计
     // 手动审核（Default）模式下由用户确认放行；放行后禁用沙箱授予完整访问
     const auto risk = detect_shell_risk(command);
@@ -390,6 +406,8 @@ ResultV2<ToolResult> PowerShellTool::execute_sync(const std::string& command,
     opts.args = wrapped.args;
     // #84 方案 B：把策略侧派生的进程级约束交给执行层（Windows 上落为 Job Object）
     opts.isolation = wrapped.isolation;
+    // #188：命令文本由模型生成，父进程环境里的模型凭据不继承给子进程
+    opts.scrub_secrets = true;
     if (timeout_ms > 0) {
         opts.timeout = std::chrono::milliseconds(timeout_ms);
     }
@@ -481,6 +499,8 @@ ResultV2<ToolResult> PowerShellTool::execute_background(const std::string& comma
                 opts.args = wrapped.args;
                 // #84 方案 B：后台路径同样带上进程级约束（超时/取消时连带杀全树）
                 opts.isolation = wrapped.isolation;
+                // #188：后台路径同样不把父进程凭据交给子进程
+                opts.scrub_secrets = true;
                 if (timeout_ms > 0) {
                     opts.timeout = std::chrono::milliseconds(timeout_ms);
                 }
