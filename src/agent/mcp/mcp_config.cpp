@@ -15,6 +15,7 @@
 #include "agent/mcp/mcp_config.h"
 
 #include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <system_error>
 #include <nlohmann/json.hpp>
@@ -81,16 +82,32 @@ bool parse_one_server(const std::string& name, const nlohmann::json& obj, McpSer
         return out.valid();
     }
 
-    // http：url（type=http 或省略 type 均可，兼容仅写 url 的配置）
-    // 注意：command 优先（stdio）；仅含 url 时视为 http 传输
-    if (obj.contains("url") && obj.at("url").is_string()) {
+    // 显式选择的内置预设；不注册额外 server，不改变已有搜索默认值。
+    const bool parallel_search = obj.contains("preset") && obj.at("preset") == "parallel-search";
+    if (parallel_search) out.url = "https://search.parallel.ai/mcp";
+    if (obj.contains("url")) {
+        if (!obj.at("url").is_string()) return false;
         out.url = obj.at("url").get<std::string>();
+    }
+
+    // command 仍优先；显式 URL/headers 覆盖预设，沿用现有 SSRF 防护。
+    if (!out.url.empty()) {
         if (obj.contains("headers") && obj.at("headers").is_object()) {
             for (auto it = obj.at("headers").begin(); it != obj.at("headers").end(); ++it) {
                 if (it.value().is_string()) {
                     out.headers[it.key()] = it.value().get<std::string>();
                 }
             }
+        }
+        const bool has_user_agent = std::any_of(out.headers.begin(), out.headers.end(),
+            [](const auto& header) {
+                const std::string expected = "user-agent";
+                return header.first.size() == expected.size() &&
+                    std::equal(header.first.begin(), header.first.end(), expected.begin(),
+                        [](unsigned char a, unsigned char b) { return std::tolower(a) == b; });
+            });
+        if (parallel_search && !has_user_agent) {
+            out.headers["User-Agent"] = "Workx (+https://github.com/ygsheep/Workx)";
         }
         out.allow_private = obj.value("allowPrivate", false);
         return out.valid();

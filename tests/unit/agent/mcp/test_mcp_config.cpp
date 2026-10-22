@@ -183,3 +183,55 @@ TEST_CASE("load_mcp_configs 非法 JSON 返回解析错误", "[mcp_config][load]
     REQUIRE(result.is_err());
     REQUIRE(result.error().code == Error::Code::ConfigParseFailed);
 }
+
+TEST_CASE("Parallel Search 预设显式启用免 Key HTTP 配置", "[mcp_config][parallel]") {
+    auto servers = parse_mcp_config_json({{"mcpServers", {
+        {"parallel", {{"preset", "parallel-search"}}}
+    }}});
+    REQUIRE(servers.size() == 1);
+    REQUIRE(servers[0].name == "parallel");
+    REQUIRE(servers[0].url == "https://search.parallel.ai/mcp");
+    REQUIRE(servers[0].headers.at("User-Agent") == "Workx (+https://github.com/ygsheep/Workx)");
+    REQUIRE(servers[0].headers.size() == 1); // 不注入 Authorization 或环境密钥
+    REQUIRE_FALSE(servers[0].allow_private);
+    REQUIRE(servers[0].command.empty());
+    REQUIRE(parse_mcp_config_json({{"mcpServers", nlohmann::json::object()}}).empty());
+}
+
+TEST_CASE("Parallel Search 预设保留显式传输和 header 配置", "[mcp_config][parallel]") {
+    auto servers = parse_mcp_config_json({{"mcpServers", {
+        {"custom", {{"preset", "parallel-search"}, {"url", "https://example.com/mcp"},
+                    {"headers", {{"user-agent", "MyWorkx"}, {"Authorization", "Bearer saved"}}}}},
+        {"stdio", {{"preset", "parallel-search"}, {"command", "python"}, {"args", {"server.py"}}}},
+        {"invalid", {{"preset", "parallel-search"}, {"url", 42}}},
+        {"empty", {{"preset", "parallel-search"}, {"url", ""}}}
+    }}});
+    REQUIRE(servers.size() == 2);
+    REQUIRE(servers[0].url == "https://example.com/mcp");
+    REQUIRE(servers[0].headers.at("user-agent") == "MyWorkx");
+    REQUIRE(servers[0].headers.at("Authorization") == "Bearer saved");
+    REQUIRE(servers[0].headers.size() == 2);
+    REQUIRE(servers[1].command == "python");
+    REQUIRE_FALSE(servers[1].is_http());
+}
+
+TEST_CASE("Parallel Search 预设遵循项目覆盖和移除配置", "[mcp_config][parallel]") {
+    TempDir dir;
+    auto user = dir.path() / "user";
+    auto project = dir.path() / "project";
+    std::filesystem::create_directories(user);
+    std::filesystem::create_directories(project);
+    write_file(user / "mcp.json", R"({"mcpServers":{"parallel":{"preset":"parallel-search"}}})");
+    write_file(project / ".mcp.json", R"({"mcpServers":{"parallel":{"url":"https://example.com/mcp","allowPrivate":true}}})");
+    auto loaded = load_mcp_configs(user, project);
+    REQUIRE(loaded.is_ok());
+    REQUIRE(loaded.value().size() == 1);
+    REQUIRE(loaded.value()[0].url == "https://example.com/mcp");
+    REQUIRE(loaded.value()[0].headers.empty());
+    REQUIRE_FALSE(loaded.value()[0].allow_private);
+    std::filesystem::remove(user / "mcp.json");
+    std::filesystem::remove(project / ".mcp.json");
+    auto removed = load_mcp_configs(user, project);
+    REQUIRE(removed.is_ok());
+    REQUIRE(removed.value().empty());
+}
