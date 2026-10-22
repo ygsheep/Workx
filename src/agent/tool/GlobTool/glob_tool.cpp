@@ -12,6 +12,7 @@
 #include "agent/tool/path_validator.h"  // validate_path_access
 #include "agent/tool/permission_ask.h"  // is_bypass_mode, ask_user_confirm
 #include "core/utils/error.h"
+#include "core/utils/utf8_path.h"  // #189：目录名取 UTF-8（path::string() 是 GBK，见 #184）
 
 #include <format>
 #include <filesystem>
@@ -22,6 +23,40 @@
 namespace agent::tool {
 
 namespace fs = std::filesystem;
+
+// ============================================================
+// 扫描护栏（#189）
+// ============================================================
+
+// Glob 原先既无遍历上限也无跳过规则：在大目录里一次 `**/*` 就是「遍历整棵子树 +
+// 全量回传」，既慢又会把上下文撑爆。跳过策略与 TUI 的 walk_fs 保持一致。
+constexpr size_t kMaxMatches = 200;  ///< 返回结果上限（排序后截断，保留"最新优先"）
+constexpr size_t kMaxScanEntries = 100000;  ///< 遍历条目上限（防御超深/超宽子树）
+
+/// @brief 是否跳过该目录（依赖 / 构建产物 / VCS，通常不是用户要找的目标）
+static bool should_skip_dir(std::string_view name) {
+    static constexpr std::string_view kSkip[] = {
+        ".git",
+        ".svn",
+        ".hg",
+        "node_modules",
+        "build",
+        "dist",
+        "target",
+        "out",
+        "__pycache__",
+        ".venv",
+        "venv",
+        "cmake-build-debug",
+        "cmake-build-release",
+        ".idea",
+        ".vscode",
+    };
+    for (std::string_view n : kSkip) {
+        if (name == n) return true;
+    }
+    return false;
+}
 
 // ============================================================
 // 元数据方法
@@ -261,6 +296,7 @@ ResultV2<ToolResult> GlobTool::call(const nlohmann::json& input, const ToolConte
     };
 
     std::vector<MatchEntry> matches;
+    size_t scanned = 0;
 
     for (auto it = fs::recursive_directory_iterator(
              search_dir, fs::directory_options::skip_permission_denied, ec);
@@ -270,7 +306,22 @@ ResultV2<ToolResult> GlobTool::call(const nlohmann::json& input, const ToolConte
             continue;
         }
 
+        // #189：遍历量封顶，避免超大子树把 runner 拖死
+        if (++scanned > kMaxScanEntries) break;
+
         const auto& entry = *it;
+
+        // #189：命中依赖/构建/VCS 目录就不再往下钻（这类目录不参与匹配）。
+        // 目录名用 path_to_utf8 取：path::string() 在中文系统返回 GBK，非 GBK 可表示的
+        // 名字会抛 1113（#184 的同类陷阱）。
+        if (entry.is_directory(ec)) {
+            const bool skip = should_skip_dir(core::util::path_to_utf8(entry.path().filename()));
+            ec.clear();
+            if (skip) {
+                it.disable_recursion_pending();
+                continue;
+            }
+        }
 
         // 获取相对路径并规范化
         std::string rel_path = normalize_path(fs::relative(entry.path(), search_dir, ec).string());
@@ -301,6 +352,10 @@ ResultV2<ToolResult> GlobTool::call(const nlohmann::json& input, const ToolConte
             ToolResult::ok("No files matched pattern: " + glob_input.pattern));
     }
 
+    // #189：先按时间排序再截断，保住"最新优先"语义；被截断时明确告知调用方
+    const size_t total = matches.size();
+    if (total > kMaxMatches) matches.resize(kMaxMatches);
+
     std::string result;
     result.reserve(matches.size() * 40);
     for (const auto& m : matches) {
@@ -311,6 +366,12 @@ ResultV2<ToolResult> GlobTool::call(const nlohmann::json& input, const ToolConte
     // 移除末尾多余的换行
     if (!result.empty()) {
         result.pop_back();
+    }
+    if (total > kMaxMatches) {
+        result += std::format(
+            "\n\n(truncated: showing newest {} of {} matches; "
+            "narrow the pattern or cwd to see more)",
+            kMaxMatches, total);
     }
 
     return ResultV2<ToolResult>::ok(ToolResult::ok(std::move(result)));

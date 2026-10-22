@@ -29,6 +29,7 @@ namespace {
 constexpr size_t kMaxTopEntries = 40;       ///< 顶层条目上限
 constexpr size_t kMaxChildEntries = 10;     ///< 每个子目录展开的条目上限
 constexpr size_t kMaxSkeletonEntries = 80;  ///< 骨架总行数上限（防止撑爆提示词）
+constexpr size_t kMaxScanEntries = 5000;  ///< 单目录枚举上限（#189：防止超大目录拖慢启动）
 
 /// @brief 是否应跳过的噪音目录（构建产物 / VCS / 依赖目录）
 bool is_noise_dir(std::string_view name) {
@@ -61,8 +62,14 @@ struct Entry {
 std::vector<Entry> list_dir(const std::filesystem::path& dir, size_t limit) {
     std::vector<Entry> entries;
     std::error_code ec;
+    size_t scanned = 0;
     for (const auto& item : std::filesystem::directory_iterator(dir, ec)) {
         if (ec) break;
+        // #189：下面的 limit 只约束**输出**（先全量枚举 → 排序 → 截断），超大目录仍会
+        // readdir 到底。这里再给枚举本身封顶，避免顶层堆放上万个文件时拖慢启动
+        // （每次启动都跑，TUI 与 -p 都走）。代价：条目数超过上限时，最终保留哪 40 条
+        // 取决于目录枚举顺序而非全量排序 —— 目录骨架只是提示，可以接受。
+        if (++scanned > kMaxScanEntries) break;
         const bool is_dir = item.is_directory(ec);
         if (!is_dir && !item.is_regular_file(ec)) continue;
         // #182：路径名必须转 UTF-8。path::string() 用的是本机窄编码（中文系统 = GBK），
