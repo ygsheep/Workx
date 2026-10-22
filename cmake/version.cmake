@@ -11,7 +11,7 @@
 #   PATCH = 兼容修复（bugfix、无 API 变化的内部优化）
 set(WORKX_VERSION_MAJOR 0)
 set(WORKX_VERSION_MINOR 10)
-set(WORKX_VERSION_PATCH 2)
+set(WORKX_VERSION_PATCH 3)
 
 # 校验文件包含指定字面量（string(FIND) 为字面量查找，避免正则转义问题）
 function(workx_check_version_file file_name needle)

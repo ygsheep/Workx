@@ -16,6 +16,7 @@
 
 #include "agent/core/verdict.h"
 #include "agent/prompt/environment_probe.h"
+#include "core/utils/utf8_path.h"  // #184：中文子目录名断言用 path_to_utf8
 
 namespace {
 
@@ -157,6 +158,32 @@ TEST_CASE("目录骨架有总行数上限，不会撑爆提示词", "[issue82][e
     CHECK_FALSE(lines.empty());
     CHECK(lines.size() <= 80u);
 }
+
+#ifdef _WIN32
+// #184 回归：Entry.name 是 UTF-8，而 Windows 上 `fs::path(窄字符串)` 按**本机窄编码
+// (ACP/GBK)** 解释。此前 probe_directory_skeleton 用 `cwd / entry.name` 重新拼子目录
+// 路径，中文目录名的 UTF-8 字节（「文档需求」含 0x80、「表情包」含 0x85）不是合法 GBK
+// → 抛 "No mapping for the Unicode character exists in the target multi-byte code page"
+// （Win32 1113）→ **cwd 下有一个中文名子目录就启动即失败**。
+// 修法：递归直接用原生 path（entry.path），不再从名字重拼。
+TEST_CASE("目录骨架：子目录名含中文时不抛异常且保持 UTF-8（#184）",
+          "[issue82][environment_probe][utf8]") {
+    TempDir dir("cn_subdir");
+    const fs::path cn = dir.path() / fs::path(L"中文子目录");
+    const fs::path ascii_child = dir.path() / "ascii_child";
+    std::error_code ec;
+    fs::create_directories(cn, ec);
+    fs::create_directories(ascii_child, ec);
+    REQUIRE(fs::is_directory(cn, ec));
+
+    std::vector<std::string> lines;
+    REQUIRE_NOTHROW(lines = probe_directory_skeleton(dir.path()));
+
+    // 中文名以 UTF-8 进入骨架（不是 U+FFFD、也不是 GBK 字节）
+    CHECK(has_line(lines, core::util::path_to_utf8(cn.filename()) + "/"));
+    CHECK(has_line(lines, "ascii_child/"));  // 另一分支（ASCII 子目录）仍在
+}
+#endif
 
 TEST_CASE("CMake 构建命令取 preset 里的真实构建目录", "[issue82][environment_probe]") {
     CHECK(preset_project().build == "cmake --build ./out --config Debug");
