@@ -39,7 +39,7 @@ const char* kSampleApiJson = R"({
   }
 })";
 
-} // anonymous namespace
+}  // anonymous namespace
 
 TEST_CASE("ModelCatalog from_api_json", "[model][catalog]") {
     auto result = ModelCatalog::from_api_json(kSampleApiJson);
@@ -77,9 +77,7 @@ TEST_CASE("ModelCatalog from_api_json", "[model][catalog]") {
         REQUIRE_FALSE(catalog.contains("nonexistent"));
     }
 
-    SECTION("empty provider ignored") {
-        REQUIRE(catalog.size() == 3);
-    }
+    SECTION("empty provider ignored") { REQUIRE(catalog.size() == 3); }
 }
 
 TEST_CASE("ModelCatalog invalid input", "[model][catalog]") {

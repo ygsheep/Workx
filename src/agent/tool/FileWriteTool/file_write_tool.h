@@ -56,7 +56,7 @@ namespace agent::tool {
 /// - input_schema 添加 `additionalProperties: false`（对齐 `z.strictObject`）
 /// - Pre-read / Staleness 检查对齐 CC `validateInput` + `call` 的 staleness 回退
 class FileWriteTool : public ITool {
-public:
+   public:
     /// @brief 获取工具名称
     /// @return 工具名称常量引用 "Write"
     const std::string& name() const override;
@@ -79,17 +79,13 @@ public:
     /// @param ctx 工具执行上下文（当前未使用）
     /// @return 验证通过返回 ValidationResult::ok()；
     ///         file_path 缺失/非字符串/空、content 缺失/非字符串时返回错误
-    ValidationResult validate_input(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    ValidationResult validate_input(const nlohmann::json& input,
+                                    const ToolContext& ctx) const override;
 
     /// @brief 权限检查（#34/#36：路径边界 + 敏感路径拦截 + Plan/Bypass 模式）
     /// @details Bypass 放行；Plan 模式禁止写入；其余按 validate_path_access 校验。
-    PermissionResult check_permissions(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    PermissionResult check_permissions(const nlohmann::json& input,
+                                       const ToolContext& ctx) const override;
 
     /// @brief 执行文件写入
     /// @param input 输入 JSON 对象（符合 input_schema）
@@ -98,12 +94,9 @@ public:
     ///         - 创建成功："File created successfully at: <path>"
     ///         - 更新成功："File <path> has been updated.\n" + diff 文本
     ///         - 失败：ResultV2::err（含 pre-read / staleness / 备份失败等）
-    ResultV2<ToolResult> call(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    ResultV2<ToolResult> call(const nlohmann::json& input, const ToolContext& ctx) const override;
 
-private:
+   private:
     /// @brief Pre-read 强制检查 + Staleness 检测
     /// @details 对齐 CC `validateInput`：
     /// - 文件存在但无读取状态 → 拒绝（"File has not been read yet..."）
@@ -113,19 +106,15 @@ private:
     /// @param canonical_path 规范化路径（FileReadStateTracker key）
     /// @param file_path 文件系统路径（用于 stat）
     /// @return 通过返回 ok，否则返回错误信息
-    static ValidationResult check_pre_read_and_staleness(
-        const std::string& canonical_path,
-        const std::filesystem::path& file_path
-    );
+    static ValidationResult check_pre_read_and_staleness(const std::string& canonical_path,
+                                                         const std::filesystem::path& file_path);
 
     /// @brief 创建 .bak 备份文件
     /// @details 在同目录下创建 `<file_path>.bak`，覆盖已存在的备份。
     ///          备份失败将中止写入（安全优先）。
     /// @param file_path 待备份文件路径
     /// @return 成功返回 ok，失败返回错误信息
-    static ValidationResult create_backup(
-        const std::filesystem::path& file_path
-    );
+    static ValidationResult create_backup(const std::filesystem::path& file_path);
 };
 
-} // namespace agent::tool
+}  // namespace agent::tool

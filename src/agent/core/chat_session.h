@@ -2,7 +2,7 @@
  * @file chat_session.h
  * @brief 对话状态机
  * @details 持有 ICompletionProvider，处理用户事件，后台推理，发布流式事件
- * @version 3.1.0
+ * @version 3.2.0
  * @date 2026-07
  */
 
@@ -18,7 +18,7 @@
 #include <condition_variable>
 #include <functional>
 #include <unordered_set>
-#include <utility>   // C-1：std::pair
+#include <utility>  // C-1：std::pair
 #include "agent/api/i_completion_provider.h"
 #include "agent/api/chat_types.h"
 #include "agent/api/retry.h"  // H-3：HttpRetryPolicy
@@ -31,27 +31,35 @@
 #include "agent/tool/registry.h"
 #include "agent/tool/executor.h"
 #include "agent/tool/context.h"  // #45：PermissionMode / SessionMode（会话级权限 + 工作模式）
-#include "agent/compact/prefix_shape.h"  // DS_CACHE: 前缀形状追踪
+#include "agent/compact/prefix_shape.h"           // DS_CACHE: 前缀形状追踪
 #include "agent/compact/cache_aware_compactor.h"  // DS_CACHE H-3: 跨 turn 持久化的压缩器
-#include "agent/session/session_store.h"  // 项目会话恢复：JSONL 持久化
+#include "agent/session/session_store.h"          // 项目会话恢复：JSONL 持久化
 #include "agent/skill/inclaude/conditional.h"  // conditional skills：TouchCollector（按值成员）
 #include "core/task/task_manager.h"
 
 // #54：Plan Mode V2 会话语义级协调器（五阶段多 Agent 规划）
 // 注意：实现位于 agent::plan，前向声明必须进同名命名空间，
 //       否则 ChatSession 成员 unique_ptr<plan::PlanCoordinator> 会误绑定到 ::plan 占位。
-namespace agent::plan { class PlanCoordinator; }
+namespace agent::plan {
+class PlanCoordinator;
+}
 
 namespace agent {
 
 // 前向声明（conditional skills 支持）
-namespace command { class CommandRegistry; }
+namespace command {
+class CommandRegistry;
+}
 
 // #56 方案 D：MCP 连接管理器前向声明（shared_ptr 成员）
-namespace mcp { class McpClientManager; }
+namespace mcp {
+class McpClientManager;
+}
 
 // #50：会话级 HookManager 前向声明（shared_ptr 成员）
-namespace hook { class HookManager; }
+namespace hook {
+class HookManager;
+}
 
 /// @brief 后端接口前向声明（供 ChatSession::backend() 返回类型使用）
 class IBackend;
@@ -59,9 +67,9 @@ class IBackend;
 /// @brief H-7：重试决策动作
 /// @details compute_retry() 纯函数的返回类型，描述下一步动作
 enum class RetryAction {
-    Continue,   ///< 不重试，继续执行（无错误或不可重试错误）
-    Stop,       ///< 不可重试错误，发布终止事件
-    Sleep       ///< 可重试，sleep delay_ms 后递归调用 run_completion
+    Continue,  ///< 不重试，继续执行（无错误或不可重试错误）
+    Stop,      ///< 不可重试错误，发布终止事件
+    Sleep      ///< 可重试，sleep delay_ms 后递归调用 run_completion
 };
 
 /// @brief H-7：重试决策
@@ -73,15 +81,16 @@ struct RetryDecision {
 
 /// @brief 对话会话
 /// @details 由外部驱动（main.cpp），通过 send_message() 提交文本，
-///          后台 Task 调用 ICompletionProvider，发布 StreamTokenEvent/StepDoneEvent/StreamDoneEvent。
-///          支持工具调用（function calling）：LLM 返回 tool_use → 执行工具 → tool_result → 继续推理
+///          后台 Task 调用 ICompletionProvider，发布
+///          StreamTokenEvent/StepDoneEvent/StreamDoneEvent。 支持工具调用（function calling）：LLM
+///          返回 tool_use → 执行工具 → tool_result → 继续推理
 class WORKX_API ChatSession {
-public:
+   public:
     /// @brief ReAct 循环事件发布器（3.2 IReActObserver 实现）
     /// @details 将 ReActLoop 步骤事件转换为 IEventBus 异步事件，
     ///          使 ReActLoop 可脱离 EventBus 体系独立使用与测试。
     class ReActEventPublisher : public IReActObserver {
-    public:
+       public:
         explicit ReActEventPublisher(IEventBus& bus, std::string session_id);
         ~ReActEventPublisher() override = default;
 
@@ -92,7 +101,7 @@ public:
         void on_token(const std::string& content_delta,
                       const std::string& reasoning_delta) override;
 
-    private:
+       private:
         IEventBus& m_bus;
         std::string m_session_id;
     };
@@ -103,12 +112,9 @@ public:
     /// @param config_manager 配置管理器（H-4：DI 必须显式注入，无默认实参回退单例）
     /// @param retry_delay_ms 重试初始延迟（毫秒），会被 backend.retry_delay_ms 覆盖
     /// @param session_id 会话标识（用于事件流区分多会话，默认 "default"）
-    explicit ChatSession(std::unique_ptr<ICompletionProvider> provider,
-                         ITaskManager& task_manager,
-                         IEventBus& event_bus,
-                         IConfigManager& config_manager,
-                         int retry_delay_ms = 1000,
-                         std::string session_id = "default");
+    explicit ChatSession(std::unique_ptr<ICompletionProvider> provider, ITaskManager& task_manager,
+                         IEventBus& event_bus, IConfigManager& config_manager,
+                         int retry_delay_ms = 1000, std::string session_id = "default");
 
     ~ChatSession();
 
@@ -205,10 +211,8 @@ public:
     /// @param cwd 当前工作目录
     /// @param model 模型名
     /// @param git_branch git 分支
-    void configure_session_store(const std::string& project_dir,
-                                  const std::string& cwd,
-                                  const std::string& model,
-                                  const std::string& git_branch);
+    void configure_session_store(const std::string& project_dir, const std::string& cwd,
+                                 const std::string& model, const std::string& git_branch);
 
     /// @brief 从 JSONL 文件加载历史会话消息
     /// @param file_path JSONL 文件路径
@@ -273,6 +277,23 @@ public:
     ///          保留对话继续（消息在 ChatSession 内，不受 provider 影响）。
     bool set_provider(std::unique_ptr<ICompletionProvider> provider);
 
+    /// @brief #89：注入 fallback 后端工厂（模型降级用）
+    /// @param factory 输入目标模型名，返回已 initialize 的新后端；失败返回 nullptr。
+    ///                由 factory.cpp 接线（按 backend.fallback_models 换模型重建）。
+    ///                不注入（默认）时降级能力关闭，行为与既有版本一致。
+    void set_fallback_provider_factory(
+        std::function<std::unique_ptr<ICompletionProvider>(const std::string&)> factory);
+
+    /// @brief #89：纯函数 —— 计算下一个 fallback 候选模型
+    /// @param react_result 本轮失败结果（判定错误是否可重试类：仅 429/5xx/网络错值得降级，
+    ///                     4xx 换模型也无益）
+    /// @param models 有序 fallback 模型列表
+    /// @param index 当前已降级到的位置（0 = 尚未降级过）
+    /// @return 下一个候选模型名；不满足降级条件返回 nullopt
+    static std::optional<std::string> next_fallback_model(const ReActResult& react_result,
+                                                          const std::vector<std::string>& models,
+                                                          size_t index);
+
     /// @brief #45：设置会话级权限模式（CLI --bypass-permissions 注入）
     /// @details 仅接受 Default/BypassPermissions（Plan 由 toggle_permission_mode 管理）。
     ///          线程安全（受 m_state_mutex 保护）。跨 turn 生效（下一轮 ReActLoop 注入）。
@@ -306,6 +327,22 @@ public:
     /// @details 模式切换键触发（TUI）。进入 Plan 记录 before_plan；离开 Plan 恢复。
     ///          线程安全（受 m_state_mutex 保护）。
     void toggle_session_mode();
+
+    /// @brief #87：resume 时权限模式的恢复结果
+    /// @details 由 switch_session 单点产出，TUI 只负责呈现——fail-safe 的三分支判定
+    ///          属于 agent 层语义，若 TUI 再判一遍必然出现两处逻辑漂移。
+    struct PermissionRestoreResult {
+        bool restored = false;  ///< 是否从会话记录成功恢复
+        /// @brief 未恢复的原因：""（已恢复）/ "no_record"（无 permission 事件）/
+        ///        "invalid_value"（事件值非法或映射失败）
+        std::string reason;
+        tool::PermissionMode mode{tool::PermissionMode::Default};  ///< 恢复/回退后的实际模式
+    };
+
+    /// @brief #87：获取最近一次 switch_session 的权限恢复结果（线程安全）
+    /// @details 供 TUI 在 resume 后决定是否提示用户。无人调用过 switch_session 时
+    ///          返回 restored=false 且 reason 为空（表示「无需提示」）。
+    PermissionRestoreResult last_permission_restore() const;
 
     /// @brief 是否正在生成
     bool is_generating() const { return m_generating.load(); }
@@ -373,8 +410,8 @@ public:
     ///          公开为 public 以便单元测试直接验证反序列化逻辑。
     /// @param j JSON 对象（来自 load_session 读取的文件）
     /// @return 成功返回 (messages, system_prompt)；失败返回错误信息
-    static Result<std::pair<std::vector<ChatMessage>, std::string>, std::string>
-    deserialize_state(const nlohmann::json& j);
+    static Result<std::pair<std::vector<ChatMessage>, std::string>, std::string> deserialize_state(
+        const nlohmann::json& j);
 
     /// @brief C-1：提交反序列化结果到成员状态（加锁一次性写入）
     /// @details 将 deserialize_state 返回的 (messages, system_prompt) 原子提交。
@@ -393,22 +430,20 @@ public:
     /// @return RetryDecision：Continue（无错误）/ Sleep（可重试）/ Stop（不可重试或超上限）
     /// C-3：移除 noexcept —— delay_ms 不再 noexcept，且调用链含 std::format 可能抛
     static RetryDecision compute_retry(const ReActResult& react_result,
-                                       const HttpRetryPolicy& retry_policy,
-                                       int attempt);
+                                       const HttpRetryPolicy& retry_policy, int attempt);
 
     // H-8：移除 backend() 方法。
     // 原设计暴露完整 IBackend* 给 UI 层，违反接口隔离（UI 可误调 shutdown() 等
     // IBackendAdmin 方法）。UI 层应通过 factory 独立注入的 IBackendAdmin* 调用
     // list_models / set_model_name 等管理方法。
 
-private:
+   private:
     /// @brief 执行推理（在后台线程中运行，含 agent 循环）
     /// @param user_text 用户输入文本
     /// @param images 图片附件绝对路径（仅首次请求使用，重试沿用已入列的图片消息）
     /// @param retry_attempt 当前重试次数（0=首次请求）
-    void run_completion(const std::string& user_text,
-                        const std::vector<std::string>& images = {},
-                        int retry_attempt = 0);
+    void run_completion(const std::string& user_text, const std::vector<std::string>& images = {},
+                        int retry_attempt = 0, bool fresh_budget = false);
 
     /// @brief 订阅中断事件
     void subscribe_interrupt();
@@ -494,14 +529,40 @@ private:
     /// @return 非空表示需要锁外调用 persist_system_prompt 落盘
     std::string rebuild_system_prompt_locked();
 
+    /// @brief #87：把当前权限/工作模式三态追加为 permission 事件落盘
+    /// @details 必须在**持有 m_state_mutex** 时调用（名字后缀 _locked 即此约定）。
+    ///          无 SessionStore（未开会话 / 内存会话）时静默跳过——持久化是能力增强，
+    ///          不是主流程，不能因写盘失败影响模式切换本身。
+    void persist_permission_state_locked();
+
+    /// @brief #87：从 permission 事件恢复三态，并产出恢复结果（供 TUI 提示）
+    /// @details 必须在**持有 m_state_mutex** 时调用。fail-safe 策略（D5）：
+    ///          - 无事件（ev 为空）→ 保持 Default，reason="no_record"，**必须显式告知**
+    ///          - 值非法 → 回退 Plan（从严），reason="invalid_value"
+    ///          - 正常 → 恢复全部三态，restored=true
+    PermissionRestoreResult restore_permission_locked(
+        const std::optional<agent::session::PermissionEvent>& ev);
+
+    /// @brief #89：重试耗尽后尝试降级到 fallback 模型
+    /// @details 仅在完成任务线程的错误收尾路径调用（provider 空闲，可安全替换）。
+    ///          成功：换 provider（m_provider）→ 审计 + 事件播报 → run_completion
+    ///          重启本轮（attempt 归零，上下文不变），调用方直接 return；
+    ///          失败（无候选/工厂未注入/创建失败）：返回 false 走原终止路径。
+    bool try_fallback_degrade(const ReActResult& react_result, const std::string& user_text);
+
     std::unique_ptr<ICompletionProvider> m_provider;
+    // #89：模型降级状态（m_fallback_index 由完成任务线程独占写，无需锁；
+    //      m_fallback_factory 构造后只读）
+    std::vector<std::string> m_fallback_models;  ///< 有序 fallback 候选（backend.fallback_models）
+    size_t m_fallback_index = 0;                 ///< 已降级位置（0 = 未降级，会话级单调递增）
+    std::function<std::unique_ptr<ICompletionProvider>(const std::string&)> m_fallback_factory;
     std::vector<ChatMessage> m_messages;
     std::string m_system_prompt;
     /// @brief 系统提示词重建回调（方案 A，由 m_state_mutex 保护）
     /// @details 模式切换时按目标模式重建提示词（极简只拼白名单工具说明）；nullptr 不重建。
     std::function<std::string(tool::SessionMode)> m_system_prompt_builder;
-    std::string m_session_id;           ///< 会话标识（switch_session 可变更，由 m_state_mutex 保护）
-    std::string m_cwd;                  ///< 会话启动时的工作目录（构造时捕获，注入到 ReActLoop）
+    std::string m_session_id;  ///< 会话标识（switch_session 可变更，由 m_state_mutex 保护）
+    std::string m_cwd;  ///< 会话启动时的工作目录（构造时捕获，注入到 ReActLoop）
 
     // #45：会话级权限模式（两态 UI：Default/Plan/Bypass，由 m_state_mutex 保护）
     tool::PermissionMode m_permission_mode{tool::PermissionMode::Default};
@@ -510,6 +571,14 @@ private:
 
     // 会话工作模式（标准 / 计划 / 极简），由 m_state_mutex 保护
     tool::SessionMode m_session_mode{tool::SessionMode::Standard};
+
+    /// @brief #87：是否在 Plan 模式中（ReActLoop::m_in_plan_mode 的会话级镜像）
+    /// @details 由 ReActLoop 回写（EnterPlanMode/ExitPlanMode 工具回调）与 set_session_mode
+    ///          维护，随 permission 事件一起持久化。
+    bool m_in_plan_mode{false};
+
+    /// @brief #87：最近一次 switch_session 的权限恢复结果（由 m_state_mutex 保护）
+    PermissionRestoreResult m_last_permission_restore;
     std::atomic<bool> m_generating{false};
 
     // DS_CACHE M-3：移除 m_cache_hit_total/m_cache_miss_total 死代码
@@ -601,4 +670,4 @@ private:
     std::atomic<bool> m_flush_requested{false};
 };
 
-} // namespace agent
+}  // namespace agent

@@ -24,7 +24,7 @@ namespace agent {
 
 /// @brief 确定性脚本执行 Agent（无需 LLM）
 class WORKX_API ScriptAgent {
-public:
+   public:
     explicit ScriptAgent(GoalAgentDeps deps);
     ScriptAgent(const ScriptAgent&) = delete;
     ScriptAgent& operator=(const ScriptAgent&) = delete;
@@ -37,11 +37,10 @@ public:
     /// @return ReActResult：exit 0 → goal_status=Achieved；非 0 → Failed；
     ///        命令被白名单拦截 → was_error=true 且回显拒绝说明。
     ReActResult run(const AgentGoal& goal, const std::string& goal_spec,
-                    std::vector<ChatMessage>& messages,
-                    IReActObserver* observer);
+                    std::vector<ChatMessage>& messages, IReActObserver* observer);
 
-private:
+   private:
     GoalAgentDeps m_deps;
 };
 
-} // namespace agent
+}  // namespace agent

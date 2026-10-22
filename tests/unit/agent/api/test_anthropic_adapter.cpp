@@ -118,7 +118,8 @@ TEST_CASE("AnthropicAdapter parse_sse_event", "[provider][anthropic]") {
 
     SECTION("content_block_delta") {
         StreamChunk chunk;
-        bool result = adapter.parse_sse_event("content_block_delta",
+        bool result = adapter.parse_sse_event(
+            "content_block_delta",
             R"({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}})",
             chunk);
         REQUIRE(result);
@@ -128,7 +129,8 @@ TEST_CASE("AnthropicAdapter parse_sse_event", "[provider][anthropic]") {
 
     SECTION("content_block_start with text") {
         StreamChunk chunk;
-        bool result = adapter.parse_sse_event("content_block_start",
+        bool result = adapter.parse_sse_event(
+            "content_block_start",
             R"({"type":"content_block_start","index":0,"content_block":{"type":"text","text":"Hello"}})",
             chunk);
         REQUIRE(result);
@@ -137,7 +139,8 @@ TEST_CASE("AnthropicAdapter parse_sse_event", "[provider][anthropic]") {
 
     SECTION("message_delta with stop_reason") {
         StreamChunk chunk;
-        bool result = adapter.parse_sse_event("message_delta",
+        bool result = adapter.parse_sse_event(
+            "message_delta",
             R"({"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":50}})",
             chunk);
         REQUIRE(result);
@@ -146,18 +149,15 @@ TEST_CASE("AnthropicAdapter parse_sse_event", "[provider][anthropic]") {
 
     SECTION("message_stop") {
         StreamChunk chunk;
-        bool result = adapter.parse_sse_event("message_stop",
-            R"({"type":"message_stop"})",
-            chunk);
+        bool result = adapter.parse_sse_event("message_stop", R"({"type":"message_stop"})", chunk);
         REQUIRE(result);
         REQUIRE(chunk.is_final);
     }
 
     SECTION("message_start event ignored") {
         StreamChunk chunk;
-        bool result = adapter.parse_sse_event("message_start",
-            R"({"type":"message_start","message":{"id":"msg_1"}})",
-            chunk);
+        bool result = adapter.parse_sse_event(
+            "message_start", R"({"type":"message_start","message":{"id":"msg_1"}})", chunk);
         REQUIRE_FALSE(result);
     }
 

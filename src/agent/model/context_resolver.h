@@ -26,14 +26,14 @@ class ModelCatalog;
 
 /// @brief 上下文窗口解析结果
 struct ContextLengthResolution {
-    int32_t value = 0;          ///< 解析出的上下文窗口（token），>0 表示有效
+    int32_t value = 0;  ///< 解析出的上下文窗口（token），>0 表示有效
     enum class Source {
-        Default,            ///< 最终常量兜底
-        PresetDefault,      ///< preset 默认值
-        ModelCapability,    ///< 静态能力表
-        ModelCatalog,       ///< models.dev 远程目录
-        UserConfig,         ///< cfg.backend.context_length
-        ProviderList,       ///< provider list_models 返回
+        Default,          ///< 最终常量兜底
+        PresetDefault,    ///< preset 默认值
+        ModelCapability,  ///< 静态能力表
+        ModelCatalog,     ///< models.dev 远程目录
+        UserConfig,       ///< cfg.backend.context_length
+        ProviderList,     ///< provider list_models 返回
     } source = Source::Default;
 };
 
@@ -47,10 +47,7 @@ struct ContextLengthResolution {
 ///        （std::atomic<std::shared_ptr<...>>），值传递保证函数调用期间对象存活
 /// @return 解析结果；value>0 时有效，source 标识来源
 ContextLengthResolution resolve_context_length(
-    std::string_view model_name,
-    int32_t sel_context_length,
-    int32_t cfg_context_length,
-    const ProviderPreset* preset,
-    std::shared_ptr<const ModelCatalog> catalog = nullptr);
+    std::string_view model_name, int32_t sel_context_length, int32_t cfg_context_length,
+    const ProviderPreset* preset, std::shared_ptr<const ModelCatalog> catalog = nullptr);
 
-} // namespace agent
+}  // namespace agent

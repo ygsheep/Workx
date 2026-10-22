@@ -37,7 +37,7 @@ namespace agent::test {
 /// 按预定的 chunk 序列依次返回，最后返回 Complete。
 /// 支持注入错误/取消状态、token 统计。
 class MockStreamReader : public IStreamReader {
-public:
+   public:
     /// @brief 添加一个普通内容 chunk
     MockStreamReader& add_content_chunk(std::string delta) {
         StreamChunk chunk;
@@ -75,8 +75,8 @@ public:
     }
 
     /// @brief 设置最终 chunk 的 token 统计
-    MockStreamReader& set_usage(int32_t prompt, int32_t generated,
-                                 int32_t cache_creation = 0, int32_t cache_read = 0) {
+    MockStreamReader& set_usage(int32_t prompt, int32_t generated, int32_t cache_creation = 0,
+                                int32_t cache_read = 0) {
         prompt_tokens_ = prompt;
         generated_tokens_ = generated;
         cache_creation_ = cache_creation;
@@ -87,6 +87,14 @@ public:
     /// @brief 设置错误状态（在消费指定数量的 chunk 后触发 Error）
     MockStreamReader& set_error_at(size_t index) {
         error_at_ = index;
+        return *this;
+    }
+
+    /// @brief #89：设置错误时携带的 HTTP 状态码与详情（配合 set_error_at）
+    /// @details 生产路径由 SSEStreamReader 承载；Mock 需能模拟 429/5xx/4xx 以验证透传。
+    MockStreamReader& set_error_payload(int http_status, std::string message) {
+        error_http_status_ = http_status;
+        error_message_ = std::move(message);
         return *this;
     }
 
@@ -127,11 +135,17 @@ public:
 
     void cancel() override {}
 
-private:
+    // #89：IStreamReader 错误通道
+    int http_status() const override { return error_http_status_; }
+    std::string error_message() const override { return error_message_; }
+
+   private:
     std::vector<StreamChunk> chunks_;
     size_t consumed_ = 0;
     std::optional<size_t> error_at_;
     std::optional<size_t> cancel_after_;
+    int error_http_status_ = 0;      ///< #89：Error 时上报的 HTTP 状态码
+    std::string error_message_;      ///< #89：Error 时上报的错误详情
     int32_t prompt_tokens_ = 0;
     int32_t generated_tokens_ = 0;
     int32_t cache_creation_ = 0;
@@ -146,7 +160,7 @@ private:
 /// 行为兼容性：readers 为空时 submit_completion 返回 nullptr，
 /// 与极简版 MockProvider 行为一致，可安全替换。
 class MockCompletionProvider : public ICompletionProvider {
-public:
+   public:
     /// @brief 排队下一次 submit_completion 返回的 reader
     void set_next_reader(std::shared_ptr<MockStreamReader> reader) {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -183,9 +197,9 @@ public:
         return !readers_.empty();
     }
 
-private:
+   private:
     mutable std::mutex mutex_;
     std::deque<std::shared_ptr<MockStreamReader>> readers_;
 };
 
-} // namespace agent::test
+}  // namespace agent::test

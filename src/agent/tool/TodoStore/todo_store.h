@@ -28,7 +28,7 @@ namespace agent::tool {
 
 /// @brief TodoStore — 待办清单单例（按 session 分桶）
 class TodoStore {
-public:
+   public:
     static TodoStore& instance();
 
     // ---- CRUD（V2 细粒度）----
@@ -56,8 +56,8 @@ public:
     /// @brief 全量替换某 session 待办列表
     /// @details 传入列表全部 completed 时置空（对齐 cc allDone ? [] : todos）
     /// @return 替换后的列表
-    std::vector<core::todo::TodoItem> replace_todos(
-        const std::string& session_id, const std::vector<core::todo::TodoItem>& todos);
+    std::vector<core::todo::TodoItem> replace_todos(const std::string& session_id,
+                                                    const std::vector<core::todo::TodoItem>& todos);
 
     // ---- 事件总线 / 持久化接线 ----
 
@@ -78,7 +78,7 @@ public:
     /// @brief 清空全部（测试用）
     void clear_for_test();
 
-private:
+   private:
     TodoStore() = default;
     TodoStore(const TodoStore&) = delete;
     TodoStore& operator=(const TodoStore&) = delete;
@@ -98,4 +98,4 @@ private:
     std::unordered_map<std::string, SessionState> m_sessions;
 };
 
-} // namespace agent::tool
+}  // namespace agent::tool

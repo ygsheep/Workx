@@ -20,7 +20,7 @@ struct TestEvent {
     int value = 0;
 };
 
-} // anonymous namespace
+}  // anonymous namespace
 
 TEST_CASE("MockConfigManager basic read/write", "[mock][config]") {
     using namespace agent::test;
@@ -108,9 +108,7 @@ TEST_CASE("MockEventBus subscribe and publish records", "[mock][event_bus]") {
     SECTION("subscribe + dispatch_enabled 触发回调") {
         bus.set_dispatch_enabled(true);
         int received = 0;
-        bus.subscribe<TestEvent>([&](const TestEvent& e) {
-            received = e.value;
-        });
+        bus.subscribe<TestEvent>([&](const TestEvent& e) { received = e.value; });
         REQUIRE(bus.subscriber_count_typed<TestEvent>() == 1);
 
         bus.publish(TestEvent{.value = 999});
@@ -155,8 +153,7 @@ TEST_CASE("MockTaskManager task creation and counting", "[mock][task_manager]") 
     }
 
     SECTION("create 增加计数并返回 Task") {
-        auto task = tm.create("test-task",
-            [](const std::atomic<bool>&) {});
+        auto task = tm.create("test-task", [](const std::atomic<bool>&) {});
         REQUIRE(tm.create_count() == 1);
         REQUIRE(task != nullptr);
         REQUIRE(task->getName() == "test-task");
@@ -164,8 +161,7 @@ TEST_CASE("MockTaskManager task creation and counting", "[mock][task_manager]") 
     }
 
     SECTION("launch 等价于 create + start") {
-        auto task = tm.launch("launched-task",
-            [](const std::atomic<bool>&) {});
+        auto task = tm.launch("launched-task", [](const std::atomic<bool>&) {});
         REQUIRE(tm.create_count() == 1);
         REQUIRE(tm.launched_count() == 1);
         REQUIRE(tm.start_count() == 1);
@@ -194,9 +190,7 @@ TEST_CASE("MockTaskManager task creation and counting", "[mock][task_manager]") 
         REQUIRE(tm.getTasks().empty());
     }
 
-    SECTION("getRunningTaskCount 默认 0") {
-        REQUIRE(tm.getRunningTaskCount() == 0);
-    }
+    SECTION("getRunningTaskCount 默认 0") { REQUIRE(tm.getRunningTaskCount() == 0); }
 }
 
 TEST_CASE("Three Mocks can be used as interface references", "[mock][integration]") {

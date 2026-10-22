@@ -26,16 +26,14 @@ struct BenchEvent {
     int payload;
 };
 
-} // anonymous namespace
+}  // anonymous namespace
 
 TEST_CASE("EventBus single-thread publish throughput", "[benchmark][event_bus]") {
     EventBus& bus = EventBus::instance();
     bus.clear();
 
     int counter = 0;
-    auto token = bus.subscribe<BenchEvent>([&](const BenchEvent& e) {
-        counter += e.payload;
-    });
+    auto token = bus.subscribe<BenchEvent>([&](const BenchEvent& e) { counter += e.payload; });
 
     const int N = 100'000;
     BENCHMARK("publish_async 100k events") {
@@ -67,9 +65,7 @@ TEST_CASE("EventBus multi-subscriber overhead", "[benchmark][event_bus]") {
 
     for (int i = 0; i < SUBSCRIBER_COUNT; ++i) {
         tokens.push_back(bus.subscribe<BenchEvent>(
-            [i, &counters](const BenchEvent& e) {
-                counters[i] += e.payload;
-            }));
+            [i, &counters](const BenchEvent& e) { counters[i] += e.payload; }));
     }
 
     BENCHMARK("publish_sync 10k events x 10 subscribers") {
@@ -90,8 +86,7 @@ TEST_CASE("EventBus subscribe/unsubscribe overhead", "[benchmark][event_bus]") {
     BENCHMARK("subscribe + unsubscribe 1000 times") {
         std::vector<EventToken> tokens;
         for (int i = 0; i < 1000; ++i) {
-            tokens.push_back(bus.subscribe<BenchEvent>(
-                [](const BenchEvent&) {}));
+            tokens.push_back(bus.subscribe<BenchEvent>([](const BenchEvent&) {}));
         }
         for (auto& t : tokens) bus.unsubscribe<BenchEvent>(t);
         return tokens.size();

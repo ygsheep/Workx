@@ -55,55 +55,53 @@ const std::string& FileReadTool::prompt() const {
         "When you already know which part of the file you need, only read that part. "
         "This can be important for larger files. "
         "Files larger than {} bytes will return an error; use offset and limit for larger files. "
-        "The file_path parameter should be an absolute path (e.g., /home/user/file.txt or C:\\Users\\user\\file.txt); "
+        "The file_path parameter should be an absolute path (e.g., /home/user/file.txt or "
+        "C:\\Users\\user\\file.txt); "
         "relative paths are resolved against the current working directory. "
         "Assume this tool is able to read all files on the machine. "
         "If the User provides a path to a file assume that path is valid. "
         "It is okay to read a file that does not exist; an error will be returned.",
-        MAX_LINES_TO_READ, MAX_FILE_SIZE_BYTES
-    );
+        MAX_LINES_TO_READ, MAX_FILE_SIZE_BYTES);
     return p;
 }
 
 nlohmann::json FileReadTool::input_schema() const {
-    return {
-        {"type", "object"},
-        {"properties", {
-            {"file_path", {
-                {"type", "string"},
-                {"description", "The absolute path to the file to read"}
-            }},
-            {"offset", {
-                {"type", "integer"},
+    return {{"type", "object"},
+            {"properties",
+             {{"file_path",
+               {{"type", "string"}, {"description", "The absolute path to the file to read"}}},
+              {"offset",
+               {{"type", "integer"},
                 {"minimum", 1},
-                {"description", "The line number to start reading from. Only provide if the file is too large to read at once"}
-            }},
-            {"limit", {
-                {"type", "integer"},
+                {"description",
+                 "The line number to start reading from. Only provide if the file is too large to "
+                 "read at once"}}},
+              {"limit",
+               {{"type", "integer"},
                 {"minimum", 1},
-                {"description", "The number of lines to read. Only provide if the file is too large to read at once."}
-            }},
-            {"pages", {
-                {"type", "string"},
-                {"description", "Page range for PDF files (e.g., \"1-5\", \"3\", \"10-20\"). Only applicable to PDF files. Maximum 20 pages per request."}
-            }}
-        }},
-        {"required", {"file_path"}},
-        {"additionalProperties", false}
-    };
+                {"description",
+                 "The number of lines to read. Only provide if the file is too large to read at "
+                 "once."}}},
+              {"pages",
+               {{"type", "string"},
+                {"description",
+                 "Page range for PDF files (e.g., \"1-5\", \"3\", \"10-20\"). Only applicable to "
+                 "PDF files. Maximum 20 pages per request."}}}}},
+            {"required", {"file_path"}},
+            {"additionalProperties", false}};
 }
 
 // ============================================================
 // 输入验证
 // ============================================================
 
-ValidationResult FileReadTool::validate_input(
-    const nlohmann::json& input,
-    const ToolContext& /*ctx*/
+ValidationResult FileReadTool::validate_input(const nlohmann::json& input,
+                                              const ToolContext& /*ctx*/
 ) const {
     // 检查必填字段 file_path
     if (!input.contains("file_path") || !input["file_path"].is_string()) {
-        return ValidationResult::err(Error::Code::MissingArgument, "Missing required field: file_path");
+        return ValidationResult::err(Error::Code::MissingArgument,
+                                     "Missing required field: file_path");
     }
     // L-1: 复用 path_str 变量，避免重复 get
     const std::string path_str = input["file_path"].get<std::string>();
@@ -137,10 +135,8 @@ ValidationResult FileReadTool::validate_input(
 // 私有辅助方法
 // ============================================================
 
-std::string FileReadTool::format_with_line_numbers(
-    const std::vector<std::string>& lines,
-    int start_line
-) {
+std::string FileReadTool::format_with_line_numbers(const std::vector<std::string>& lines,
+                                                   int start_line) {
     if (lines.empty()) return "";
 
     const int last_line = start_line + static_cast<int>(lines.size());
@@ -176,9 +172,9 @@ ToolResult FileReadTool::read_directory(const fs::path& dir_path) {
 
     // 使用 skip_permission_denied 跳过无权限目录，遇错不中断
     std::error_code ec;
-    for (auto it = fs::directory_iterator(dir_path, fs::directory_options::skip_permission_denied, ec);
-         it != fs::directory_iterator();
-         it.increment(ec)) {
+    for (auto it =
+             fs::directory_iterator(dir_path, fs::directory_options::skip_permission_denied, ec);
+         it != fs::directory_iterator(); it.increment(ec)) {
         if (ec) {
             ec.clear();
             continue;
@@ -219,10 +215,8 @@ ToolResult FileReadTool::read_directory(const fs::path& dir_path) {
 // 权限检查
 // ============================================================
 
-PermissionResult FileReadTool::check_permissions(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+PermissionResult FileReadTool::check_permissions(const nlohmann::json& input,
+                                                 const ToolContext& ctx) const {
     // #36：Bypass 模式完全放行
     if (is_bypass_mode(ctx.permission_mode)) {
         return PermissionResult::ok();
@@ -235,24 +229,22 @@ PermissionResult FileReadTool::check_permissions(
     while (std::getline(ss, part, '|')) {
         try {
             const std::string expanded = expand_path(part, ctx.cwd);
-            auto res = validate_path_access(expanded, ctx.cwd,
-                                            repo_root_allowlist(ctx.git_repo_root));
+            auto res =
+                validate_path_access(expanded, ctx.cwd, repo_root_allowlist(ctx.git_repo_root));
             if (res.is_err()) {
                 // 评审 #2：绝对禁止（私钥/凭据）不可确认；越界/可确认敏感路径由用户确认放行
                 if (!is_absolutely_forbidden_path(expanded) &&
-                    ask_user_confirm(ctx, std::format(
-                        "Read access requires your approval:\n\n```\n{}\n```\n\n"
-                        "Allow reading this path?", part))) {
+                    ask_user_confirm(
+                        ctx, std::format("Read access requires your approval:\n\n```\n{}\n```\n\n"
+                                         "Allow reading this path?",
+                                         part))) {
                     continue;
                 }
-                return PermissionResult::err(
-                    Error::Code::PermissionDenied,
-                    res.error().message);
+                return PermissionResult::err(Error::Code::PermissionDenied, res.error().message);
             }
         } catch (const std::exception& e) {
-            return PermissionResult::err(
-                Error::Code::PermissionDenied,
-                std::string("Read path error: ") + e.what());
+            return PermissionResult::err(Error::Code::PermissionDenied,
+                                         std::string("Read path error: ") + e.what());
         }
     }
     return PermissionResult::ok();
@@ -262,10 +254,7 @@ PermissionResult FileReadTool::check_permissions(
 // 执行
 // ============================================================
 
-ResultV2<ToolResult> FileReadTool::call(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+ResultV2<ToolResult> FileReadTool::call(const nlohmann::json& input, const ToolContext& ctx) const {
     // 1. 解析输入 JSON 为 FileReadInput 结构（try-catch 防止类型不匹配抛异常）
     FileReadInput read_input;
     try {
@@ -278,24 +267,20 @@ ResultV2<ToolResult> FileReadTool::call(
     // 读取可配置参数（回退到 constants.h 编译期默认值）
     // prompt() 仍使用 constants.h 作为文档默认值，实际限制由此处配置决定
     constexpr int64_t MAX_FILE_SIZE_LIMIT = 100LL * 1024 * 1024;  // 100 MB 上限
-    constexpr int MAX_LINES_LIMIT = 100000;  // 10 万行上限
-    constexpr int MAX_LINES_FLOOR = 1;       // 至少 1 行
+    constexpr int MAX_LINES_LIMIT = 100000;                       // 10 万行上限
+    constexpr int MAX_LINES_FLOOR = 1;                            // 至少 1 行
 
     // D-5：通过 ctx.config_manager() 解析配置管理器，支持 DI 注入
     int max_size_cfg = ctx.config_manager().get_or<int>(
-        agent::keys::FILE_READ_MAX_SIZE,
-        static_cast<int>(constants::MAX_FILE_SIZE_BYTES)
-    );
+        agent::keys::FILE_READ_MAX_SIZE, static_cast<int>(constants::MAX_FILE_SIZE_BYTES));
     // 校验范围：负数或超上限时回退到编译期默认值
     if (max_size_cfg < 0 || max_size_cfg > MAX_FILE_SIZE_LIMIT) {
         max_size_cfg = static_cast<int>(constants::MAX_FILE_SIZE_BYTES);
     }
     const size_t max_file_size = static_cast<size_t>(max_size_cfg);
 
-    int max_lines = ctx.config_manager().get_or<int>(
-        agent::keys::FILE_READ_MAX_LINES,
-        constants::MAX_LINES_TO_READ
-    );
+    int max_lines = ctx.config_manager().get_or<int>(agent::keys::FILE_READ_MAX_LINES,
+                                                     constants::MAX_LINES_TO_READ);
     // 校验范围：负数或超上限时回退到编译期默认值；floor 到 1
     if (max_lines < MAX_LINES_FLOOR || max_lines > MAX_LINES_LIMIT) {
         max_lines = constants::MAX_LINES_TO_READ;
@@ -333,10 +318,9 @@ ResultV2<ToolResult> FileReadTool::call(
     const auto file_size = fs::file_size(file_path, ec);
     if (!ec && file_size > max_file_size) {
         return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
-                                         std::format(
-            "File size {} bytes exceeds maximum {} bytes; use offset and limit for larger files",
-            file_size, max_file_size
-        ));
+                                         std::format("File size {} bytes exceeds maximum {} bytes; "
+                                                     "use offset and limit for larger files",
+                                                     file_size, max_file_size));
     }
 
     // 7. 图片文件检测：扩展名明确告知模型当前模型无图片输入能力，
@@ -346,11 +330,12 @@ ResultV2<ToolResult> FileReadTool::call(
         std::string lower_ext = ext;
         std::transform(lower_ext.begin(), lower_ext.end(), lower_ext.begin(),
                        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        static constexpr const char* kImageExts[] = {
-            ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".tiff", ".svg"};
+        static constexpr const char* kImageExts[] = {".png", ".jpg", ".jpeg", ".gif", ".webp",
+                                                     ".bmp", ".ico", ".tiff", ".svg"};
         for (const char* img : kImageExts) {
             if (lower_ext == img) {
-                return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                return ResultV2<ToolResult>::err(
+                    Error::Code::InvalidInput,
                     std::format("File '{}' is an image ({}) which the current model "
                                 "cannot read (no image input support). Inform the user "
                                 "that image files cannot be processed.",
@@ -362,8 +347,9 @@ ResultV2<ToolResult> FileReadTool::call(
     // 8. 编码检测（替代原 is_binary_file，更精确：UTF-16 不会被误判为二进制）
     const Encoding encoding = detect_encoding(file_path);
     if (encoding == Encoding::Binary) {
-        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
-                                         "File appears to be binary, cannot display: " + read_input.file_path);
+        return ResultV2<ToolResult>::err(
+            Error::Code::InvalidInput,
+            "File appears to be binary, cannot display: " + read_input.file_path);
     }
 
     const int offset = read_input.offset.value_or(1);
@@ -373,8 +359,8 @@ ResultV2<ToolResult> FileReadTool::call(
     int total_lines = 0;
     bool has_more = false;
 
-    if (encoding == Encoding::Utf8 || encoding == Encoding::Ascii
-        || encoding == Encoding::Unknown) {
+    if (encoding == Encoding::Utf8 || encoding == Encoding::Ascii ||
+        encoding == Encoding::Unknown) {
         // 8a. UTF-8/ASCII：流式读取（仅存储目标范围行，避免全部加载到内存）
         std::ifstream file(file_path);
         if (!file.is_open()) {
@@ -412,10 +398,7 @@ ResultV2<ToolResult> FileReadTool::call(
         // 应用 offset/limit 切片
         if (offset <= total_lines) {
             const int end = std::min(offset - 1 + limit, total_lines);
-            target_lines.assign(
-                all_lines.begin() + (offset - 1),
-                all_lines.begin() + end
-            );
+            target_lines.assign(all_lines.begin() + (offset - 1), all_lines.begin() + end);
         }
     }
 
@@ -425,21 +408,20 @@ ResultV2<ToolResult> FileReadTool::call(
         std::error_code mtime_ec;
         const auto mtime = fs::last_write_time(file_path, mtime_ec);
         FileReadStateTracker::instance().record_read(
-            file_path.generic_string(),
-            std::string{},
+            file_path.generic_string(), std::string{},
             mtime_ec ? std::filesystem::file_time_type{} : mtime,
             false,   // 空文件视为完整视图
             1, 0, 0  // offset=1, lines_read=0, total_lines=0（空文件无行）
         );
-        return ResultV2<ToolResult>::ok(ToolResult::ok(std::string{"<system-reminder>File exists but has empty contents.</system-reminder>"}));
+        return ResultV2<ToolResult>::ok(ToolResult::ok(
+            std::string{"<system-reminder>File exists but has empty contents.</system-reminder>"}));
     }
 
     // offset 超出范围（不记录状态，读取实际失败）
     if (offset > total_lines) {
-        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
-                                         std::format(
-            "offset {} is beyond the file's {} lines", offset, total_lines
-        ));
+        return ResultV2<ToolResult>::err(
+            Error::Code::InvalidInput,
+            std::format("offset {} is beyond the file's {} lines", offset, total_lines));
     }
 
     // 记录读取状态（供 FileWriteTool 做 pre-read / staleness 检查）
@@ -460,12 +442,8 @@ ResultV2<ToolResult> FileReadTool::call(
         const bool is_partial = (offset != 1) || has_more || (lines_read < total_lines);
 
         FileReadStateTracker::instance().record_read(
-            file_path.generic_string(),
-            std::move(content_snapshot),
-            mtime_ec ? std::filesystem::file_time_type{} : mtime,
-            is_partial,
-            offset,
-            lines_read,
+            file_path.generic_string(), std::move(content_snapshot),
+            mtime_ec ? std::filesystem::file_time_type{} : mtime, is_partial, offset, lines_read,
             total_lines  // has_more 时提前退出，total_lines 可能不完整
         );
     }
@@ -482,15 +460,16 @@ ResultV2<ToolResult> FileReadTool::call(
         const int end_line = offset + lines_read - 1;
         if (has_more) {
             // 提前退出：文件还有更多行，total_lines 不完整
-            formatted += std::string("\n\n(read lines ") + std::to_string(offset) + "-" + std::to_string(end_line)
-                       + ", more lines available)";
+            formatted += std::string("\n\n(read lines ") + std::to_string(offset) + "-" +
+                         std::to_string(end_line) + ", more lines available)";
         } else if (lines_read < total_lines) {
-            formatted += std::string("\n\n(read lines ") + std::to_string(offset) + "-" + std::to_string(end_line)
-                       + ", total " + std::to_string(total_lines) + ", truncated)";
+            formatted += std::string("\n\n(read lines ") + std::to_string(offset) + "-" +
+                         std::to_string(end_line) + ", total " + std::to_string(total_lines) +
+                         ", truncated)";
         }
     }
 
     return ResultV2<ToolResult>::ok(ToolResult::ok(std::move(formatted)));
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

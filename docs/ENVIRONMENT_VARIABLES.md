@@ -1,6 +1,6 @@
 # 环境变量参考
 
-> WorkX 支持的全部环境变量。配置加载优先级：配置文件 < 环境变量 < CLI 参数。
+> Workx 支持的全部环境变量。配置加载优先级：配置文件 < 环境变量 < CLI 参数。
 >
 > 自 v2.0.0 起，标准环境变量通过 `ConfigSchema.env_var` 声明，由 `ConfigManager::load_from_env()` 统一加载并按 Schema 类型自动解析/校验。
 
@@ -12,6 +12,7 @@
 | `WORKX_BASE_URL` | `backend.remote_url` | String | 原值 | 远程 API 基础 URL（OpenAI 兼容） |
 | `WORKX_MODEL` | `backend.model_name` | String | 原值 | 远程模型名 |
 | `WORKX_TIMEOUT` | `backend.timeout_ms` | Int | `std::stoi`，范围 [1, 86400000] | HTTP 超时（毫秒） |
+| `WORKX_THOUGHT_MAX_RETRIES` | `agent.thought_max_retries` | Int | 范围 [0, 10]，默认 2 | Thought 阶段 LLM 请求失败后的重试次数（#144，`0` = 失败即终止） |
 | `WORKX_LOG_LEVEL` | `logging.level` | Enum | 必须为 `trace`/`debug`/`info`/`warn`/`error`/`fatal` | 日志级别 |
 | `WORKX_LOG_FILE` | `logging.file` | String | 原值 | 日志文件路径（空禁用文件日志） |
 

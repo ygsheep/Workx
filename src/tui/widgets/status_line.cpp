@@ -25,9 +25,9 @@ struct ModeSpec {
 /// @brief 工作模式 → 展示规格 映射表（key："standard" / "plan" / "minimal"）
 /// @note 不用 constexpr：Color::xxx 非编译期常量
 const ModeSpec kModeTable[] = {
-    {str::kStatusStandard, theme::T::Accent},     // 标准模式
-    {str::kStatusPlan, Color::CyanLight},         // 计划模式
-    {str::kStatusMinimal, Color::MagentaLight},   // 极简模式
+    {str::kStatusStandard, theme::T::Accent},    // 标准模式
+    {str::kStatusPlan, Color::CyanLight},        // 计划模式
+    {str::kStatusMinimal, Color::MagentaLight},  // 极简模式
 };
 
 /// @brief 权限展示规格（label：中文标签；color：主题色）
@@ -38,8 +38,8 @@ struct PermSpec {
 };
 
 const PermSpec kPermTable[] = {
-    {str::kStatusManual, Color::GrayLight},          // 手动审批
-    {str::kStatusFullAccess, Color::YellowLight},    // 完全访问
+    {str::kStatusManual, Color::GrayLight},        // 手动审批
+    {str::kStatusFullAccess, Color::YellowLight},  // 完全访问
 };
 
 // 转录思考动画帧：Braille 旋转字符（与 render/markdown_to_elements.cpp 同源）
@@ -55,22 +55,16 @@ Color spinner_color(std::size_t frame) {
 }
 }  // namespace
 
-Element build_status_line(const std::string& model,
-                          const std::string& mode,
-                          const std::string& permission,
-                          bool busy,
-                          std::size_t anim_frame,
-                          int todo_done,
-                          int todo_total) {
+Element build_status_line(const std::string& model, const std::string& mode,
+                          const std::string& permission, bool busy, std::size_t anim_frame,
+                          int todo_done, int todo_total) {
     // 工作模式（标准 / 计划 / 极简），未知/空回退标准
-    const ModeSpec mspec =
-        (mode == "plan")     ? kModeTable[1]
-        : (mode == "minimal") ? kModeTable[2]
-                              : kModeTable[0];
+    const ModeSpec mspec = (mode == "plan")      ? kModeTable[1]
+                           : (mode == "minimal") ? kModeTable[2]
+                                                 : kModeTable[0];
 
     // 转录思考动画：busy 时旋转帧 + 橙黄渐变；空闲时静态点（弱化）
-    const std::string spin =
-        busy ? kSpinnerFrames[anim_frame % kSpinnerFrameCount] : "\u00B7";
+    const std::string spin = busy ? kSpinnerFrames[anim_frame % kSpinnerFrameCount] : "\u00B7";
     const Color spin_c = busy ? spinner_color(anim_frame) : theme::T::TextFaint;
 
     Elements seg;
@@ -80,13 +74,11 @@ Element build_status_line(const std::string& model,
     seg.push_back(ftxui::color(mspec.color)(ftxui::text(std::string(mspec.label))));
 
     // 权限位：计划模式隐藏（天然只读），标准/极简展示 手动审批 / 完全访问
-    //（图标 + 中文，还原 Shift+Tab 权限位的可视化标识）
+    // （图标 + 中文，还原 Shift+Tab 权限位的可视化标识）
     if (mode != "plan") {
-        const PermSpec pspec =
-            (permission == "bypass") ? kPermTable[1] : kPermTable[0];
+        const PermSpec pspec = (permission == "bypass") ? kPermTable[1] : kPermTable[0];
         const std::string_view ic =
-            (permission == "bypass") ? theme::icon_full_access()
-                                      : theme::icon_manual();
+            (permission == "bypass") ? theme::icon_full_access() : theme::icon_manual();
         seg.push_back(ftxui::text("  "));
         seg.push_back(ftxui::color(pspec.color)(
             ftxui::text(std::string(ic) + " " + std::string(pspec.label))));

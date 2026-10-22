@@ -22,26 +22,26 @@ namespace ftxtui {
 
 /// @brief MCP server 侧栏条目（#27 M4：状态点 + 失败错误信息）
 struct McpServerEntry {
-    std::string name;       ///< server 名
-    std::string protocol;   ///< 协商协议版本（"2026-07-28" / "2025-11-25"）
-    int tool_count = 0;     ///< 已预取工具数
-    int state = 0;          ///< 0=连接中 1=已连接 2=失败
-    std::string error;      ///< 失败原因（state==2 时）
+    std::string name;      ///< server 名
+    std::string protocol;  ///< 协商协议版本（"2026-07-28" / "2025-11-25"）
+    int tool_count = 0;    ///< 已预取工具数
+    int state = 0;         ///< 0=连接中 1=已连接 2=失败
+    std::string error;     ///< 失败原因（state==2 时）
     bool operator==(const McpServerEntry&) const = default;
 };
 
 /// @brief 侧栏模型
 struct SidebarModel {
-    std::string title;          ///< 会话标题
-    std::string model;          ///< 模型名
-    std::string project;        ///< 项目名
-    std::string branch;         ///< git 分支
-    int context_limit = 0;      ///< 上下文上限（token）
-    int context_used = 0;       ///< 已用（token）
-    double cost_usd = 0.0;      ///< 会话成本
-    std::string permission;     ///< 权限模式标签 "" / "bypass"（手动审批 / 完全访问）
-    std::string mode;           ///< 工作模式标签 "standard" / "plan" / "minimal"
-    bool visible = true;        ///< 侧栏是否可见（窄屏折叠）
+    std::string title;       ///< 会话标题
+    std::string model;       ///< 模型名
+    std::string project;     ///< 项目名
+    std::string branch;      ///< git 分支
+    int context_limit = 0;   ///< 上下文上限（token）
+    int context_used = 0;    ///< 已用（token）
+    double cost_usd = 0.0;   ///< 会话成本
+    std::string permission;  ///< 权限模式标签 "" / "bypass"（手动审批 / 完全访问）
+    std::string mode;        ///< 工作模式标签 "standard" / "plan" / "minimal"
+    bool visible = true;     ///< 侧栏是否可见（窄屏折叠）
 
     // 3.1 统计指标（来自 ActionTurnDone 用量，会话累计）
     int32_t cache_read_tokens = 0;  ///< DS/Anthropic 缓存读取（命中）token
@@ -77,14 +77,14 @@ struct SubAgentLite {
     std::string current_step;  ///< 最近一步类型/摘要
     int step_number = 0;
     double duration_ms = 0.0;
-    std::size_t msg_index = 0; ///< 关联转录消息索引（跳转用）
+    std::size_t msg_index = 0;  ///< 关联转录消息索引（跳转用）
 };
 
 /// @brief 子 Agent 单步记录（第二层独立渲染）
 struct SubAgentStep {
     int step_number = 0;
-    std::string step_type;     ///< "thought"/"action"/"observation"/"final"
-    std::string content;       ///< 格式化行（保留，侧栏聚合/回退用）
+    std::string step_type;  ///< "thought"/"action"/"observation"/"final"
+    std::string content;    ///< 格式化行（保留，侧栏聚合/回退用）
     // --- v1.3.0 结构化字段（与主会话卡片渲染对齐）---
     std::string thought_text;  ///< thought/final 的 LLM 文本
     std::string tool_name;     ///< action 的工具名
@@ -99,7 +99,7 @@ struct SubAgentStep {
 /// @brief 子 Agent 完整记录（第二层：独立渲染，不混入主转录区）
 struct SubAgentDetail {
     std::string task_id;
-    std::string status;        ///< "running" / "done" / "failed"
+    std::string status;  ///< "running" / "done" / "failed"
     int step_number = 0;
     std::vector<SubAgentStep> steps;
     std::string final_answer;
@@ -113,21 +113,21 @@ enum class OutputLevel { Main = 0, SubAgent = 1 };
 /// @brief 后台任务条目（任务调度 tab）
 struct TaskLite {
     std::string name;
-    std::string status;        ///< Pending/Running/Completed/Cancelled/Failed
+    std::string status;  ///< Pending/Running/Completed/Cancelled/Failed
     float progress = 0.0f;
 };
 
 /// @brief 会话内一次文件修改（Edit/Write 工具调用，内联 diff 高亮数据源）
 struct FileChange {
     std::string file_path;
-    std::string purpose;       ///< 修改目的（该步 reasoning 摘要，单行）
-    std::string reasoning;     ///< 完整 reasoning（变更记录 tab 按 e 展开）
-    std::string old_string;    ///< Edit 旧内容（Write 全量改写时为空）
-    std::string new_string;    ///< 新内容
+    std::string purpose;     ///< 修改目的（该步 reasoning 摘要，单行）
+    std::string reasoning;   ///< 完整 reasoning（变更记录 tab 按 e 展开）
+    std::string old_string;  ///< Edit 旧内容（Write 全量改写时为空）
+    std::string new_string;  ///< 新内容
     int64_t timestamp = 0;
-    std::size_t msg_index = 0; ///< 关联转录消息索引（跳转用）
+    std::size_t msg_index = 0;          ///< 关联转录消息索引（跳转用）
     std::vector<agent::DiffLine> diff;  ///< 行级 diff（仅 Equal/Insert/Modify）
-    int new_start = 0;         ///< 修改区块在文件中的起始行（/view 打开时定位，1-based）
+    int new_start = 0;  ///< 修改区块在文件中的起始行（/view 打开时定位，1-based）
 };
 
 /// @brief 解码后的图片数据（RGBA；加载时已下采样控制内存）
@@ -139,37 +139,37 @@ struct ImageData {
 
 /// @brief 文件 tab 状态（/view 只读查看器）
 struct FileViewState {
-    std::string path;                ///< 当前查看文件（空=未打开）
-    std::vector<std::string> lines;  ///< 当前内容（按行；图片视图为空）
-    std::string lang;                ///< 高亮语言（扩展名推断）
-    int scroll = 0;                  ///< 首行索引（虚拟化滚动）
-    bool dirty = false;              ///< /edit 后需重读（P6 联动）
-    std::vector<FileChange> changes; ///< 该文件会话内修改（内联高亮用）
-    std::shared_ptr<ImageData> image; ///< 图片视图数据（非空 = 图片预览模式）
+    std::string path;                  ///< 当前查看文件（空=未打开）
+    std::vector<std::string> lines;    ///< 当前内容（按行；图片视图为空）
+    std::string lang;                  ///< 高亮语言（扩展名推断）
+    int scroll = 0;                    ///< 首行索引（虚拟化滚动）
+    bool dirty = false;                ///< /edit 后需重读（P6 联动）
+    std::vector<FileChange> changes;   ///< 该文件会话内修改（内联高亮用）
+    std::shared_ptr<ImageData> image;  ///< 图片视图数据（非空 = 图片预览模式）
 };
 
 /// @brief 变更记录 tab 状态
 struct ChangeViewState {
-    std::vector<FileChange> changes; ///< 会话内全部修改（按文件分组）
-    int selected = 0;                ///< 选中修改点（-1=无）
-    bool purpose_expanded = false;   ///< e 展开完整 reasoning
+    std::vector<FileChange> changes;  ///< 会话内全部修改（按文件分组）
+    int selected = 0;                 ///< 选中修改点（-1=无）
+    bool purpose_expanded = false;    ///< e 展开完整 reasoning
 };
 
 /// @brief 项目文件树状态（项目 tab，常驻）
 struct ProjectTreeState {
-    bool loading = true;   ///< 后台 git 扫描进行中（未完成时显示加载占位）
-    bool ready = false;    ///< 首轮扫描已完成
-    bool is_git = false;   ///< 项目根是否为 git 仓库
-    std::string root;      ///< 项目根目录（相对路径解析基准）
-    int scroll = 0;        ///< 扁平可视行滚动偏移（虚拟化滚动）
+    bool loading = true;  ///< 后台 git 扫描进行中（未完成时显示加载占位）
+    bool ready = false;   ///< 首轮扫描已完成
+    bool is_git = false;  ///< 项目根是否为 git 仓库
+    std::string root;     ///< 项目根目录（相对路径解析基准）
+    int scroll = 0;       ///< 扁平可视行滚动偏移（虚拟化滚动）
     std::vector<ProjectNode> tree;  ///< 根 children（ProjectNode 定义于 bridge/action.h）
 };
 
 /// @brief 侧边栏 tab 模型（任务调度 | 项目 | 变更记录 | 文件）
 struct SidebarTabsModel {
     SidebarTab active = SidebarTab::kTasks;
-    bool changes_open = false;   ///< 变更记录 tab 是否打开（有 FileChange 时自动开）
-    bool file_open = false;      ///< 文件 tab 是否打开（/view 打开）
+    bool changes_open = false;  ///< 变更记录 tab 是否打开（有 FileChange 时自动开）
+    bool file_open = false;     ///< 文件 tab 是否打开（/view 打开）
     // —— 任务调度 ——
     bool busy = false;
     std::string current_tool;  ///< 当前执行中的工具名
@@ -181,8 +181,8 @@ struct SidebarTabsModel {
     // —— 项目文件树（常驻 tab，后台 git 扫描驱动）——
     ProjectTreeState project;
     // —— 文件 / 变更记录 ——
-    FileViewState file;      ///< 文件 tab 状态（/view 只读查看器）
-    ChangeViewState changes; ///< 变更记录 tab 状态（会话内全部修改）
+    FileViewState file;       ///< 文件 tab 状态（/view 只读查看器）
+    ChangeViewState changes;  ///< 变更记录 tab 状态（会话内全部修改）
 };
 
 /// @brief 消息队列状态（模型忙碌时前端入队的用户消息；输入框上方队列卡片）
@@ -193,19 +193,19 @@ struct MessageQueueState {
 
 /// @brief 顶层视图模型
 class ViewModel {
-public:
+   public:
     std::vector<MessageNode> messages;
     SidebarModel sidebar;
-    SidebarTabsModel tabs;      ///< 侧边栏 tab 状态（任务调度 | 变更记录 | 文件）
-    bool busy = false;          ///< 是否正在生成/忙碌
-    std::string prompt_echo;    ///< 待显示的命令回显/提示
-    bool pending_exit = false;  ///< 收到 /exit，UI 应退出
-    CardDefaults card_defaults; ///< 折叠卡片默认配置
+    SidebarTabsModel tabs;       ///< 侧边栏 tab 状态（任务调度 | 变更记录 | 文件）
+    bool busy = false;           ///< 是否正在生成/忙碌
+    std::string prompt_echo;     ///< 待显示的命令回显/提示
+    bool pending_exit = false;   ///< 收到 /exit，UI 应退出
+    CardDefaults card_defaults;  ///< 折叠卡片默认配置
     MessageQueueState message_queue;  ///< 消息队列（模型忙碌时缓存用户输入）
 
     // ---- 输出区域层级（标题栏下子列表导航）----
     OutputLevel output_level = OutputLevel::Main;  ///< 当前输出层级（主会话 / 子 Agent）
-    int sub_active = -1;         ///< 当前查看的子 Agent 记录索引（-1 = 无）
+    int sub_active = -1;  ///< 当前查看的子 Agent 记录索引（-1 = 无）
     std::vector<SubAgentDetail> sub_records;  ///< 子 Agent 完整记录（第二层独立渲染）
 
     // ---- Hook 执行进度（#50：输入区上方进度条）----
@@ -233,7 +233,7 @@ public:
     /// @brief 会话内累计 token（本实现用最后一次 TurnDone 的统计近似）
     int32_t total_tokens = 0;
 
-private:
+   private:
     // 单 action 分派（由 apply 的 std::visit 调用）
     bool apply_variant(const ActionAppendMessage&);
     bool apply_variant(const ActionAppendSkill&);

@@ -10,13 +10,13 @@
 #pragma once
 
 #if defined(_WIN32)
-#  if defined(WORKX_BUILDING_LIBRARY)
-#    define WORKX_API __declspec(dllexport)
-#  elif defined(WORKX_USING_LIBRARY)
-#    define WORKX_API __declspec(dllimport)
-#  else
-#    define WORKX_API
-#  endif
+#if defined(WORKX_BUILDING_LIBRARY)
+#define WORKX_API __declspec(dllexport)
+#elif defined(WORKX_USING_LIBRARY)
+#define WORKX_API __declspec(dllimport)
 #else
-#  define WORKX_API __attribute__((visibility("default")))
+#define WORKX_API
+#endif
+#else
+#define WORKX_API __attribute__((visibility("default")))
 #endif

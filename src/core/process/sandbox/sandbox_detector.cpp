@@ -64,7 +64,7 @@ std::optional<std::string> find_in_path(const std::string& cmd) {
     return std::nullopt;
 }
 
-} // namespace
+}  // namespace
 
 SandboxDetector& SandboxDetector::instance() {
     static SandboxDetector inst;
@@ -120,16 +120,17 @@ std::optional<std::string> SandboxDetector::path() {
     return m_path;
 }
 
-bool SandboxDetector::is_available() {
-    return this->detect() != Backend::None;
-}
+bool SandboxDetector::is_available() { return this->detect() != Backend::None; }
 
 std::string SandboxDetector::backend_name() {
     auto b = this->detect();
     switch (b) {
-        case Backend::Seatbelt:   return "seatbelt";
-        case Backend::Bubblewrap: return "bubblewrap";
-        default:                  return "none";
+        case Backend::Seatbelt:
+            return "seatbelt";
+        case Backend::Bubblewrap:
+            return "bubblewrap";
+        default:
+            return "none";
     }
 }
 
@@ -140,4 +141,4 @@ void SandboxDetector::clear_cache() {
     m_detected = false;
 }
 
-} // namespace agent::process::sandbox
+}  // namespace agent::process::sandbox

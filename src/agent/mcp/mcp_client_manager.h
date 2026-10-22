@@ -39,16 +39,16 @@ enum class McpServerState : uint8_t {
 
 /// @brief 全部配置 server 状态快照（#27 M4：供 UI 侧栏展示）
 struct McpServerStatus {
-    std::string name;       ///< server 名
-    std::string protocol;   ///< 协商协议版本（"2026-07-28" / "2025-11-25"）
-    int tool_count = 0;     ///< 已预取工具数
+    std::string name;      ///< server 名
+    std::string protocol;  ///< 协商协议版本（"2026-07-28" / "2025-11-25"）
+    int tool_count = 0;    ///< 已预取工具数
     McpServerState state = McpServerState::Connecting;  ///< 连接状态
-    std::string error;      ///< 失败原因（state==Failed 时）
+    std::string error;                                  ///< 失败原因（state==Failed 时）
 };
 
 /// @brief MCP 连接管理器（生命周期 = 会话）
 class McpClientManager {
-public:
+   public:
     /// @param event_bus 事件总线（可选）：连接状态变化时异步发布
     ///                   McpStatusChangedEvent，供 UI 刷新侧栏
     explicit McpClientManager(IEventBus* event_bus = nullptr);
@@ -73,8 +73,7 @@ public:
     /// @param cfg 待连接的 server 配置
     /// @param timeout_ms 连接/协商超时
     /// @return 已连接 client；连接失败返回 nullptr（不抛异常）
-    std::shared_ptr<McpClient> connect_one_off(const McpServerConfig& cfg,
-                                               int timeout_ms = 15000);
+    std::shared_ptr<McpClient> connect_one_off(const McpServerConfig& cfg, int timeout_ms = 15000);
 
     /// @brief 关闭临时 client（#56 方案 D，幂等）
     /// @details 等价 client->disconnect()；nullptr 或重复调用安全。仅用于关闭
@@ -112,7 +111,7 @@ public:
     /// @brief 是否有任何已连接 server
     bool empty() const;
 
-private:
+   private:
     /// @brief 后台连接线程体：逐个连接并更新状态、发布事件
     void connect_all_async(const std::vector<McpServerConfig>& configs);
 
@@ -134,4 +133,4 @@ private:
     IEventBus* m_event_bus = nullptr;
 };
 
-} // namespace agent::mcp
+}  // namespace agent::mcp

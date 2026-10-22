@@ -27,20 +27,16 @@ namespace agent {
 // RemoteBackend 实现
 // ============================================================
 
-RemoteBackend::~RemoteBackend() {
-    shutdown();
-}
+RemoteBackend::~RemoteBackend() { shutdown(); }
 
 ResultV2<void> RemoteBackend::initialize(const BackendConfig& config) {
     if (config.type != BackendConfig::Type::Remote) {
-        return ResultV2<void>::err(
-            Error::Code::InvalidInput,
-            "RemoteBackend requires Remote config type");
+        return ResultV2<void>::err(Error::Code::InvalidInput,
+                                   "RemoteBackend requires Remote config type");
     }
     if (config.base_url.empty()) {
-        return ResultV2<void>::err(
-            Error::Code::InvalidInput,
-            "base_url is required for RemoteBackend");
+        return ResultV2<void>::err(Error::Code::InvalidInput,
+                                   "base_url is required for RemoteBackend");
     }
 
     m_config = config;
@@ -58,9 +54,7 @@ ResultV2<void> RemoteBackend::initialize(const BackendConfig& config) {
             m_adapter = std::make_unique<AnthropicAdapter>();
             break;
         default:
-            return ResultV2<void>::err(
-                Error::Code::InternalError,
-                "Unknown provider type");
+            return ResultV2<void>::err(Error::Code::InternalError, "Unknown provider type");
     }
 
 #ifdef WORKX_HAS_CURL
@@ -74,10 +68,7 @@ ResultV2<void> RemoteBackend::initialize(const BackendConfig& config) {
     // 为 nullptr 时跳过发布（保持向后兼容）
     if (m_event_bus) {
         m_event_bus->publish_async(BackendStatusEvent{
-            .status = BackendStatusEvent::Connected,
-            .backend_name = name(),
-            .error = {}
-        });
+            .status = BackendStatusEvent::Connected, .backend_name = name(), .error = {}});
     }
 
     return ResultV2<void>::ok();
@@ -89,60 +80,58 @@ ResultV2<void> RemoteBackend::initialize(const BackendConfig& config) {
 }
 
 void RemoteBackend::shutdown() {
-    // M-A：全程持有 m_active_mutex，消除 interrupt() 与 store(Shutdown) 之间的 TOCTOU 竞态。
+    // M-A：状态仲裁全程持有 m_active_mutex，消除 interrupt() 与 store(Shutdown) 之间的 TOCTOU
+    // 竞态。
     //      原实现：interrupt() 释放锁后、store(Shutdown) 前另一线程可 CAS Ready→Generating
     //      创建新 reader，随后 store(Shutdown) 覆盖但新 reader 未清理。
-    //      现实现：持锁后 CAS 状态，interrupt_locked() 在同一锁内清理 reader，无窗口。
-    std::lock_guard<std::mutex> lock(m_active_mutex);
+    //      现实现：持锁后 CAS 状态，interrupt_locked() 在同一锁内摘除 reader，无窗口。
+    //
+    // #139：锁的作用域**只覆盖状态仲裁与集合摘除**，取消动作必须移到锁外
+    //      （cancel_readers_out_of_lock）。原实现在锁内调 interrupt_locked() →
+    //      cancel_stream() → on_complete 回调 → 回调再次 lock(m_active_mutex)，
+    //      同线程二次加锁非递归 mutex = 永久阻塞（表现为任务做完但进程不退出）。
+    std::vector<std::shared_ptr<SSEStreamReader>> victims;
+    bool cascaded = false;  // 是否已完成状态转换（Ready/Generating → Shutdown）
+    {
+        std::lock_guard<std::mutex> lock(m_active_mutex);
 
-    // 尝试 Ready → Shutdown（常见路径：空闲时关闭）
-    BackendState expected = BackendState::Ready;
-    if (m_state.compare_exchange_strong(expected, BackendState::Shutdown,
-        std::memory_order_acq_rel, std::memory_order_acquire)) {
-        // Ready 态无 active_reader，直接 shutdown http client
-        if (m_http_client) {
-            m_http_client->shutdown();
+        // 尝试 Ready → Shutdown（常见路径：空闲时关闭）
+        BackendState expected = BackendState::Ready;
+        if (m_state.compare_exchange_strong(expected, BackendState::Shutdown,
+                                            std::memory_order_acq_rel, std::memory_order_acquire)) {
+            // Ready 态无 active_reader
+            cascaded = true;
+        } else {
+            // 尝试 Generating → Shutdown（生成中关闭：先摘除 reader 再 shutdown）
+            expected = BackendState::Generating;
+            if (m_state.compare_exchange_strong(expected, BackendState::Shutdown,
+                                                std::memory_order_acq_rel,
+                                                std::memory_order_acquire)) {
+                // CAS 成功：状态已转 Shutdown，此时不会有新 submit_completion 进入（非 Ready）
+                victims = interrupt_locked();  // 锁内只摘集合，取消在锁外
+                cascaded = true;
+            }
         }
-        if (m_event_bus) {
-            m_event_bus->publish_async(BackendStatusEvent{
-                .status = BackendStatusEvent::Disconnected,
-                .backend_name = name(),
-                .error = {}
-            });
-        }
-        return;
+        // 其他状态（Idle / Shutdown）：不做任何操作
+        // - Idle：未初始化，无资源需清理
+        // - Shutdown：已 shutdown，幂等返回
     }
 
-    // 尝试 Generating → Shutdown（生成中关闭：先清理 reader 再 shutdown）
-    expected = BackendState::Generating;
-    if (m_state.compare_exchange_strong(expected, BackendState::Shutdown,
-        std::memory_order_acq_rel, std::memory_order_acquire)) {
-        // CAS 成功：状态已转 Shutdown，此时不会有新 submit_completion 进入（非 Ready）
-        interrupt_locked();  // 在同一锁内清理 active_reader
-        if (m_http_client) {
-            m_http_client->shutdown();
-        }
-        if (m_event_bus) {
-            m_event_bus->publish_async(BackendStatusEvent{
-                .status = BackendStatusEvent::Disconnected,
-                .backend_name = name(),
-                .error = {}
-            });
-        }
-        return;
-    }
+    // #139：锁已释放 —— cancel_stream 在此触发 on_complete 回调是安全的
+    cancel_readers_out_of_lock(victims);
 
-    // 其他状态（Idle / Shutdown）：不做任何操作
-    // - Idle：未初始化，无资源需清理
-    // - Shutdown：已 shutdown，幂等返回
+    if (!cascaded) return;
+    if (m_http_client) {
+        m_http_client->shutdown();
+    }
+    if (m_event_bus) {
+        m_event_bus->publish_async(BackendStatusEvent{
+            .status = BackendStatusEvent::Disconnected, .backend_name = name(), .error = {}});
+    }
 }
 
 ModelInfo RemoteBackend::get_model_info() const {
-    return ModelInfo{
-        .name = m_config.model_name,
-        .description = "Remote API",
-        .context_length = 0
-    };
+    return ModelInfo{.name = m_config.model_name, .description = "Remote API", .context_length = 0};
 }
 
 std::shared_ptr<IStreamReader> RemoteBackend::submit_completion(const CompletionRequest& request) {
@@ -157,8 +146,7 @@ std::shared_ptr<IStreamReader> RemoteBackend::submit_completion(const Completion
     }
 
     // 创建 SSE 流读取器，传入 Provider 特定的解析回调
-    auto parse_cb = [this](const std::string& event_type,
-                           const std::string& data,
+    auto parse_cb = [this](const std::string& event_type, const std::string& data,
                            StreamChunk& out) -> bool {
         return m_adapter->parse_sse_event(event_type, data, out);
     };
@@ -173,7 +161,8 @@ std::shared_ptr<IStreamReader> RemoteBackend::submit_completion(const Completion
         if (m_active_readers.empty()) {
             BackendState expected = BackendState::Ready;
             if (!m_state.compare_exchange_strong(expected, BackendState::Generating,
-                std::memory_order_acq_rel, std::memory_order_acquire)) {
+                                                 std::memory_order_acq_rel,
+                                                 std::memory_order_acquire)) {
                 return nullptr;
             }
         } else if (m_state.load(std::memory_order_acquire) != BackendState::Generating) {
@@ -202,7 +191,8 @@ std::shared_ptr<IStreamReader> RemoteBackend::submit_completion(const Completion
             if (m_active_readers.empty()) {
                 BackendState expected = BackendState::Generating;
                 m_state.compare_exchange_strong(expected, BackendState::Ready,
-                    std::memory_order_acq_rel, std::memory_order_acquire);
+                                                std::memory_order_acq_rel,
+                                                std::memory_order_acquire);
             }
         },
         m_config.timeout_ms);
@@ -217,24 +207,42 @@ std::shared_ptr<IStreamReader> RemoteBackend::submit_completion(const Completion
 }
 
 void RemoteBackend::interrupt() {
-    std::lock_guard<std::mutex> lock(m_active_mutex);
-    interrupt_locked();
+    std::vector<std::shared_ptr<SSEStreamReader>> victims;
+    {
+        std::lock_guard<std::mutex> lock(m_active_mutex);
+        victims = interrupt_locked();
+    }
+    // #139：取消必须在锁外 —— cancel_stream 会同步触发 on_complete 回调，
+    //       而该回调要 lock(m_active_mutex)，持锁调用即自锁。
+    cancel_readers_out_of_lock(victims);
 }
 
-void RemoteBackend::interrupt_locked() {
+std::vector<std::shared_ptr<SSEStreamReader>> RemoteBackend::interrupt_locked() {
     // M-A：interrupt 的无锁实现，调用方必须已持有 m_active_mutex
     // v1.2.0（PR #49 修复）：中断全部在飞请求（支持并发批量调度）
-    for (const auto& reader : m_active_readers) {
+    //
+    // #139：只把集合整体摘下并复位状态，**不在这里取消**。取消会同步走到
+    //       on_complete 回调，而回调要再次 lock(m_active_mutex) —— 调用方正持锁，
+    //       同线程二次加锁非递归 mutex = 永久阻塞。
+    auto victims = std::move(m_active_readers);
+    m_active_readers.clear();
+    // M-7：若处于 Generating，回到 Ready；其他状态不变
+    BackendState expected = BackendState::Generating;
+    m_state.compare_exchange_strong(expected, BackendState::Ready, std::memory_order_acq_rel,
+                                    std::memory_order_acquire);
+    return victims;
+}
+
+void RemoteBackend::cancel_readers_out_of_lock(
+    const std::vector<std::shared_ptr<SSEStreamReader>>& readers) {
+    // #139：调用方必须已释放 m_active_mutex
+    for (const auto& reader : readers) {
+        if (!reader) continue;
         reader->cancel();
         if (m_http_client) {
             m_http_client->cancel_stream(reader.get());
         }
     }
-    m_active_readers.clear();
-    // M-7：若处于 Generating，回到 Ready；其他状态不变
-    BackendState expected = BackendState::Generating;
-    m_state.compare_exchange_strong(expected, BackendState::Ready,
-        std::memory_order_acq_rel, std::memory_order_acquire);
 }
 
 // ============================================================
@@ -244,10 +252,10 @@ void RemoteBackend::interrupt_locked() {
 ResultV2<std::vector<ModelInfo>> RemoteBackend::list_models() {
 #ifdef WORKX_HAS_CURL
     // M-7：Ready 态才允许查询模型列表
-    if (m_state.load(std::memory_order_acquire) != BackendState::Ready ||
-        !m_adapter || !m_http_client) {
-        return ResultV2<std::vector<ModelInfo>>::err(
-            Error::Code::InternalError, "Backend not ready");
+    if (m_state.load(std::memory_order_acquire) != BackendState::Ready || !m_adapter ||
+        !m_http_client) {
+        return ResultV2<std::vector<ModelInfo>>::err(Error::Code::InternalError,
+                                                     "Backend not ready");
     }
 
     // 检查 provider 是否支持 list_models HTTP 端点
@@ -259,15 +267,14 @@ ResultV2<std::vector<ModelInfo>> RemoteBackend::list_models() {
             return ResultV2<std::vector<ModelInfo>>::ok(std::move(builtin));
         }
         return ResultV2<std::vector<ModelInfo>>::err(
-            Error::Code::NotImplemented,
-            "This provider does not support list_models endpoint");
+            Error::Code::NotImplemented, "This provider does not support list_models endpoint");
     }
 
     // 构建 URL（用 endpoint.url_suffix，如 "/v1/models"）
     std::string url = m_config.base_url;
     if (url.empty()) {
-        return ResultV2<std::vector<ModelInfo>>::err(
-            Error::Code::ConfigInvalid, "base_url is empty");
+        return ResultV2<std::vector<ModelInfo>>::err(Error::Code::ConfigInvalid,
+                                                     "base_url is empty");
     }
     while (!url.empty() && url.back() == '/') url.pop_back();
     url += endpoint.url_suffix;
@@ -281,8 +288,8 @@ ResultV2<std::vector<ModelInfo>> RemoteBackend::list_models() {
         std::string k_lower = k;
         std::transform(k_lower.begin(), k_lower.end(), k_lower.begin(), ::tolower);
         std::string val;
-        if (k_lower == "authorization" || k_lower == "x-api-key" ||
-            k_lower == "x-goog-api-key" || k_lower.find("key") != std::string::npos ||
+        if (k_lower == "authorization" || k_lower == "x-api-key" || k_lower == "x-goog-api-key" ||
+            k_lower.find("key") != std::string::npos ||
             k_lower.find("token") != std::string::npos) {
             val = "***";
         } else {
@@ -328,16 +335,14 @@ ResultV2<std::vector<ModelInfo>> RemoteBackend::list_models() {
         }
 
         if (models.empty()) {
-            return ResultV2<std::vector<ModelInfo>>::err(
-                Error::Code::InternalError, "No models returned by API");
+            return ResultV2<std::vector<ModelInfo>>::err(Error::Code::InternalError,
+                                                         "No models returned by API");
         }
 
         return ResultV2<std::vector<ModelInfo>>::ok(std::move(models));
     } catch (const nlohmann::json::parse_error& e) {
         return ResultV2<std::vector<ModelInfo>>::err(
-            Error::Code::ConfigParseFailed,
-            std::format("JSON parse error: {}", e.what()),
-            url);
+            Error::Code::ConfigParseFailed, std::format("JSON parse error: {}", e.what()), url);
     }
 
 #else
@@ -347,4 +352,4 @@ ResultV2<std::vector<ModelInfo>> RemoteBackend::list_models() {
 #endif
 }
 
-} // namespace agent
+}  // namespace agent

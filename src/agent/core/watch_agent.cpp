@@ -7,7 +7,7 @@
 #include <thread>
 #include <utility>
 
-#include "agent/core/mode_agent_common.h"   // parse_watch_spec / materialize_cmd / ...
+#include "agent/core/mode_agent_common.h"  // parse_watch_spec / materialize_cmd / ...
 #include "agent/core/query_tracker.h"
 #include "liblogger/logger.h"
 
@@ -15,16 +15,14 @@ namespace agent {
 
 namespace fs = std::filesystem;
 
-WatchAgent::WatchAgent(GoalAgentDeps deps)
-    : m_deps(std::move(deps)) {}
+WatchAgent::WatchAgent(GoalAgentDeps deps) : m_deps(std::move(deps)) {}
 
 ReActResult WatchAgent::run(const AgentGoal& goal, const std::string& goal_spec,
-                            std::vector<ChatMessage>& messages,
-                            IReActObserver* /*observer*/) {
+                            std::vector<ChatMessage>& messages, IReActObserver* /*observer*/) {
     const auto started = std::chrono::steady_clock::now();
     const auto elapsed_ms = [&]() {
-        return std::chrono::duration<double, std::milli>(
-            std::chrono::steady_clock::now() - started).count();
+        return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started)
+            .count();
     };
 
     ReActResult result;
@@ -33,8 +31,7 @@ ReActResult WatchAgent::run(const AgentGoal& goal, const std::string& goal_spec,
         result.goal_status = GoalStatus::Failed;
         result.error_message =
             "watch agent requires agent.goal `watch:cmd=<tmpl>&path=<dir>&polls=<n>`";
-        LOG_WARN("[watch_agent] non-watch goal routed (type={})",
-                 static_cast<int>(goal.type));
+        LOG_WARN("[watch_agent] non-watch goal routed (type={})", static_cast<int>(goal.type));
         return result;
     }
     WatchSpec spec = parse_watch_spec(goal);
@@ -79,15 +76,13 @@ ReActResult WatchAgent::run(const AgentGoal& goal, const std::string& goal_spec,
             result.was_error = true;
             result.goal_status = GoalStatus::Failed;
             result.error_message = "watch path escapes working directory";
-            LOG_WARN("[watch_agent] watch path escapes cwd '{}' (goal='{}')",
-                     spec.path, goal_spec);
+            LOG_WARN("[watch_agent] watch path escapes cwd '{}' (goal='{}')", spec.path, goal_spec);
             return result;
         }
     }
 
     std::string glob_err;
-    const std::vector<std::string> items =
-        expand_glob_cwd(root_s, spec.glob, &glob_err);
+    const std::vector<std::string> items = expand_glob_cwd(root_s, spec.glob, &glob_err);
     if (!glob_err.empty()) {
         result.was_error = true;
         result.goal_status = GoalStatus::Failed;
@@ -108,8 +103,7 @@ ReActResult WatchAgent::run(const AgentGoal& goal, const std::string& goal_spec,
             last_change = sig;
             const std::string cmd = materialize_cmd(spec.cmd_template, "");
             bool rejected = false;
-            const process::ExecOutput out =
-                run_whitelisted(cmd, root_s, &rejected);
+            const process::ExecOutput out = run_whitelisted(cmd, root_s, &rejected);
             if (rejected) {
                 command_failed = true;
                 LOG_WARN("[watch_agent] triggered command rejected");
@@ -126,9 +120,8 @@ ReActResult WatchAgent::run(const AgentGoal& goal, const std::string& goal_spec,
     }
 
     const bool changed = !last_change.empty();
-    std::string summary = std::format(
-        "监控 `{}` 完成 {} 轮轮询（匹配 {} 个文件）。",
-        root_s, spec.max_polls, items.size());
+    std::string summary = std::format("监控 `{}` 完成 {} 轮轮询（匹配 {} 个文件）。", root_s,
+                                      spec.max_polls, items.size());
     if (items.empty()) {
         summary += "\n（无匹配文件，仅建立基线）";
     } else if (changed) {
@@ -138,24 +131,22 @@ ReActResult WatchAgent::run(const AgentGoal& goal, const std::string& goal_spec,
         summary += "\n（监控期间无内容变化）";
     }
 
-    result.goal_status = (changed && command_failed)
-                             ? GoalStatus::Failed : GoalStatus::Achieved;
+    result.goal_status = (changed && command_failed) ? GoalStatus::Failed : GoalStatus::Achieved;
     if (changed && command_failed) {
         result.was_error = false;  // 展示为失败结果而非崩溃
     }
     if (m_deps.tracker) {
         m_deps.tracker->record_verdict(
-            result.goal_status,
-            std::format("watch polls={} changed={} command_failed={} files={}",
-                        spec.max_polls, changed, command_failed, items.size()));
+            result.goal_status, std::format("watch polls={} changed={} command_failed={} files={}",
+                                            spec.max_polls, changed, command_failed, items.size()));
     }
 
     result.final_answer = summary;
     messages.push_back(ChatMessage::assistant(summary));
     result.total_duration_ms = elapsed_ms();
-    LOG_INFO("[watch_agent] goal='{}' root='{}' polls={} changed={} cmd_failed={}",
-             goal_spec, root_s, spec.max_polls, changed, command_failed);
+    LOG_INFO("[watch_agent] goal='{}' root='{}' polls={} changed={} cmd_failed={}", goal_spec,
+             root_s, spec.max_polls, changed, command_failed);
     return result;
 }
 
-} // namespace agent
+}  // namespace agent

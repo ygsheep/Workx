@@ -21,10 +21,9 @@ namespace {
 /// @brief 转小写
 std::string to_lower(std::string_view s) {
     std::string out(s);
-    std::transform(out.begin(), out.end(), out.begin(),
-                   [](char c) {
-                       return static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                   });
+    std::transform(out.begin(), out.end(), out.begin(), [](char c) {
+        return static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    });
     return out;
 }
 
@@ -32,13 +31,11 @@ std::string to_lower(std::string_view s) {
 bool contains_ci(std::string_view haystack, std::string_view needle) {
     if (needle.empty()) return true;
     if (haystack.size() < needle.size()) return false;
-    auto it = std::search(
-        haystack.begin(), haystack.end(),
-        needle.begin(), needle.end(),
-        [](char a, char b) {
-            return std::tolower(static_cast<unsigned char>(a)) ==
-                   std::tolower(static_cast<unsigned char>(b));
-        });
+    auto it = std::search(haystack.begin(), haystack.end(), needle.begin(), needle.end(),
+                          [](char a, char b) {
+                              return std::tolower(static_cast<unsigned char>(a)) ==
+                                     std::tolower(static_cast<unsigned char>(b));
+                          });
     return it != haystack.end();
 }
 
@@ -50,11 +47,25 @@ bool contains_ci(std::string_view haystack, std::string_view needle) {
 const std::vector<std::string>& official_provider_order() {
     static const std::vector<std::string> s = {
         // 国产模型厂商直营（核心优先）
-        "deepseek", "zhipuai", "zai", "moonshotai", "moonshotai-cn",
-        "alibaba", "alibaba-cn", "minimax", "minimax-cn",
+        "deepseek",
+        "zhipuai",
+        "zai",
+        "moonshotai",
+        "moonshotai-cn",
+        "alibaba",
+        "alibaba-cn",
+        "minimax",
+        "minimax-cn",
         // 国际模型厂商直营
-        "anthropic", "openai", "google", "google-vertex", "meta", "mistral",
-        "cohere", "xai", "amazon-bedrock",
+        "anthropic",
+        "openai",
+        "google",
+        "google-vertex",
+        "meta",
+        "mistral",
+        "cohere",
+        "xai",
+        "amazon-bedrock",
     };
     return s;
 }
@@ -84,7 +95,7 @@ std::string read_file(const std::filesystem::path& path) {
     return ss.str();
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 ResultV2<ModelCatalog> ModelCatalog::from_api_json(std::string_view json_text) {
     ModelCatalog catalog;
@@ -99,9 +110,8 @@ ResultV2<ModelCatalog> ModelCatalog::from_api_json(std::string_view json_text) {
     }
 
     if (!root.is_object()) {
-        return ResultV2<ModelCatalog>::err(
-            Error::Code::ConfigParseFailed,
-            "models.dev catalog: root must be a JSON object");
+        return ResultV2<ModelCatalog>::err(Error::Code::ConfigParseFailed,
+                                           "models.dev catalog: root must be a JSON object");
     }
 
     // 结构：{ providerId: { models: { modelId: { limit: { context, output } } } } }
@@ -128,10 +138,13 @@ ResultV2<ModelCatalog> ModelCatalog::from_api_json(std::string_view json_text) {
 
             int32_t context = 0;
             int32_t output = 0;
-            if (auto limit_it = info.find("limit"); limit_it != info.end() && limit_it->is_object()) {
-                if (auto ctx = limit_it->find("context"); ctx != limit_it->end() && ctx->is_number_integer())
+            if (auto limit_it = info.find("limit");
+                limit_it != info.end() && limit_it->is_object()) {
+                if (auto ctx = limit_it->find("context");
+                    ctx != limit_it->end() && ctx->is_number_integer())
                     context = ctx->get<int32_t>();
-                if (auto out = limit_it->find("output"); out != limit_it->end() && out->is_number_integer())
+                if (auto out = limit_it->find("output");
+                    out != limit_it->end() && out->is_number_integer())
                     output = out->get<int32_t>();
             }
 
@@ -151,27 +164,23 @@ ResultV2<ModelCatalog> ModelCatalog::from_api_json(std::string_view json_text) {
 ResultV2<ModelCatalog> ModelCatalog::load_cache(const std::filesystem::path& path) {
     std::string content = read_file(path);
     if (content.empty()) {
-        return ResultV2<ModelCatalog>::err(
-            Error::Code::ResourceNotFound,
-            "models cache not found",
-            path.string());
+        return ResultV2<ModelCatalog>::err(Error::Code::ResourceNotFound, "models cache not found",
+                                           path.string());
     }
 
     nlohmann::json root;
     try {
         root = nlohmann::json::parse(content);
     } catch (const nlohmann::json::exception& e) {
-        return ResultV2<ModelCatalog>::err(
-            Error::Code::ConfigParseFailed,
-            std::string("models cache parse failed: ") + e.what(),
-            path.string());
+        return ResultV2<ModelCatalog>::err(Error::Code::ConfigParseFailed,
+                                           std::string("models cache parse failed: ") + e.what(),
+                                           path.string());
     }
 
     if (!root.is_object()) {
-        return ResultV2<ModelCatalog>::err(
-            Error::Code::ConfigParseFailed,
-            "models cache: root must be a JSON object",
-            path.string());
+        return ResultV2<ModelCatalog>::err(Error::Code::ConfigParseFailed,
+                                           "models cache: root must be a JSON object",
+                                           path.string());
     }
 
     ModelCatalog catalog;
@@ -191,10 +200,9 @@ ResultV2<ModelCatalog> ModelCatalog::load_cache(const std::filesystem::path& pat
     // 防御：若解析结果为空（例如文件是原始 api.json 而非扁平化缓存，
     // 或缓存损坏被部分写入），按失败处理，让后台线程重新拉取生成。
     if (catalog.m_models.empty()) {
-        return ResultV2<ModelCatalog>::err(
-            Error::Code::ConfigParseFailed,
-            "models cache: no entries parsed (unexpected format)",
-            path.string());
+        return ResultV2<ModelCatalog>::err(Error::Code::ConfigParseFailed,
+                                           "models cache: no entries parsed (unexpected format)",
+                                           path.string());
     }
 
     return ResultV2<ModelCatalog>::ok(std::move(catalog));
@@ -215,18 +223,14 @@ ResultV2<void> ModelCatalog::save_cache(const std::filesystem::path& path) const
 
     std::ofstream out(path, std::ios::binary);
     if (!out) {
-        return ResultV2<void>::err(
-            Error::Code::PermissionDenied,
-            "cannot write models cache",
-            path.string());
+        return ResultV2<void>::err(Error::Code::PermissionDenied, "cannot write models cache",
+                                   path.string());
     }
     out << root.dump(2);
     out.flush();
     if (!out) {
-        return ResultV2<void>::err(
-            Error::Code::InternalError,
-            "failed to write models cache",
-            path.string());
+        return ResultV2<void>::err(Error::Code::InternalError, "failed to write models cache",
+                                   path.string());
     }
     return ResultV2<void>::ok();
 }
@@ -287,4 +291,4 @@ const ModelCatalog::ModelInfo* ModelCatalog::find(std::string_view model_name) c
     return best;
 }
 
-} // namespace agent
+}  // namespace agent

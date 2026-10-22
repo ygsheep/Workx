@@ -60,7 +60,11 @@ bool glob(const std::string& pattern, const std::string& text) noexcept {
 /// @brief 解析单条子句：`Tool(args)` 或仅 `Tool`
 /// @param clause 输入，如 `Bash(git *)`、`Read`、`Bash(rm -rf *)`
 /// @return {tool, arg, ok}
-struct ParsedClause { std::string tool; std::string arg; bool ok = false; };
+struct ParsedClause {
+    std::string tool;
+    std::string arg;
+    bool ok = false;
+};
 ParsedClause parse_clause(const std::string& raw) {
     ParsedClause out;
     const auto lp = raw.find('(');
@@ -116,7 +120,7 @@ std::vector<std::string> collect_strings(const nlohmann::json& input) {
     return out;
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 void HookMatcher::parse_rules(const std::string& expr) {
     rules_.clear();
@@ -141,7 +145,8 @@ void HookMatcher::parse_rules(const std::string& expr) {
         clause.clear();
     };
     for (size_t i = 0; i < e.size(); ++i) {
-        if (i + 3 < e.size() && e[i] == ' ' && e[i+1] == '|' && e[i+2] == '|' && e[i+3] == ' ') {
+        if (i + 3 < e.size() && e[i] == ' ' && e[i + 1] == '|' && e[i + 2] == '|' &&
+            e[i + 3] == ' ') {
             push_clause();
             i += 3;
             continue;
@@ -152,13 +157,9 @@ void HookMatcher::parse_rules(const std::string& expr) {
     if (rules_.empty()) all_ = true;  // 全部解析失败 → 保守全命中（不误拦）
 }
 
-HookMatcher::HookMatcher(std::string expr)
-    : all_(false) {
-    parse_rules(std::move(expr));
-}
+HookMatcher::HookMatcher(std::string expr) : all_(false) { parse_rules(std::move(expr)); }
 
-bool HookMatcher::matches(const std::string& event_name,
-                          const std::string& tool_name,
+bool HookMatcher::matches(const std::string& event_name, const std::string& tool_name,
                           const nlohmann::json& tool_input) const noexcept {
     if (all_) return true;
     if (rules_.empty()) return false;
@@ -176,16 +177,16 @@ bool HookMatcher::matches(const std::string& event_name,
             if (v.empty()) continue;
             if (glob(rule.arg, v)) return true;
             // glob 未命中且 arg 无通配时，退化为子串包含（如 "rm -rf" 无 *）
-            if (rule.arg.find_first_of("*?") == std::string::npos
-                && v.find(rule.arg) != std::string::npos) return true;
+            if (rule.arg.find_first_of("*?") == std::string::npos &&
+                v.find(rule.arg) != std::string::npos)
+                return true;
         }
     }
     return false;
 }
 
-bool HookMatcher::glob_match(const std::string& pattern,
-                             const std::string& text) noexcept {
+bool HookMatcher::glob_match(const std::string& pattern, const std::string& text) noexcept {
     return glob(pattern, text);
 }
 
-} // namespace agent::hook
+}  // namespace agent::hook

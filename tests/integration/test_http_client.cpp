@@ -125,9 +125,7 @@ TEST_CASE_METHOD(TestServerFixture, "HttpClient sync GET", "[http][client]") {
 
     SECTION("GET with custom headers") {
         std::vector<std::pair<std::string, std::string>> headers = {
-            {"Authorization", "Bearer lm-studio"},
-            {"X-Custom", "value"}
-        };
+            {"Authorization", "Bearer lm-studio"}, {"X-Custom", "value"}};
         auto result = client.get(s_base_url + "/v1/models", headers, 5000);
         REQUIRE(result.is_ok());
         REQUIRE(result.value().status_code == 200);
@@ -170,13 +168,10 @@ TEST_CASE_METHOD(TestServerFixture, "HttpClient async POST stream", "[http][clie
         auto reader = std::make_shared<SSEStreamReader>(std::move(parse_cb));
 
         std::vector<std::pair<std::string, std::string>> headers = {
-            {"Content-Type", "application/json"},
-            {"Accept", "text/event-stream"}
-        };
+            {"Content-Type", "application/json"}, {"Accept", "text/event-stream"}};
 
         client.async_post_stream(
-            s_base_url + "/v1/chat/completions",
-            headers,
+            s_base_url + "/v1/chat/completions", headers,
             R"({"model":"local-model","messages":[{"role":"user","content":"hi"}],"stream":true})",
             reader,
             [&]() {
@@ -211,17 +206,14 @@ TEST_CASE_METHOD(TestServerFixture, "HttpClient cancel stream", "[http][client]"
     auto reader = std::make_shared<SSEStreamReader>(std::move(parse_cb));
 
     std::vector<std::pair<std::string, std::string>> headers = {
-        {"Content-Type", "application/json"},
-        {"Accept", "text/event-stream"}
-    };
+        {"Content-Type", "application/json"}, {"Accept", "text/event-stream"}};
 
     bool on_complete_called = false;
     std::mutex mtx;
     std::condition_variable cv;
 
     client.async_post_stream(
-        s_base_url + "/v1/chat/completions",
-        headers,
+        s_base_url + "/v1/chat/completions", headers,
         R"({"model":"local-model","messages":[{"role":"user","content":"hi"}],"stream":true})",
         reader,
         [&]() {
@@ -265,17 +257,12 @@ TEST_CASE_METHOD(TestServerFixture, "HttpClient shutdown", "[http][client]") {
         auto reader = std::make_shared<SSEStreamReader>(std::move(parse_cb));
 
         std::vector<std::pair<std::string, std::string>> headers = {
-            {"Content-Type", "application/json"},
-            {"Accept", "text/event-stream"}
-        };
+            {"Content-Type", "application/json"}, {"Accept", "text/event-stream"}};
 
         client.async_post_stream(
-            s_base_url + "/v1/chat/completions",
-            headers,
+            s_base_url + "/v1/chat/completions", headers,
             R"({"model":"local-model","messages":[{"role":"user","content":"hi"}],"stream":true})",
-            reader,
-            []() {},
-            15000);
+            reader, []() {}, 15000);
 
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
         // shutdown 时应安全清理所有活跃 session，不会崩溃

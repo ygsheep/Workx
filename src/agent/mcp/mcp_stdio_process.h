@@ -32,7 +32,7 @@ namespace agent::mcp {
 
 /// @brief 持久子进程：启动后保持运行，支持 stdin 写 / stdout 行读
 class McpStdioProcess {
-public:
+   public:
     McpStdioProcess();
     ~McpStdioProcess();
 
@@ -44,8 +44,7 @@ public:
     /// @param args 命令行参数（不含命令本身）
     /// @param env 额外环境变量（追加到父进程环境）
     /// @return ok: 已启动；err: 启动失败（命令不存在、管道创建失败）
-    ResultV2<void> start(const std::string& cmd,
-                         const std::vector<std::string>& args,
+    ResultV2<void> start(const std::string& cmd, const std::vector<std::string>& args,
                          const std::map<std::string, std::string>& env);
 
     /// @brief 终止子进程（关闭 stdin + 终止进程，幂等）
@@ -62,12 +61,12 @@ public:
     /// @brief 进程是否存活
     bool is_alive() const;
 
-private:
+   private:
     void reader_thread_main();
     void push_line(std::string line);
 
 #ifdef _WIN32
-    void* m_h_process = nullptr;   // HANDLE
+    void* m_h_process = nullptr;      // HANDLE
     void* m_h_stdin_write = nullptr;  // HANDLE
     void* m_h_stdout_read = nullptr;  // HANDLE
 #else
@@ -80,9 +79,9 @@ private:
     std::mutex m_mutex;
     std::condition_variable m_cv;
     std::deque<std::string> m_lines;
-    std::string m_buffer;      ///< 读线程的行缓冲（跨 read 调用保留）
-    bool m_eof = false;        ///< stdout 已 EOF
-    bool m_stopped = false;    ///< stop() 已调用
+    std::string m_buffer;    ///< 读线程的行缓冲（跨 read 调用保留）
+    bool m_eof = false;      ///< stdout 已 EOF
+    bool m_stopped = false;  ///< stop() 已调用
 };
 
-} // namespace agent::mcp
+}  // namespace agent::mcp

@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <system_error>
 #include <nlohmann/json.hpp>
 
 #include "liblogger/logger.h"
@@ -34,8 +35,7 @@ bool is_safe_stdio_command(const std::string& cmd) {
         if (c < 0x20 || c == 0x7F) return false;  // 控制字符（含换行/制表符）
     }
     // 相对路径穿越（POSIX / Windows 分隔符）
-    if (cmd.find("../") != std::string::npos ||
-        cmd.find("..\\") != std::string::npos ||
+    if (cmd.find("../") != std::string::npos || cmd.find("..\\") != std::string::npos ||
         cmd.starts_with("./") || cmd.starts_with(".\\")) {
         return false;
     }
@@ -51,8 +51,7 @@ bool is_safe_stdio_arg(const std::string& arg) {
 }
 
 /// 解析单个 server 条目；无效条目返回 false
-bool parse_one_server(const std::string& name, const nlohmann::json& obj,
-                      McpServerConfig& out) {
+bool parse_one_server(const std::string& name, const nlohmann::json& obj, McpServerConfig& out) {
     if (!obj.is_object()) return false;
 
     out.name = name;
@@ -103,32 +102,43 @@ bool parse_one_server(const std::string& name, const nlohmann::json& obj,
 /// 从单个文件加载 server 配置（文件不存在返回空，不视为错误）
 ResultV2<std::vector<McpServerConfig>> load_from_file(const std::filesystem::path& path) {
     std::vector<McpServerConfig> result;
-    if (path.empty() || !std::filesystem::exists(path)) {
+    if (path.empty()) {
+        return ResultV2<std::vector<McpServerConfig>>::ok(std::move(result));
+    }
+    // ⚠️ 无 ec 的 exists 重载在权限不足时会抛 filesystem_error。本函数位于启动路径
+    // （TUI 装配 MCP 时读 ~/.workx/mcp.json），调用链上没有任何捕获 → 进程静默猝死（#177）。
+    // 这里显式取 ec：「不存在」保持原语义（返回空）；「不可访问」降级为可诊断错误，
+    // 调用方 mcp_client_manager 只记 LOG_ERROR，表现为「MCP 不可用」而非整体启动失败。
+    std::error_code ec;
+    const bool exists = std::filesystem::exists(path, ec);
+    if (ec) {
+        return ResultV2<std::vector<McpServerConfig>>::err(
+            Error::Code::PermissionDenied,
+            "无法访问 MCP 配置文件: " + path.string() + " (" + ec.message() + ")", path.string());
+    }
+    if (!exists) {
         return ResultV2<std::vector<McpServerConfig>>::ok(std::move(result));
     }
 
     std::ifstream ifs(path);
     if (!ifs.is_open()) {
         return ResultV2<std::vector<McpServerConfig>>::err(
-            Error::Code::ConfigParseFailed,
-            "无法打开 MCP 配置文件: " + path.string(),
+            Error::Code::ConfigParseFailed, "无法打开 MCP 配置文件: " + path.string(),
             path.string());
     }
 
     try {
         nlohmann::json root;
         ifs >> root;
-        return ResultV2<std::vector<McpServerConfig>>::ok(
-            parse_mcp_config_json(root));
+        return ResultV2<std::vector<McpServerConfig>>::ok(parse_mcp_config_json(root));
     } catch (const nlohmann::json::exception& e) {
         return ResultV2<std::vector<McpServerConfig>>::err(
-            Error::Code::ConfigParseFailed,
-            "MCP 配置文件 JSON 解析失败: " + std::string(e.what()),
+            Error::Code::ConfigParseFailed, "MCP 配置文件 JSON 解析失败: " + std::string(e.what()),
             path.string());
     }
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 std::vector<McpServerConfig> parse_mcp_config_json(const nlohmann::json& json) {
     std::vector<McpServerConfig> result;
@@ -147,8 +157,7 @@ std::vector<McpServerConfig> parse_mcp_config_json(const nlohmann::json& json) {
 }
 
 ResultV2<std::vector<McpServerConfig>> load_mcp_configs(
-    const std::filesystem::path& user_config_dir,
-    const std::filesystem::path& cwd) {
+    const std::filesystem::path& user_config_dir, const std::filesystem::path& cwd) {
     // 用户级
     auto user_result = load_from_file(user_config_dir / "mcp.json");
     if (user_result.is_err()) return user_result;
@@ -160,8 +169,10 @@ ResultV2<std::vector<McpServerConfig>> load_mcp_configs(
     for (auto& cfg : project_result.value()) {
         // P2-4：项目级配置禁止启用 allowPrivate（防恶意仓库静默禁用 SSRF 防护）
         if (cfg.allow_private) {
-            LOG_WARN("[mcp] 项目级 .mcp.json 为 server '{}' 设置 allowPrivate=true，"
-                     "已忽略（仅用户级配置可启用）", cfg.name);
+            LOG_WARN(
+                "[mcp] 项目级 .mcp.json 为 server '{}' 设置 allowPrivate=true，"
+                "已忽略（仅用户级配置可启用）",
+                cfg.name);
             cfg.allow_private = false;
         }
         auto it = std::find_if(merged.begin(), merged.end(),
@@ -175,4 +186,4 @@ ResultV2<std::vector<McpServerConfig>> load_mcp_configs(
     return ResultV2<std::vector<McpServerConfig>>::ok(std::move(merged));
 }
 
-} // namespace agent::mcp
+}  // namespace agent::mcp

@@ -19,9 +19,10 @@ namespace {
 
 /// 创建临时目录（RAII 清理）
 class TempDir {
-public:
-    TempDir() : m_path(std::filesystem::temp_directory_path() /
-                       ("workx_mcp_test_" + std::to_string(::rand()))) {
+   public:
+    TempDir()
+        : m_path(std::filesystem::temp_directory_path() /
+                 ("workx_mcp_test_" + std::to_string(::rand()))) {
         std::filesystem::create_directories(m_path);
     }
     ~TempDir() {
@@ -30,7 +31,7 @@ public:
     }
     const std::filesystem::path& path() const { return m_path; }
 
-private:
+   private:
     std::filesystem::path m_path;
 };
 
@@ -39,22 +40,18 @@ void write_file(const std::filesystem::path& p, const std::string& content) {
     ofs << content;
 }
 
-} // namespace
+}  // namespace
 
 // ============================================================================
 // parse_mcp_config_json
 // ============================================================================
 
 TEST_CASE("parse_mcp_config_json 解析 stdio server", "[mcp_config][parse]") {
-    nlohmann::json j = {
-        {"mcpServers", {
-            {"github", {
-                {"command", "npx"},
-                {"args", {"-y", "@modelcontextprotocol/server-github"}},
-                {"env", {{"GITHUB_TOKEN", "abc"}}}
-            }}
-        }}
-    };
+    nlohmann::json j = {{"mcpServers",
+                         {{"github",
+                           {{"command", "npx"},
+                            {"args", {"-y", "@modelcontextprotocol/server-github"}},
+                            {"env", {{"GITHUB_TOKEN", "abc"}}}}}}}};
     auto servers = parse_mcp_config_json(j);
     REQUIRE(servers.size() == 1);
     REQUIRE(servers[0].name == "github");
@@ -67,15 +64,11 @@ TEST_CASE("parse_mcp_config_json 解析 stdio server", "[mcp_config][parse]") {
 }
 
 TEST_CASE("parse_mcp_config_json 解析 http server", "[mcp_config][parse]") {
-    nlohmann::json j = {
-        {"mcpServers", {
-            {"notion", {
-                {"type", "http"},
-                {"url", "https://example.com/mcp"},
-                {"headers", {{"Authorization", "Bearer x"}}}
-            }}
-        }}
-    };
+    nlohmann::json j = {{"mcpServers",
+                         {{"notion",
+                           {{"type", "http"},
+                            {"url", "https://example.com/mcp"},
+                            {"headers", {{"Authorization", "Bearer x"}}}}}}}};
     auto servers = parse_mcp_config_json(j);
     REQUIRE(servers.size() == 1);
     REQUIRE(servers[0].name == "notion");
@@ -88,14 +81,9 @@ TEST_CASE("parse_mcp_config_json 解析 http server", "[mcp_config][parse]") {
 
 TEST_CASE("parse_mcp_config_json 解析 allowPrivate 放行本地", "[mcp_config][parse]") {
     nlohmann::json j = {
-        {"mcpServers", {
-            {"local", {
-                {"type", "http"},
-                {"url", "http://127.0.0.1:8080/mcp"},
-                {"allowPrivate", true}
-            }}
-        }}
-    };
+        {"mcpServers",
+         {{"local",
+           {{"type", "http"}, {"url", "http://127.0.0.1:8080/mcp"}, {"allowPrivate", true}}}}}};
     auto servers = parse_mcp_config_json(j);
     REQUIRE(servers.size() == 1);
     REQUIRE(servers[0].allow_private);
@@ -103,11 +91,7 @@ TEST_CASE("parse_mcp_config_json 解析 allowPrivate 放行本地", "[mcp_config
 
 TEST_CASE("parse_mcp_config_json 仅 url 省略 type 视为 http", "[mcp_config][parse]") {
     // 兼容仅写 url 的配置（如 Exa 托管端点 https://mcp.exa.ai/mcp），无需显式 type=http
-    nlohmann::json j = {
-        {"mcpServers", {
-            {"exa", {{"url", "https://mcp.exa.ai/mcp"}}}
-        }}
-    };
+    nlohmann::json j = {{"mcpServers", {{"exa", {{"url", "https://mcp.exa.ai/mcp"}}}}}};
     auto servers = parse_mcp_config_json(j);
     REQUIRE(servers.size() == 1);
     REQUIRE(servers[0].name == "exa");
@@ -117,14 +101,13 @@ TEST_CASE("parse_mcp_config_json 仅 url 省略 type 视为 http", "[mcp_config]
 }
 
 TEST_CASE("parse_mcp_config_json 跳过无效条目", "[mcp_config][parse]") {
-    nlohmann::json j = {
-        {"mcpServers", {
-            {"good", {{"command", "python"}}},
-            {"no_command", {{"args", {"x"}}}},          // 无 command 且无 url
-            {"not_object", "just a string"},            // 非对象
-            {"empty", {}}                               // 空对象
-        }}
-    };
+    nlohmann::json j = {{"mcpServers",
+                         {
+                             {"good", {{"command", "python"}}},
+                             {"no_command", {{"args", {"x"}}}},  // 无 command 且无 url
+                             {"not_object", "just a string"},    // 非对象
+                             {"empty", {}}                       // 空对象
+                         }}};
     auto servers = parse_mcp_config_json(j);
     REQUIRE(servers.size() == 1);
     REQUIRE(servers[0].name == "good");
@@ -149,8 +132,7 @@ TEST_CASE("load_mcp_configs 文件缺失返回空（非错误）", "[mcp_config]
 
 TEST_CASE("load_mcp_configs 读取用户级配置", "[mcp_config][load]") {
     TempDir dir;
-    write_file(dir.path() / "mcp.json",
-               R"({"mcpServers":{"a":{"command":"python"}}})");
+    write_file(dir.path() / "mcp.json", R"({"mcpServers":{"a":{"command":"python"}}})");
     auto result = load_mcp_configs(dir.path(), dir.path() / "noproj");
     REQUIRE(result.is_ok());
     REQUIRE(result.value().size() == 1);
@@ -159,8 +141,7 @@ TEST_CASE("load_mcp_configs 读取用户级配置", "[mcp_config][load]") {
 
 TEST_CASE("load_mcp_configs 项目级覆盖同名 server", "[mcp_config][load]") {
     TempDir dir;
-    write_file(dir.path() / "mcp.json",
-               R"({"mcpServers":{"a":{"command":"user-cmd"}}})");
+    write_file(dir.path() / "mcp.json", R"({"mcpServers":{"a":{"command":"user-cmd"}}})");
     write_file(dir.path() / ".mcp.json",
                R"({"mcpServers":{"a":{"command":"proj-cmd"},"b":{"command":"proj-b"}}})");
     auto result = load_mcp_configs(dir.path(), dir.path());
@@ -175,10 +156,8 @@ TEST_CASE("load_mcp_configs 项目级覆盖同名 server", "[mcp_config][load]")
 
 TEST_CASE("load_mcp_configs 项目级新增 server 追加", "[mcp_config][load]") {
     TempDir dir;
-    write_file(dir.path() / "mcp.json",
-               R"({"mcpServers":{"a":{"command":"user-a"}}})");
-    write_file(dir.path() / ".mcp.json",
-               R"({"mcpServers":{"b":{"command":"proj-b"}}})");
+    write_file(dir.path() / "mcp.json", R"({"mcpServers":{"a":{"command":"user-a"}}})");
+    write_file(dir.path() / ".mcp.json", R"({"mcpServers":{"b":{"command":"proj-b"}}})");
     auto result = load_mcp_configs(dir.path(), dir.path());
     REQUIRE(result.is_ok());
     REQUIRE(result.value().size() == 2);

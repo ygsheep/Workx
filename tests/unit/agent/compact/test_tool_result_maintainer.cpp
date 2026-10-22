@@ -32,9 +32,7 @@ TEST_CASE("is_read_only_tool classification", "[compact][tool_result][ds_cache]"
         REQUIRE_FALSE(is_read_only_tool("PowerShell"));
     }
 
-    SECTION("unknown tool defaults to read-only") {
-        REQUIRE(is_read_only_tool("UnknownTool"));
-    }
+    SECTION("unknown tool defaults to read-only") { REQUIRE(is_read_only_tool("UnknownTool")); }
 }
 
 TEST_CASE("select_strategy_by_tool_name", "[compact][tool_result][ds_cache]") {
@@ -120,8 +118,8 @@ TEST_CASE("snip_tool_result char-level fallback", "[compact][tool_result][ds_cac
 
 TEST_CASE("snip_tool_result idempotent (already elided)", "[compact][tool_result][ds_cache]") {
     SECTION("already snipped: no-op") {
-        auto msg = ChatMessage::tool_result("call_1", "Read",
-            "head\n[snipped tool result — 50 lines elided]\ntail\n");
+        auto msg = ChatMessage::tool_result(
+            "call_1", "Read", "head\n[snipped tool result — 50 lines elided]\ntail\n");
         std::string original = msg.content;
         int saved = snip_tool_result(msg, SnipStrategy{5, 3, 100, 100});
         REQUIRE(saved == 0);
@@ -129,8 +127,8 @@ TEST_CASE("snip_tool_result idempotent (already elided)", "[compact][tool_result
     }
 
     SECTION("already pruned: no-op for snip") {
-        auto msg = ChatMessage::tool_result("call_1", "Read",
-            "[elided tool result — 1000 bytes]\n");
+        auto msg =
+            ChatMessage::tool_result("call_1", "Read", "[elided tool result — 1000 bytes]\n");
         int saved = snip_tool_result(msg, SnipStrategy{5, 3, 100, 100});
         REQUIRE(saved == 0);
     }
@@ -159,8 +157,7 @@ TEST_CASE("prune_tool_result", "[compact][tool_result][ds_cache]") {
     }
 
     SECTION("already elided: no-op") {
-        auto msg = ChatMessage::tool_result("call_1", "Bash",
-            "[elided tool result — 100 bytes]\n");
+        auto msg = ChatMessage::tool_result("call_1", "Bash", "[elided tool result — 100 bytes]\n");
         std::string original = msg.content;
         int saved = prune_tool_result(msg);
         REQUIRE(saved == 0);

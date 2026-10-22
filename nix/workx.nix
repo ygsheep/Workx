@@ -7,7 +7,7 @@
 #       (pkgs.callPackage ./nix/workx.nix {
 #         src = pkgs.fetchFromGitHub {
 #           owner = "young";
-#           repo = "WorkX";
+#           repo = "Workx";
 #           rev = "v0.2.0";
 #           hash = "sha256-...";   # 占位 hash,构建报错后填真实值
 #         };
@@ -55,7 +55,7 @@ let
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "workx";
-  version = "0.10.1";
+  version = "0.10.2";
 
   inherit src;
 

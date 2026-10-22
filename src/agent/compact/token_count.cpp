@@ -18,11 +18,10 @@ namespace {
 [[maybe_unused]] bool ends_with_ci(std::string_view str, std::string_view suffix) {
     if (str.size() < suffix.size()) return false;
     auto off = str.size() - suffix.size();
-    return std::equal(suffix.begin(), suffix.end(), str.begin() + off,
-        [](char a, char b) {
-            return std::tolower(static_cast<unsigned char>(a)) ==
-                   std::tolower(static_cast<unsigned char>(b));
-        });
+    return std::equal(suffix.begin(), suffix.end(), str.begin() + off, [](char a, char b) {
+        return std::tolower(static_cast<unsigned char>(a)) ==
+               std::tolower(static_cast<unsigned char>(b));
+    });
 }
 
 /// @brief 提取文件扩展名（不含点）
@@ -33,7 +32,7 @@ std::string_view get_ext(std::string_view filename) {
     return filename.substr(pos + 1);
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 int32_t bytes_per_token_for_ext(std::string_view ext) {
     if (ext.empty()) return BYTES_PER_TOKEN_DEFAULT;
@@ -94,6 +93,6 @@ namespace {
     auto ext = get_ext(filename);
     return rough_token_count(content, bytes_per_token_for_ext(ext));
 }
-} // anonymous namespace
+}  // anonymous namespace
 
-} // namespace agent::compact
+}  // namespace agent::compact

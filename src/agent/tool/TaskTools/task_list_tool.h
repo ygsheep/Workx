@@ -14,17 +14,14 @@ namespace agent::tool {
 
 /// @brief TaskListTool — 列出当前会话全部任务
 class TaskListTool : public ITool {
-public:
+   public:
     const std::string& name() const override;
     const std::string& description() const override;
     const std::string& prompt() const override;
     nlohmann::json input_schema() const override;
     bool is_read_only() const override { return true; }
 
-    ResultV2<ToolResult> call(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    ResultV2<ToolResult> call(const nlohmann::json& input, const ToolContext& ctx) const override;
 };
 
-} // namespace agent::tool
+}  // namespace agent::tool

@@ -14,7 +14,7 @@
 
 namespace {
 bool close_enough(double a, double b, double eps = 1e-6) { return std::abs(a - b) < eps; }
-} // namespace
+}  // namespace
 
 using island::Envelope;
 using island::MsgKind;
@@ -25,9 +25,12 @@ using island::serialize_request;
 using island::serialize_response;
 
 TEST_CASE("jsonl: event serialize/parse round trip", "[island][jsonl]") {
-    const std::string line = serialize_event("tool_call", nlohmann::json{
-        {"call_id", "call_1"}, {"tool_name", "Bash"},
-    }, 42, 1712345678.500);
+    const std::string line = serialize_event("tool_call",
+                                             nlohmann::json{
+                                                 {"call_id", "call_1"},
+                                                 {"tool_name", "Bash"},
+                                             },
+                                             42, 1712345678.500);
 
     REQUIRE(line.back() == '\n');
     auto env = parse_line(line);
@@ -48,8 +51,7 @@ TEST_CASE("jsonl: request serialize/parse", "[island][jsonl]") {
     REQUIRE(renv->type == "refresh_balance");
     REQUIRE(renv->id == "req-1");
 
-    const std::string resp = serialize_response("req-1", false,
-                                                nlohmann::json{{"error", "boom"}});
+    const std::string resp = serialize_response("req-1", false, nlohmann::json{{"error", "boom"}});
     auto senv = parse_line(resp);
     REQUIRE(senv.has_value());
     REQUIRE(senv->kind == MsgKind::Response);

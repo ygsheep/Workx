@@ -14,7 +14,7 @@
 
 namespace {
 bool close_enough(double a, double b, double eps = 1e-6) { return std::abs(a - b) < eps; }
-} // namespace
+}  // namespace
 
 using island::PricingTable;
 

@@ -38,20 +38,19 @@ namespace island {
 
 /// @brief 服务端运行配置
 struct IslandServerConfig {
-    std::string endpoint;             ///< IPC 端点路径（默认 ipc::default_endpoint(pid)）
-    uint32_t pid = 0;                 ///< TUI 进程 id
-    std::string project_root;         ///< TUI 工作目录（GUI 会话标识）
-    std::string model;                ///< 当前模型名
-    int64_t started_at = 0;           ///< 启动时间（Unix 秒）
-    size_t ring_capacity = 1024;      ///< 回放环形缓冲容量（约 256KB）
+    std::string endpoint;         ///< IPC 端点路径（默认 ipc::default_endpoint(pid)）
+    uint32_t pid = 0;             ///< TUI 进程 id
+    std::string project_root;     ///< TUI 工作目录（GUI 会话标识）
+    std::string model;            ///< 当前模型名
+    int64_t started_at = 0;       ///< 启动时间（Unix 秒）
+    size_t ring_capacity = 1024;  ///< 回放环形缓冲容量（约 256KB）
 };
 
 /// @brief Island IPC 服务端
 class IslandServer {
-public:
+   public:
     /// @param registry 注册文件写入器（可选；注入后 ping 刷新心跳、stop 移除记录）
-    IslandServer(IslandServerConfig cfg,
-                 std::unique_ptr<ipc::ITransport> listener = nullptr,
+    IslandServer(IslandServerConfig cfg, std::unique_ptr<ipc::ITransport> listener = nullptr,
                  RegistryWriter* registry = nullptr);
 
     IslandServer(const IslandServer&) = delete;
@@ -74,19 +73,18 @@ public:
     /// @brief 请求处理器（main 接线 refresh_balance / get_model_pricing /
     ///        get_session_summary 等）
     /// @return 响应 data；返回 json null 表示未支持的请求（响应 ok=false）
-    using RequestHandler = std::function<nlohmann::json(const std::string& type,
-                                                        const nlohmann::json& data)>;
+    using RequestHandler =
+        std::function<nlohmann::json(const std::string& type, const nlohmann::json& data)>;
     void set_request_handler(RequestHandler handler) { m_request_handler = std::move(handler); }
 
     /// @brief 当前缓冲条目数（诊断/测试）
     [[nodiscard]] size_t ring_size() const;
 
-private:
+   private:
     void accept_loop();
     void publisher_loop();
     void handle_connection(const std::shared_ptr<ipc::ITransport>& conn);
-    void handle_request(const std::shared_ptr<ipc::ITransport>& conn,
-                        const Envelope& env);
+    void handle_request(const std::shared_ptr<ipc::ITransport>& conn, const Envelope& env);
     void replay_from(const std::shared_ptr<ipc::ITransport>& conn, int64_t last_seq);
     void write_lines(const std::shared_ptr<ipc::ITransport>& conn,
                      const std::vector<std::string>& lines);
@@ -132,4 +130,4 @@ private:
     int64_t m_last_heartbeat_write = 0;  ///< 心跳写 registry 节流（10s）
 };
 
-} // namespace island
+}  // namespace island

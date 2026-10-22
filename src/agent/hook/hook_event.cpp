@@ -14,14 +14,22 @@ namespace agent::hook {
 
 const char* to_string(HookEvent event) noexcept {
     switch (event) {
-        case HookEvent::PreToolUse:       return "PreToolUse";
-        case HookEvent::PostToolUse:      return "PostToolUse";
-        case HookEvent::SessionStart:     return "SessionStart";
-        case HookEvent::SessionEnd:       return "SessionEnd";
-        case HookEvent::Stop:             return "Stop";
-        case HookEvent::SubagentStart:    return "SubagentStart";
-        case HookEvent::SubagentStop:     return "SubagentStop";
-        case HookEvent::PermissionRequest:return "PermissionRequest";
+        case HookEvent::PreToolUse:
+            return "PreToolUse";
+        case HookEvent::PostToolUse:
+            return "PostToolUse";
+        case HookEvent::SessionStart:
+            return "SessionStart";
+        case HookEvent::SessionEnd:
+            return "SessionEnd";
+        case HookEvent::Stop:
+            return "Stop";
+        case HookEvent::SubagentStart:
+            return "SubagentStart";
+        case HookEvent::SubagentStop:
+            return "SubagentStop";
+        case HookEvent::PermissionRequest:
+            return "PermissionRequest";
     }
     return "Unknown";
 }
@@ -46,18 +54,21 @@ std::optional<HookEvent> parse_event(const std::string& name) noexcept {
 
 const char* type_to_string(HookType type) noexcept {
     switch (type) {
-        case HookType::Command: return "command";
-        case HookType::Prompt:  return "prompt";
-        case HookType::Agent:   return "agent";
-        case HookType::Http:    return "http";
+        case HookType::Command:
+            return "command";
+        case HookType::Prompt:
+            return "prompt";
+        case HookType::Agent:
+            return "agent";
+        case HookType::Http:
+            return "http";
     }
     return "command";
 }
 
 namespace {
 /// @brief 从 JSON 取值（字符串），缺失返回默认
-std::string get_str(const nlohmann::json& obj, const char* key,
-                    const std::string& fallback = {}) {
+std::string get_str(const nlohmann::json& obj, const char* key, const std::string& fallback = {}) {
     const auto it = obj.find(key);
     if (it == obj.end() || !it->is_string()) return fallback;
     return it->get<std::string>();
@@ -84,20 +95,26 @@ std::vector<std::string> get_str_vec(const nlohmann::json& obj, const char* key)
     }
     return out;
 }
-} // anonymous namespace
+}  // anonymous namespace
 
 HookDefinition HookDefinition::from_json(const nlohmann::json& obj) {
     HookDefinition def;
 
     const std::string event_name = get_str(obj, "event");
-    if (auto ev = parse_event(event_name); ev) def.event = *ev;
-    else if (!event_name.empty()) def.event = HookEvent::PreToolUse;  // 未知事件，安全默认
+    if (auto ev = parse_event(event_name); ev)
+        def.event = *ev;
+    else if (!event_name.empty())
+        def.event = HookEvent::PreToolUse;  // 未知事件，安全默认
 
     const std::string type_name = get_str(obj, "type", "command");
-    if (type_name == "prompt") def.type = HookType::Prompt;
-    else if (type_name == "agent") def.type = HookType::Agent;
-    else if (type_name == "http") def.type = HookType::Http;
-    else def.type = HookType::Command;
+    if (type_name == "prompt")
+        def.type = HookType::Prompt;
+    else if (type_name == "agent")
+        def.type = HookType::Agent;
+    else if (type_name == "http")
+        def.type = HookType::Http;
+    else
+        def.type = HookType::Command;
 
     def.match = get_str(obj, "match");
     def.command = get_str(obj, "command");
@@ -117,4 +134,4 @@ HookDefinition HookDefinition::from_json(const nlohmann::json& obj) {
     return def;
 }
 
-} // namespace agent::hook
+}  // namespace agent::hook

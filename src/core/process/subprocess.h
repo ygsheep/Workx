@@ -6,7 +6,7 @@
  *          - Windows: CreateProcessW + CreatePipe + ReadFile
  *          - POSIX:   fork + execvp + pipe + poll
  *
- *          设计为函数而非类：WorkX 初期只需同步执行，不需要 background/streaming，
+ *          设计为函数而非类：Workx 初期只需同步执行，不需要 background/streaming，
  *          per-call 的 exec() 函数足够（对齐 Claude Code CLI 的 ripgrep 调用模式）。
  *
  *          不做"进程管理器"：进程每次新建不复用，取消用回调而非 AbortSignal 链，
@@ -26,20 +26,44 @@
 #include <vector>
 
 #include "core/process/exec_output.h"
+#include "core/process/process_isolation.h"
 #include "core/utils/result_v2.h"
 
 namespace agent::process {
 
 /// @brief exec() 调用选项
+/// @brief 子进程标准输入的处理方式（#78 VF-08）
+/// @details 自动执行的命令（headless 评测、FinalAnswer 前的验证门禁）绝不能
+///          继承父进程 stdin：命令一旦读 stdin，无人值守下会挂到超时。
+enum class StdinMode {
+    Inherit,  ///< 继承父进程 stdin（默认，保持既有行为）
+    Null,     ///< 接到空设备（POSIX /dev/null、Windows NUL）—— 读 stdin 立即 EOF
+};
+
 struct ExecOptions {
-    std::string cwd;                                    ///< 工作目录（空表示继承父进程）
-    std::vector<std::string> args;                      ///< 命令行参数（不含命令本身）
-    std::optional<std::chrono::milliseconds> timeout;   ///< 超时（不设则无超时）
-    std::function<bool()> is_cancelled;                 ///< 取消检查回调（返回 true 表示已取消）
+    std::string cwd;                ///< 工作目录（空表示继承父进程）
+    std::vector<std::string> args;  ///< 命令行参数（不含命令本身）
+    std::optional<std::chrono::milliseconds> timeout;  ///< 超时（不设则无超时）
+    std::function<bool()> is_cancelled;  ///< 取消检查回调（返回 true 表示已取消）
 
     /// @brief stdout 缓冲区上限（字节），超限截断并置 truncated 标志
     /// @details 防止恶意/失控子进程写爆内存。默认 20MB（对齐 CC ripgrep.ts MAX_BUFFER_SIZE）
     size_t max_output_bytes = 20 * 1024 * 1024;
+
+    /// @brief 进程级隔离规格（#84 方案 B）
+    /// @details 非空时要求对子进程施加进程树与资源约束：
+    ///          - Windows: 建 Job Object 后指派，超时/取消改走 TerminateJobObject
+    ///            （连带终止整棵树），结果写入 ExecOutput::isolation
+    ///          - POSIX:   忽略本字段 —— 进程树连带终止已由 exec_posix 的进程组机制
+    ///            （setpgid + kill(-pid)）覆盖，无重复施加的必要
+    ///          nullopt 表示不要求任何进程级约束。
+    std::optional<ProcessIsolationSpec> isolation;
+
+    /// @brief 子进程 stdin 的处理方式（#78 VF-08）
+    /// @details 默认 Inherit 保持不变；**无人值守路径必须显式设 Null** ——
+    ///          验证门禁、headless 评测这类自动命令，一旦读到 stdin 就会挂到
+    ///          超时（POSIX 继承父 stdin；Windows 则拿到 STARTF 的空句柄）。
+    StdinMode stdin_mode = StdinMode::Inherit;
 };
 
 /// @brief 同步执行外部命令，捕获输出
@@ -50,8 +74,9 @@ struct ExecOptions {
 ///         - err: 启动失败（命令不存在、管道创建失败等），不含子进程输出
 ///
 /// @par 超时/取消行为
-/// - POSIX: kill(SIGTERM) → 5s 后 kill(SIGKILL)（防 rg 卡在不可中断 I/O）
-/// - Windows: TerminateProcess（无 SIGTERM 概念，直接终止）
+/// - POSIX: kill(SIGTERM) → 5s 后 kill(SIGKILL)，作用于**整个进程组**（#23 P1）
+/// - Windows: 有进程级隔离（ExecOptions::isolation）时走 TerminateJobObject，连带
+///   终止整棵进程树；否则 TerminateProcess 只终止直接子进程（#84）
 /// - 对齐 Claude Code CLI utils/ripgrep.ts L174-182 的升级逻辑
 ///
 /// @par 线程安全
@@ -79,4 +104,4 @@ ResultV2<InteractiveExecResult> exec_interactive(const std::string& cmd,
                                                  const std::vector<std::string>& args,
                                                  const std::string& cwd = {});
 
-} // namespace agent::process
+}  // namespace agent::process

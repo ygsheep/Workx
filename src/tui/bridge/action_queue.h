@@ -15,7 +15,7 @@ namespace ftxtui {
 /// @details 事件回调入队不阻塞、不持锁碰 UI；UI 线程每帧 drain。
 ///          使用任意线程安全的队列即可，这里用互斥 + deque。
 class ActionQueue {
-public:
+   public:
     /// @brief 入队一个动作（任意线程可调用）
     void push(Action action);
 
@@ -26,7 +26,7 @@ public:
     /// @brief 是否为空
     bool empty() const;
 
-private:
+   private:
     mutable std::mutex m_mutex;
     std::deque<Action> m_queue;
 };

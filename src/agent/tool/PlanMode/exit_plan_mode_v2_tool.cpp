@@ -53,34 +53,28 @@ nlohmann::json ExitPlanModeV2Tool::input_schema() const {
         {"description",
          "#54: Optional list of critical files from exploration that the execution "
          "phase should touch. If omitted, the session coordinator fills it from the "
-         "aggregated PlanArtifact."}
-    };
-    return {
-        {"type", "object"},
-        {"properties", nlohmann::json::object({
-            {"plan", {
-                {"type", "string"},
-                {"description", "The detailed plan: files to change, approach, risks."}
-            }},
-            {"critical_files", critical_files_schema}
-        })},
-        {"required", nlohmann::json::array({"plan"})},
-        {"additionalProperties", false}
-    };
+         "aggregated PlanArtifact."}};
+    return {{"type", "object"},
+            {"properties",
+             nlohmann::json::object(
+                 {{"plan",
+                   {{"type", "string"},
+                    {"description", "The detailed plan: files to change, approach, risks."}}},
+                  {"critical_files", critical_files_schema}})},
+            {"required", nlohmann::json::array({"plan"})},
+            {"additionalProperties", false}};
 }
 
-ResultV2<ToolResult> ExitPlanModeV2Tool::call(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+ResultV2<ToolResult> ExitPlanModeV2Tool::call(const nlohmann::json& input,
+                                              const ToolContext& ctx) const {
     if (!input.contains("plan") || !input["plan"].is_string()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::MissingArgument, "ExitPlanModeV2: 'plan' is required");
+        return ResultV2<ToolResult>::err(Error::Code::MissingArgument,
+                                         "ExitPlanModeV2: 'plan' is required");
     }
     const std::string plan = input["plan"].get<std::string>();
     if (plan.empty()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput, "ExitPlanModeV2: 'plan' must not be empty");
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                         "ExitPlanModeV2: 'plan' must not be empty");
     }
 
     // #54：读取可选结构化 critical_files（LLM 可从 explore 产物聚合的 markdown 中整理；
@@ -102,11 +96,9 @@ ResultV2<ToolResult> ExitPlanModeV2Tool::call(
         // 会话 id 归一化后用于唯一文件名（避免覆盖 + 保证安全字符）
         std::string sid = ctx.session_id;
         for (char& c : sid) {
-            if (!std::isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '_')
-                c = '_';
+            if (!std::isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '_') c = '_';
         }
-        fs::path file = dir / (sid.empty() ? std::string("plan.md")
-                                           : ("plan_" + sid + ".md"));
+        fs::path file = dir / (sid.empty() ? std::string("plan.md") : ("plan_" + sid + ".md"));
         {
             std::ofstream ofs(file, std::ios::trunc | std::ios::binary);
             if (ofs) ofs << plan;
@@ -118,21 +110,15 @@ ResultV2<ToolResult> ExitPlanModeV2Tool::call(
 
     // 2. 先发布方案预览事件，通知 TUI 在侧边栏打开方案文件（先于提问弹出）
     if (ctx.event_bus_ptr && !plan_path.empty()) {
-        ctx.event_bus_ptr->publish_async(PlanPreviewEvent{
-            .session_id = ctx.session_id,
-            .plan_path = plan_path
-        });
+        ctx.event_bus_ptr->publish_async(
+            PlanPreviewEvent{.session_id = ctx.session_id, .plan_path = plan_path});
     }
 
     // 3. 呈现方案请求用户批准（无确认通道 → fail-closed 未批准）
     const std::string question =
         plan_path.empty()
-            ? std::format(
-                  "Plan:\n\n```\n{}\n```\n\nApprove this plan and exit plan mode?",
-                  plan)
-            : std::format(
-                  "方案已写入 {}（侧边栏已预览）。批准该方案并退出规划模式？",
-                  plan_path);
+            ? std::format("Plan:\n\n```\n{}\n```\n\nApprove this plan and exit plan mode?", plan)
+            : std::format("方案已写入 {}（侧边栏已预览）。批准该方案并退出规划模式？", plan_path);
     const bool approved = ask_user_confirm(ctx, question);
 
     // 4. 批准 → 恢复进入计划前的原模式（评审 #1：非硬编码回 Default）
@@ -156,11 +142,13 @@ ResultV2<ToolResult> ExitPlanModeV2Tool::call(
     }
 
     if (approved) {
-        return ResultV2<ToolResult>::ok(ToolResult::ok(std::string{
-            "Plan approved. Exiting plan mode; write/edit and command execution are allowed again."}));
+        return ResultV2<ToolResult>::ok(
+            ToolResult::ok(std::string{"Plan approved. Exiting plan mode; write/edit and command "
+                                       "execution are allowed again."}));
     }
-    return ResultV2<ToolResult>::ok(ToolResult::ok(std::string{
-        "Plan not approved. Staying in plan mode. Revise the plan and call ExitPlanModeV2 again."}));
+    return ResultV2<ToolResult>::ok(
+        ToolResult::ok(std::string{"Plan not approved. Staying in plan mode. Revise the plan and "
+                                   "call ExitPlanModeV2 again."}));
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

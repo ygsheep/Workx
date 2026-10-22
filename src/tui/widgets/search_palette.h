@@ -20,22 +20,22 @@ namespace ftxtui {
 
 /// @brief 条目类别（决定行右侧标签与选中动作；未知类别不显示标签）
 enum class SearchCategory {
-    Feature, ///< 功能（注册命令）
-    File,    ///< 文件名
-    Session, ///< 会话记录
-    Setting, ///< 设置
-    Model,   ///< 模型（/model 面板）
-    Provider,///< 供应商（切换面板）
+    Feature,   ///< 功能（注册命令）
+    File,      ///< 文件名
+    Session,   ///< 会话记录
+    Setting,   ///< 设置
+    Model,     ///< 模型（/model 面板）
+    Provider,  ///< 供应商（切换面板）
 };
 
 /// @brief 面板条目（UI 侧独立数据模型）
 struct SearchEntry {
-    SearchCategory category = SearchCategory::Feature; ///< 条目类别（默认 Feature）
-    std::string title;    ///< 主标题（命令名 / 文件名 / 会话标题 / 设置名 / 模型名）
-    std::string subtitle; ///< 副标题（描述 / 路径 / URL），可空
-    std::string keywords; ///< 额外搜索词（中英文别名），可空
-    int payload = 0;      ///< 调用方数据源下标
-    bool active = false;  ///< 使用中标记（行首 ●，如当前模型/供应商）
+    SearchCategory category = SearchCategory::Feature;  ///< 条目类别（默认 Feature）
+    std::string title;  ///< 主标题（命令名 / 文件名 / 会话标题 / 设置名 / 模型名）
+    std::string subtitle;  ///< 副标题（描述 / 路径 / URL），可空
+    std::string keywords;  ///< 额外搜索词（中英文别名），可空
+    int payload = 0;       ///< 调用方数据源下标
+    bool active = false;   ///< 使用中标记（行首 ●，如当前模型/供应商）
 };
 
 /// @brief 按子串过滤条目（大小写不敏感；标题前缀命中排前，其余保持原顺序）
@@ -52,12 +52,9 @@ std::vector<int> filter_search_entries(const std::vector<SearchEntry>& entries,
 /// @param title 面板标题（显示在搜索框上方，空则不显示）
 /// @param restrict_default 为 true 且搜索框为空时，仅保留「会话记录 / 设置」两类，
 ///                          供全局聚合面板（Ctrl+P）默认去噪；输入后恢复全类搜索。
-ftxui::Component make_search_palette(
-    std::vector<SearchEntry>& entries,
-    std::function<void(int)> on_select,
-    bool& open,
-    std::function<void()> on_close = nullptr,
-    std::string title = "",
-    bool restrict_default = false);
+ftxui::Component make_search_palette(std::vector<SearchEntry>& entries,
+                                     std::function<void(int)> on_select, bool& open,
+                                     std::function<void()> on_close = nullptr,
+                                     std::string title = "", bool restrict_default = false);
 
 }  // namespace ftxtui

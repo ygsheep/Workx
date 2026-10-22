@@ -45,7 +45,7 @@ constexpr const char* kShell = "cmd.exe";
 constexpr const char* kShell = "/bin/sh";
 #endif
 
-} // namespace
+}  // namespace
 
 // ============================================================
 // 基本执行与 stdout 捕获
@@ -108,9 +108,22 @@ TEST_CASE("subprocess propagates non-zero exit code", "[subprocess][exit_code]")
 TEST_CASE("subprocess returns err when command not found", "[subprocess][error]") {
     ExecOptions opts;
     auto r = exec("this_command_does_not_exist_xyz_12345", opts);
+    // 两侧呈现方式确实不同（#109），但**按平台精确断言**，不用"两种都接受"：
+    // 一旦两边都放宽，将来 Windows 若退化成"进程起来了、退出码非零"这种真实回归
+    // 就测不出来了 —— 而 Linux 侧的表现已经证明那条路径真实存在，不是假想风险。
+    // 跨平台要的是**每边期望唯一**，不是两边都放宽。
+    //
+    //   · Windows：CreateProcessW 直接失败 → 启动即失败，映射为 ResourceNotFound
+    //   · POSIX：fork 成功、子进程 execvp 失败后 _exit(127)（subprocess.cpp:678）
+    //     → exec 返回 ok，但退出码 127 且 is_success() 为 false
+#ifdef _WIN32
     REQUIRE(r.is_err());
-    // 启动失败应映射到 ResourceNotFound
     REQUIRE(r.error().code == Error::Code::ResourceNotFound);
+#else
+    REQUIRE(r.is_ok());
+    REQUIRE_FALSE(r.value().is_success());
+    REQUIRE(r.value().exit_code == 127);
+#endif
 }
 
 // ============================================================
@@ -166,6 +179,30 @@ TEST_CASE("subprocess terminates on timeout", "[subprocess][timeout]") {
 }
 
 // ============================================================
+// stdin 处理（#78 VF-08：自动执行的命令不得阻塞 stdin）
+// ============================================================
+
+TEST_CASE("subprocess stdin=Null: 读 stdin 的命令立即 EOF，不挂到超时",
+          "[subprocess][stdin]") {
+    // 场景：验证门禁 / headless 评测都是**无人值守自动执行**的。
+    // 默认 Inherit 会继承父进程 stdin（无人值守时往往是永不关闭的管道），
+    // 命令一读输入就挂到超时。接到空设备后读立即 EOF。
+    // 断言用 3s 超时兜底：真被阻塞的话就会命中 timed_out。
+    ExecOptions opts;
+#ifdef _WIN32
+    opts.args = {"/c", "set /p v="};
+#else
+    opts.args = {"-c", "read -r v"};
+#endif
+    opts.timeout = std::chrono::milliseconds(3000);
+    opts.stdin_mode = StdinMode::Null;
+
+    auto r = exec(kShell, opts);
+    REQUIRE(r.is_ok());
+    REQUIRE_FALSE(r.value().timed_out);  // 立即返回，而非耗尽 3s
+}
+
+// ============================================================
 // 取消
 // ============================================================
 
@@ -193,7 +230,8 @@ TEST_CASE("subprocess cancels via is_cancelled callback", "[subprocess][cancel]"
 }
 
 #ifndef _WIN32
-TEST_CASE("subprocess cancel kills descendant processes via process group", "[subprocess][cancel][posix]") {
+TEST_CASE("subprocess cancel kills descendant processes via process group",
+          "[subprocess][cancel][posix]") {
     // #23 P1：取消应杀整个进程组（setpgid + kill(-pid)），
     // 而非只杀 shell 直接 pid。验证 bash -c 的子孙（sleep）也被一并销毁。
     auto pidfile = fs::temp_directory_path() / "workx_subprocess_child_pid.txt";
@@ -208,8 +246,7 @@ TEST_CASE("subprocess cancel kills descendant processes via process group", "[su
 
     // shell 后台派生 sleep（子孙进程）并记录其 pid，再 wait 等待
     ExecOptions opts;
-    opts.args = {"-c",
-        "sleep 30 & echo $! > '" + pidfile.string() + "'; wait"};
+    opts.args = {"-c", "sleep 30 & echo $! > '" + pidfile.string() + "'; wait"};
     opts.is_cancelled = [&cancel_flag]() { return cancel_flag.load(); };
     auto r = exec(kShell, opts);
     canceler.join();
@@ -233,7 +270,7 @@ TEST_CASE("subprocess cancel kills descendant processes via process group", "[su
     REQUIRE(alive == -1);
     REQUIRE(errno == ESRCH);
 }
-#endif // !_WIN32
+#endif  // !_WIN32
 
 // ============================================================
 // 参数转义（多参数传递给非 shell 命令）

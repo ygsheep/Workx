@@ -22,9 +22,9 @@ namespace {
 struct TempFile {
     std::filesystem::path path;
     TempFile() {
-        path = std::filesystem::temp_directory_path() /
-               ("workx_history_" + std::to_string(::rand()) + "_" +
-                std::to_string(::clock()) + ".json");
+        path =
+            std::filesystem::temp_directory_path() / ("workx_history_" + std::to_string(::rand()) +
+                                                      "_" + std::to_string(::clock()) + ".json");
     }
     ~TempFile() {
         std::error_code ec;
@@ -39,7 +39,7 @@ TEST_CASE("history push dedups consecutive and caps size", "[history]") {
     REQUIRE(h.size() == 200);  // 上限 200
     h.push("msg199");          // 与最近一条相同 → 跳过
     REQUIRE(h.size() == 200);
-    h.push("");                // 空输入不入历史
+    h.push("");  // 空输入不入历史
     REQUIRE(h.size() == 200);
 }
 
@@ -65,8 +65,8 @@ TEST_CASE("history prev/next navigates and restores draft", "[history]") {
     REQUIRE(h.next(out));
     REQUIRE(out == "third");
     REQUIRE(h.next(out));
-    REQUIRE(out == "draft");              // 回到草稿位还原草稿
-    REQUIRE_FALSE(h.next(out));           // 已在草稿位
+    REQUIRE(out == "draft");     // 回到草稿位还原草稿
+    REQUIRE_FALSE(h.next(out));  // 已在草稿位
 }
 
 TEST_CASE("history prev on empty history returns false", "[history]") {
@@ -113,8 +113,7 @@ TEST_CASE("history save/load round-trips entries", "[history]") {
 
 TEST_CASE("history load tolerates missing and corrupt files", "[history]") {
     InputHistory h;
-    h.load(std::filesystem::temp_directory_path() /
-           "workx_history_does_not_exist_12345.json");
+    h.load(std::filesystem::temp_directory_path() / "workx_history_does_not_exist_12345.json");
     REQUIRE(h.size() == 0);
 
     TempFile tf;

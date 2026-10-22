@@ -73,15 +73,17 @@ std::string resolve_provider(const ToolContext& ctx) {
 std::string resolve_searxng_url(const ToolContext& ctx) {
     std::string url;
     if (ctx.config_manager_ptr) {
-        url = ctx.config_manager_ptr->get_or<std::string>(
-            keys::WEB_SEARCH_SEARXNG_URL, WebSearchTool::kDefaultSearxngUrl);
+        url = ctx.config_manager_ptr->get_or<std::string>(keys::WEB_SEARCH_SEARXNG_URL,
+                                                          WebSearchTool::kDefaultSearxngUrl);
     }
     if (url.empty()) url = get_env("WORKX_SEARXNG_URL");
     if (url.empty()) url = WebSearchTool::kDefaultSearxngUrl;
     // #25 P1-1/P2-2：仅允许 https 且 host 不得指向内网，非法配置回退默认实例
     if (!WebSearchTool::is_safe_searxng_url(url)) {
-        LOG_WARN("[WebSearch] 配置的 SearXNG URL '{}' 非法（仅允许 https 且不得指向内网/回环），"
-                 "回退默认实例 {}", url, WebSearchTool::kDefaultSearxngUrl);
+        LOG_WARN(
+            "[WebSearch] 配置的 SearXNG URL '{}' 非法（仅允许 https 且不得指向内网/回环），"
+            "回退默认实例 {}",
+            url, WebSearchTool::kDefaultSearxngUrl);
         url = WebSearchTool::kDefaultSearxngUrl;
     }
     return url;
@@ -118,9 +120,15 @@ std::string decode_html_entities(const std::string& s) {
     std::string out;
     out.reserve(s.size());
     for (std::size_t i = 0; i < s.size(); ++i) {
-        if (s[i] != '&') { out += s[i]; continue; }
+        if (s[i] != '&') {
+            out += s[i];
+            continue;
+        }
         const std::size_t semi = s.find(';', i);
-        if (semi == std::string::npos || semi - i > 12) { out += s[i]; continue; }
+        if (semi == std::string::npos || semi - i > 12) {
+            out += s[i];
+            continue;
+        }
         const std::string ent = s.substr(i + 1, semi - i - 1);
         bool replaced = false;
         if (!ent.empty() && ent[0] == '#') {
@@ -131,7 +139,8 @@ std::string decode_html_entities(const std::string& s) {
             else
                 cp = std::strtoul(ent.c_str() + 1, &endp, 10);
             if (endp && *endp == '\0' && cp > 0) {
-                if (cp < 0x80) out += static_cast<char>(cp);
+                if (cp < 0x80)
+                    out += static_cast<char>(cp);
                 else if (cp < 0x800) {
                     out += static_cast<char>(0xC0 | (cp >> 6));
                     out += static_cast<char>(0x80 | (cp & 0x3F));
@@ -149,15 +158,18 @@ std::string decode_html_entities(const std::string& s) {
             }
         } else {
             static const std::pair<const char*, const char*> kNamed[] = {
-                {"amp", "&"}, {"lt", "<"}, {"gt", ">"}, {"quot", "\""},
-                {"apos", "'"}, {"nbsp", " "}, {"ensp", " "}, {"emsp", " "},
-                {"middot", "·"}, {"hellip", "…"}, {"mdash", "—"}, {"ndash", "–"},
-                {"times", "×"}, {"copy", "©"}, {"reg", "®"}, {"trade", "™"},
-                {"laquo", "«"}, {"raquo", "»"}, {"lsquo", "‘"}, {"rsquo", "’"},
-                {"ldquo", "“"}, {"rdquo", "”"}, {"bull", "•"}, {"sect", "§"},
+                {"amp", "&"},   {"lt", "<"},    {"gt", ">"},    {"quot", "\""},  {"apos", "'"},
+                {"nbsp", " "},  {"ensp", " "},  {"emsp", " "},  {"middot", "·"}, {"hellip", "…"},
+                {"mdash", "—"}, {"ndash", "–"}, {"times", "×"}, {"copy", "©"},   {"reg", "®"},
+                {"trade", "™"}, {"laquo", "«"}, {"raquo", "»"}, {"lsquo", "‘"},  {"rsquo", "’"},
+                {"ldquo", "“"}, {"rdquo", "”"}, {"bull", "•"},  {"sect", "§"},
             };
             for (const auto& [name, rep] : kNamed) {
-                if (ent == name) { out += rep; replaced = true; break; }
+                if (ent == name) {
+                    out += rep;
+                    replaced = true;
+                    break;
+                }
             }
         }
         i = replaced ? semi : i;
@@ -181,8 +193,8 @@ bool contains_sensitive_search(const std::string& query) {
     if (lower.find("内网") != std::string::npos) return true;
     // 凭据/敏感信息（子串匹配，词本身即敏感）
     static const char* kCredentialPatterns[] = {
-        "password", "passwd", "secret", "token", "api_key", "apikey",
-        "private key", "ssh key", "credential", "密码", "密钥", "口令",
+        "password",    "passwd",  "secret",     "token", "api_key", "apikey",
+        "private key", "ssh key", "credential", "密码",  "密钥",    "口令",
     };
     for (const char* p : kCredentialPatterns) {
         if (lower.find(p) != std::string::npos) return true;
@@ -190,7 +202,7 @@ bool contains_sensitive_search(const std::string& query) {
     return false;
 }
 
-} // namespace
+}  // namespace
 
 const std::string& WebSearchTool::name() const {
     static const std::string n{"WebSearch"};
@@ -198,8 +210,9 @@ const std::string& WebSearchTool::name() const {
 }
 
 const std::string& WebSearchTool::description() const {
-    static const std::string d{"按关键词搜索互联网，返回标题、URL、摘要的结构化列表。"
-                              "用于获取时效性信息或验证资料出处。"};
+    static const std::string d{
+        "按关键词搜索互联网，返回标题、URL、摘要的结构化列表。"
+        "用于获取时效性信息或验证资料出处。"};
     return d;
 }
 
@@ -208,46 +221,42 @@ const std::string& WebSearchTool::prompt() const {
         "Call WebSearch when the answer depends on recent events, product "
         "changes, or information not in your training data (release notes, "
         "latest docs, news). Keep queries concise English keywords and prefer "
-        "num_results ≤ 8. Follow-up unclear items via WebFetch."
-    };
+        "num_results ≤ 8. Follow-up unclear items via WebFetch."};
     return p;
 }
 
 nlohmann::json WebSearchTool::input_schema() const {
     return {
         {"type", "object"},
-        {"properties", {
-            {"query", {{"type", "string"},
-                       {"description", "搜索关键词（必填）。建议用英文或中英混合的关键词，不必写整句。"}}},
-            {"num_results", {{"type", "integer"},
-                             {"minimum", kMinNumResults}, {"maximum", kMaxNumResults},
-                             {"default", kDefaultNumResults},
-                             {"description", "返回条数（1-20，默认 8）"}}},
-            {"search_depth", {{"type", "string"}, {"enum", nlohmann::json::array({"basic", "advanced"})},
-                              {"default", "basic"},
-                              {"description", "深度：basic 快（默认），advanced 抓取首条详情更准但更慢/更贵。"}}},
-        }},
+        {"properties",
+         {
+             {"query",
+              {{"type", "string"},
+               {"description", "搜索关键词（必填）。建议用英文或中英混合的关键词，不必写整句。"}}},
+             {"num_results",
+              {{"type", "integer"},
+               {"minimum", kMinNumResults},
+               {"maximum", kMaxNumResults},
+               {"default", kDefaultNumResults},
+               {"description", "返回条数（1-20，默认 8）"}}},
+             {"search_depth",
+              {{"type", "string"},
+               {"enum", nlohmann::json::array({"basic", "advanced"})},
+               {"default", "basic"},
+               {"description", "深度：basic 快（默认），advanced 抓取首条详情更准但更慢/更贵。"}}},
+         }},
         {"required", {"query"}},
-        {"additionalProperties", false}
-    };
+        {"additionalProperties", false}};
 }
 
-nlohmann::json WebSearchTool::build_tavily_request(
-        const std::string& api_key,
-        const std::string& query,
-        int num_results,
-        const std::string& search_depth) {
+nlohmann::json WebSearchTool::build_tavily_request(const std::string& api_key,
+                                                   const std::string& query, int num_results,
+                                                   const std::string& search_depth) {
     const auto depth = (search_depth == "advanced") ? "advanced" : "basic";
-    return {
-        {"api_key",             api_key},
-        {"query",               query},
-        {"search_depth",        depth},
-        {"max_results",         clamp_num_results(num_results)},
-        {"include_answer",      false},
-        {"include_raw_content", false},
-        {"include_images",      false},
-        {"include_image_descriptions", false}
-    };
+    return {{"api_key", api_key},      {"query", query},
+            {"search_depth", depth},   {"max_results", clamp_num_results(num_results)},
+            {"include_answer", false}, {"include_raw_content", false},
+            {"include_images", false}, {"include_image_descriptions", false}};
 }
 
 std::string WebSearchTool::parse_tavily_response(const nlohmann::json& r) {
@@ -261,8 +270,7 @@ std::string WebSearchTool::parse_tavily_response(const nlohmann::json& r) {
         }
     }
     const nlohmann::json* results = nullptr;
-    if (r.contains("results") && r.at("results").is_array())
-        results = &r.at("results");
+    if (r.contains("results") && r.at("results").is_array()) results = &r.at("results");
     int idx = 0;
     if (!results || results->empty()) {
         if (has_answer) return out.str();
@@ -279,8 +287,8 @@ std::string WebSearchTool::parse_tavily_response(const nlohmann::json& r) {
             if (!v.is_string()) return {};
             return v.get<std::string>();
         };
-        const std::string title   = get_str_field(item, "title");
-        const std::string url     = get_str_field(item, "url");
+        const std::string title = get_str_field(item, "title");
+        const std::string url = get_str_field(item, "url");
         const std::string content = get_str_field(item, "content");
         if (title.empty() || url.empty()) continue;
         idx++;
@@ -313,9 +321,8 @@ std::string WebSearchTool::parse_searxng_response(const nlohmann::json& r) {
     return parse_tavily_response(r);
 }
 
-std::string WebSearchTool::build_searxng_url(
-        const std::string& base_url,
-        const std::string& query) {
+std::string WebSearchTool::build_searxng_url(const std::string& base_url,
+                                             const std::string& query) {
     std::string base = base_url;
     while (!base.empty() && base.back() == '/') base.pop_back();
     return base + "/search?q=" + url_encode(query) + "&format=json&safesearch=0";
@@ -329,10 +336,8 @@ bool WebSearchTool::is_safe_searxng_url(const std::string& url) {
     return true;
 }
 
-std::string WebSearchTool::build_bing_url(
-        const std::string& base_url,
-        const std::string& query,
-        int num_results) {
+std::string WebSearchTool::build_bing_url(const std::string& base_url, const std::string& query,
+                                          int num_results) {
     std::string base = base_url;
     while (!base.empty() && base.back() == '/') base.pop_back();
     return base + "?q=" + url_encode(query) +
@@ -357,7 +362,8 @@ std::string WebSearchTool::parse_bing_response(const std::string& html) {
         std::string title, url;
         // 标题 + URL：<h2...><a href="..." ...>title</a></h2>
         // 用自定义原始串分隔符 _h2，避免模式内 ")" 提前终止 R"(...)"
-        if (std::regex_search(block, m,
+        if (std::regex_search(
+                block, m,
                 std::regex(R"_h2(<h2[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)</a>)_h2",
                            std::regex::icase))) {
             url = m[1].str();
@@ -367,7 +373,7 @@ std::string WebSearchTool::parse_bing_response(const std::string& html) {
         // 摘要：<p ...>...</p>（Bing 摘要可能含 <strong> 等标签）
         std::string snippet;
         if (std::regex_search(block, m,
-                std::regex(R"(<p[^>]*>([\s\S]*?)</p>)", std::regex::icase))) {
+                              std::regex(R"(<p[^>]*>([\s\S]*?)</p>)", std::regex::icase))) {
             snippet = decode_html_entities(strip_tags(m[1].str()));
         }
         idx++;
@@ -379,8 +385,10 @@ std::string WebSearchTool::parse_bing_response(const std::string& html) {
         }
         for (std::size_t i = 0; i < snippet.size(); ++i) {
             if (snippet[i] == '\r') continue;
-            if (snippet[i] == '\n') out << '\n' << "    ";
-            else out << snippet[i];
+            if (snippet[i] == '\n')
+                out << '\n' << "    ";
+            else
+                out << snippet[i];
         }
         out << "\n\n";
     }
@@ -390,10 +398,8 @@ std::string WebSearchTool::parse_bing_response(const std::string& html) {
 
 // ================= 权限检查 =================
 
-PermissionResult WebSearchTool::check_permissions(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+PermissionResult WebSearchTool::check_permissions(const nlohmann::json& input,
+                                                  const ToolContext& ctx) const {
     if (is_bypass_mode(ctx.permission_mode)) {
         return PermissionResult::ok();
     }
@@ -403,14 +409,14 @@ PermissionResult WebSearchTool::check_permissions(
     const std::string query = input.at("query").get<std::string>();
     // 搜索本身只读安全；仅当关键词命中内网路径/凭据类敏感词时弹确认
     if (contains_sensitive_search(query)) {
-        if (ask_user_confirm(ctx, std::format(
-                "WebSearch 搜索词可能涉及敏感信息，请确认：\n\n```\n{}\n```\n\n允许执行该搜索？",
-                query))) {
+        if (ask_user_confirm(
+                ctx,
+                std::format("WebSearch "
+                            "搜索词可能涉及敏感信息，请确认：\n\n```\n{}\n```\n\n允许执行该搜索？",
+                            query))) {
             return PermissionResult::ok();
         }
-        return PermissionResult::err(
-            Error::Code::PermissionDenied,
-            "用户拒绝执行该搜索");
+        return PermissionResult::err(Error::Code::PermissionDenied, "用户拒绝执行该搜索");
     }
     return PermissionResult::ok();
 }
@@ -421,20 +427,17 @@ namespace {
 // Provider 实现（#25）：Tavily（需 Key）/ SearXNG（免 Key）/ Bing（免 Key 兜底）
 // ============================================================
 
-ResultV2<ToolResult> search_tavily(
-        const std::string& key,
-        const std::string& query,
-        int num_results,
-        const std::string& depth) {
+ResultV2<ToolResult> search_tavily(const std::string& key, const std::string& query,
+                                   int num_results, const std::string& depth) {
     auto body = WebSearchTool::build_tavily_request(key, query, num_results, depth);
     HttpClient client;
     auto http = client.post_json(WebSearchTool::kTavilyEndpoint, {}, body,
                                  WebSearchTool::kDefaultTimeoutMs);
     if (!http.is_ok()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::NetworkDisconnected,
-            "WebSearch(Tavily) 请求失败: " + http.error().message,
-            "endpoint=" + std::string(WebSearchTool::kTavilyEndpoint) + "; context=" + http.error().context);
+        return ResultV2<ToolResult>::err(Error::Code::NetworkDisconnected,
+                                         "WebSearch(Tavily) 请求失败: " + http.error().message,
+                                         "endpoint=" + std::string(WebSearchTool::kTavilyEndpoint) +
+                                             "; context=" + http.error().context);
     }
     const HttpResponse& resp = http.value();
     if (resp.is_rate_limited()) {
@@ -470,20 +473,17 @@ ResultV2<ToolResult> search_tavily(
     return ResultV2<ToolResult>::ok(ToolResult::ok(head.str()));
 }
 
-ResultV2<ToolResult> search_searxng(
-        const std::string& base_url,
-        const std::string& query,
-        int num_results) {
+ResultV2<ToolResult> search_searxng(const std::string& base_url, const std::string& query,
+                                    int num_results) {
     const std::string url = WebSearchTool::build_searxng_url(base_url, query);
     HttpClient client;
     // #25 P1-1：SearXNG 实例 URL 来自可写配置/环境变量，强制开启 SSRF 防护
     client.set_block_private_ips(true);
     auto http = client.get(url, {}, WebSearchTool::kDefaultTimeoutMs);
     if (!http.is_ok()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::NetworkDisconnected,
-            "WebSearch(SearXNG) 请求失败: " + http.error().message,
-            "url=" + url);
+        return ResultV2<ToolResult>::err(Error::Code::NetworkDisconnected,
+                                         "WebSearch(SearXNG) 请求失败: " + http.error().message,
+                                         "url=" + url);
     }
     const HttpResponse& resp = http.value();
     if (resp.is_rate_limited()) {
@@ -510,17 +510,16 @@ ResultV2<ToolResult> search_searxng(
     const std::string text = WebSearchTool::parse_searxng_response(jresp);
     std::ostringstream head;
     head << "# WebSearch 结果: " << query << "\n";
-    head << "Provider: SearXNG (" << base_url << ", max=" << clamp_num_results(num_results) << ")\n\n";
+    head << "Provider: SearXNG (" << base_url << ", max=" << clamp_num_results(num_results)
+         << ")\n\n";
     head << "---\n\n";
     head << text;
     return ResultV2<ToolResult>::ok(ToolResult::ok(head.str()));
 }
 
-ResultV2<ToolResult> search_bing(
-        const std::string& query,
-        int num_results) {
-    const std::string url = WebSearchTool::build_bing_url(
-        WebSearchTool::kBingEndpoint, query, num_results);
+ResultV2<ToolResult> search_bing(const std::string& query, int num_results) {
+    const std::string url =
+        WebSearchTool::build_bing_url(WebSearchTool::kBingEndpoint, query, num_results);
     // 用标准 Chrome UA 模拟真实浏览器，避免被反爬拦截
     const std::vector<std::pair<std::string, std::string>> headers = {
         {"User-Agent",
@@ -531,17 +530,15 @@ ResultV2<ToolResult> search_bing(
     HttpClient client;
     auto http = client.get(url, headers, WebSearchTool::kDefaultTimeoutMs);
     if (!http.is_ok()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::NetworkDisconnected,
-            "WebSearch(Bing) 请求失败: " + http.error().message,
-            "url=" + url);
+        return ResultV2<ToolResult>::err(Error::Code::NetworkDisconnected,
+                                         "WebSearch(Bing) 请求失败: " + http.error().message,
+                                         "url=" + url);
     }
     const HttpResponse& resp = http.value();
     if (resp.is_rate_limited()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::HttpRateLimited,
-            "WebSearch(Bing) 被限流 (HTTP 429)，稍后重试。",
-            "url=" + url);
+        return ResultV2<ToolResult>::err(Error::Code::HttpRateLimited,
+                                         "WebSearch(Bing) 被限流 (HTTP 429)，稍后重试。",
+                                         "url=" + url);
     }
     if (!resp.is_success()) {
         return ResultV2<ToolResult>::err(
@@ -558,28 +555,28 @@ ResultV2<ToolResult> search_bing(
     return ResultV2<ToolResult>::ok(ToolResult::ok(head.str()));
 }
 
-} // namespace
+}  // namespace
 
-ResultV2<ToolResult> WebSearchTool::call(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+ResultV2<ToolResult> WebSearchTool::call(const nlohmann::json& input,
+                                         const ToolContext& ctx) const {
     if (!input.contains("query") || !input.at("query").is_string()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput, "WebSearch 需要字符串参数 query", input.dump());
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                         "WebSearch 需要字符串参数 query", input.dump());
     }
     const std::string query = input.at("query").get<std::string>();
     if (query.empty()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput, "WebSearch query 不能为空");
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput, "WebSearch query 不能为空");
     }
     int num_results = kDefaultNumResults;
     if (input.contains("num_results")) {
         if (input.at("num_results").is_number_integer())
             num_results = input.at("num_results").get<int>();
         else if (input.at("num_results").is_string()) {
-            try { num_results = std::stoi(input.at("num_results").get<std::string>()); }
-            catch (...) { num_results = kDefaultNumResults; }
+            try {
+                num_results = std::stoi(input.at("num_results").get<std::string>());
+            } catch (...) {
+                num_results = kDefaultNumResults;
+            }
         }
     }
     std::string depth = "basic";
@@ -613,8 +610,9 @@ ResultV2<ToolResult> WebSearchTool::call(
         return try_searxng();
     }
     if (key.empty()) {
-        LOG_WARN("[WebSearch] 未配置 Tavily API Key（web.search.tavily_api_key 或 TAVILY_API_KEY），"
-                 "回退到免 Key 的 SearXNG/Bing");
+        LOG_WARN(
+            "[WebSearch] 未配置 Tavily API Key（web.search.tavily_api_key 或 TAVILY_API_KEY），"
+            "回退到免 Key 的 SearXNG/Bing");
         return try_searxng();
     }
     auto r = search_tavily(key, query, num_results, depth);
@@ -624,4 +622,4 @@ ResultV2<ToolResult> WebSearchTool::call(
     return try_searxng();
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

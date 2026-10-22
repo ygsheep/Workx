@@ -1,7 +1,9 @@
 /**
  * @file island_server.cpp
  * @brief Island IPC 服务端实现
- * @version 1.0.1
+ * @details #118：accept 循环改为「监听端点全程开放 + 连接由独立实例承载」，
+ *          消除重连窗口（见 accept_loop() 注释）。
+ * @version 1.1.0
  * @date 2026-08
  */
 
@@ -33,10 +35,9 @@ uint32_t current_pid() noexcept {
 #endif
 }
 
-} // namespace
+}  // namespace
 
-IslandServer::IslandServer(IslandServerConfig cfg,
-                           std::unique_ptr<ipc::ITransport> listener,
+IslandServer::IslandServer(IslandServerConfig cfg, std::unique_ptr<ipc::ITransport> listener,
                            RegistryWriter* registry)
     : m_cfg(std::move(cfg)),
       m_listener(listener ? std::move(listener) : ipc::create_listener()),
@@ -52,9 +53,7 @@ IslandServer::IslandServer(IslandServerConfig cfg,
     }
 }
 
-IslandServer::~IslandServer() {
-    stop();
-}
+IslandServer::~IslandServer() { stop(); }
 
 void IslandServer::start() {
     if (m_running.exchange(true)) return;
@@ -64,9 +63,8 @@ void IslandServer::start() {
     // 等待监听端点就绪（accept 线程完成 CreateNamedPipe），避免客户端抢连失败
     {
         std::unique_lock<std::mutex> lock(m_listening_mutex);
-        m_listening_cv.wait_for(lock, std::chrono::seconds(5), [this] {
-            return m_listening_ok.load() || m_stop.load();
-        });
+        m_listening_cv.wait_for(lock, std::chrono::seconds(5),
+                                [this] { return m_listening_ok.load() || m_stop.load(); });
     }
     // 启动即写入注册文件（GUI 扫描发现本 TUI）
     if (m_registry) {
@@ -124,7 +122,11 @@ size_t IslandServer::ring_size() const {
 // ============================================================
 
 void IslandServer::accept_loop() {
-    // 循环：listen → accept → 服务连接 → 重新 listen（支持 GUI 重连）
+    // 外层：建立/重建监听端点。内层：连续服务排队的客户端（支持 GUI 重连）。
+    // #118：监听端点在内层循环期间**始终保持开放**，连接由独立实例承载 ——
+    // 旧实现是「accept 成功后把 listener 转成连接、再建新实例重新 listen」，
+    // 于是「上一条连接断开 → 重新 listen」之间存在无监听者窗口，重连客户端
+    // 撞进去只能靠固定重试硬扛（Linux 侧 600ms，CI 上实测 37.5% 误拦）。
     while (!m_stop.load()) {
         if (!m_listener->listen(m_cfg.endpoint)) {
             if (m_stop.load()) break;
@@ -140,27 +142,21 @@ void IslandServer::accept_loop() {
         // stop 已触发则不再 accept（listen 窗口创建的新句柄成孤儿时随进程回收）
         if (m_stop.load()) break;
 
-        if (!m_listener->accept()) {
-            if (m_stop.load()) break;
-            // accept 被关闭句柄打断（stop）或异常：直接退出循环
-            break;
-        }
-
-        // accept 成功后 listener 已转化为连接，创建独立实例供下轮监听
-        // （注：传输实现内 accept 后 close 了监听端点）
-        std::shared_ptr<ipc::ITransport> conn;
-        {
-            std::lock_guard<std::mutex> lock(m_conn_mutex);
-            conn = std::shared_ptr<ipc::ITransport>(std::move(m_listener));
-            m_listener = ipc::create_listener();
-            m_conn = conn;
-            // 连接建立后先不推送，等 hello 握手指定 last_seq（防重复）
-            m_hello_received.store(false);
-        }
-        handle_connection(conn);
-        {
-            std::lock_guard<std::mutex> lock(m_conn_mutex);
-            m_conn.reset();
+        while (!m_stop.load()) {
+            auto conn = m_listener->accept_connection();
+            if (!conn) break;  // stop 打断，或监听实例失效（回到外层重建）
+            std::shared_ptr<ipc::ITransport> shared{std::move(conn)};
+            {
+                std::lock_guard<std::mutex> lock(m_conn_mutex);
+                m_conn = shared;
+                // 连接建立后先不推送，等 hello 握手指定 last_seq（防重复）
+                m_hello_received.store(false);
+            }
+            handle_connection(shared);
+            {
+                std::lock_guard<std::mutex> lock(m_conn_mutex);
+                m_conn.reset();
+            }
         }
     }
 }
@@ -174,8 +170,8 @@ void IslandServer::publisher_loop() {
             std::lock_guard<std::mutex> ring_lock(m_ring_mutex);
             if (m_ring.empty()) return false;
             std::lock_guard<std::mutex> conn_lock(m_conn_mutex);
-            return static_cast<bool>(m_conn) && m_hello_received.load()
-                && m_ring.back().seq >= m_next_seq.load();
+            return static_cast<bool>(m_conn) && m_hello_received.load() &&
+                   m_ring.back().seq >= m_next_seq.load();
         });
 
         if (m_stop.load()) break;
@@ -190,7 +186,8 @@ void IslandServer::publisher_loop() {
             }
             m_next_seq.store(sentinel + 1);
         }
-        std::shared_ptr<ipc::ITransport> conn;        {
+        std::shared_ptr<ipc::ITransport> conn;
+        {
             std::lock_guard<std::mutex> conn_lock(m_conn_mutex);
             conn = m_conn;
         }
@@ -206,8 +203,7 @@ void IslandServer::handle_connection(const std::shared_ptr<ipc::ITransport>& con
     while (!m_stop.load()) {
         const ssize_t n = conn->read(chunk);
         if (n <= 0) break;  // EOF / 错误
-        buffer.append(reinterpret_cast<const char*>(chunk.data()),
-                      static_cast<size_t>(n));
+        buffer.append(reinterpret_cast<const char*>(chunk.data()), static_cast<size_t>(n));
 
         size_t pos = 0;
         while (true) {
@@ -247,7 +243,7 @@ void IslandServer::handle_request(const std::shared_ptr<ipc::ITransport>& conn,
 #ifdef WORKX_BUILD_INFO
             {"tui_version", "workx-" WORKX_BUILD_INFO
 #ifdef WORKX_FILE_VERSION
-             " (files: " WORKX_FILE_VERSION ")"
+                            " (files: " WORKX_FILE_VERSION ")"
 #endif
             },
 #elif defined(WORKX_VERSION)
@@ -282,21 +278,22 @@ void IslandServer::handle_request(const std::shared_ptr<ipc::ITransport>& conn,
 
     // 其余请求（refresh_balance / get_model_pricing / get_session_summary）→ 回调
     if (!m_request_handler) {
-        write_lines(conn, {serialize_response(id, false, nlohmann::json{
-            {"error", "unsupported request: " + type}})});
+        write_lines(
+            conn, {serialize_response(id, false,
+                                      nlohmann::json{{"error", "unsupported request: " + type}})});
         return;
     }
     nlohmann::json result = m_request_handler(type, data);
     if (result.is_null()) {
-        write_lines(conn, {serialize_response(id, false, nlohmann::json{
-            {"error", "unsupported request: " + type}})});
+        write_lines(
+            conn, {serialize_response(id, false,
+                                      nlohmann::json{{"error", "unsupported request: " + type}})});
         return;
     }
     write_lines(conn, {serialize_response(id, true, result)});
 }
 
-void IslandServer::replay_from(const std::shared_ptr<ipc::ITransport>& conn,
-                               int64_t last_seq) {
+void IslandServer::replay_from(const std::shared_ptr<ipc::ITransport>& conn, int64_t last_seq) {
     std::vector<std::string> lines;
     {
         std::lock_guard<std::mutex> lock(m_ring_mutex);
@@ -338,4 +335,4 @@ void IslandServer::refresh_registry_heartbeat() {
     m_registry->write(entry);
 }
 
-} // namespace island
+}  // namespace island

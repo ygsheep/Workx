@@ -1,0 +1,425 @@
+/**
+ * @file test_file_permissions.cpp
+ * @brief 私有文件/目录权限加固单元测试（Issue #88）
+ * @details POSIX 断言权限位；Windows 断言 DACL 被 PROTECTED，且授权主体恰好只有
+ *          「属主 + 当前进程用户 + SYSTEM」（#177：提权时属主可能是 Administrators，
+ *          而真实登录用户是令牌用户，缺一即把真实用户锁死，故不再断言固定条数）。
+ */
+
+#include <catch2/catch_test_macros.hpp>
+
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <vector>
+
+#include "core/config/config_manager.h"
+#include "core/utils/file_permissions.h"
+
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+#include <aclapi.h>
+#endif
+
+namespace {
+
+using agent::harden_private_dir;
+using agent::harden_private_file;
+using agent::is_private_file;
+
+/// 独占临时目录（析构时清理），避免污染用户真实配置目录
+class TempDir {
+   public:
+    explicit TempDir(const std::string& name)
+        : path(std::filesystem::temp_directory_path() / ("workx_perm_" + name)) {
+        std::error_code ec;
+        std::filesystem::remove_all(path, ec);
+        std::filesystem::create_directories(path);
+    }
+    ~TempDir() {
+        std::error_code ec;
+        // 目录可能已被收紧为仅属主，清理前先恢复属主全权，否则删不掉
+        std::filesystem::permissions(path, std::filesystem::perms::owner_all,
+                                     std::filesystem::perm_options::replace, ec);
+        std::filesystem::remove_all(path, ec);
+    }
+    TempDir(const TempDir&) = delete;
+    TempDir& operator=(const TempDir&) = delete;
+
+    std::filesystem::path path;
+};
+
+/// 造一个内容为 "{}" 的普通文件
+void make_file(const std::filesystem::path& path) {
+    std::ofstream file(path);
+    file << "{}";
+}
+
+#if defined(_WIN32)
+
+/// 读取当前进程令牌的用户 SID（LocalAlloc 副本，调用方须 LocalFree）
+PSID current_process_user_sid() {
+    HANDLE token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) return nullptr;
+    DWORD len = 0;
+    GetTokenInformation(token, TokenUser, nullptr, 0, &len);
+    PSID copy = nullptr;
+    if (len > 0) {
+        std::vector<BYTE> buf(len);
+        if (GetTokenInformation(token, TokenUser, buf.data(), len, &len)) {
+            PSID sid = static_cast<TOKEN_USER*>(static_cast<void*>(buf.data()))->User.Sid;
+            const DWORD sid_len = GetLengthSid(sid);
+            copy = LocalAlloc(LPTR, sid_len);
+            if (copy) CopySid(sid_len, copy, sid);
+        }
+    }
+    CloseHandle(token);
+    return copy;
+}
+
+/// DACL 关键特征：加固成功后应置 PROTECTED，且授权主体恰好为
+/// 「路径属主 + 当前进程用户 + LocalSystem」。不再断言固定条数（#177）——
+/// 非提权时属主即令牌用户（2 条），提权时二者分离（3 条），两种都必须成立。
+struct DaclInfo {
+    DWORD ace_count = 0;
+    bool protected_dacl = false;
+    bool has_local_system = false;
+    bool has_owner = false;         ///< 路径属主在 DACL 中
+    bool has_current_user = false;  ///< 当前进程令牌用户在 DACL 中
+    bool only_trusted = true;       ///< 所有 ALLOW ACE 都只授权给上述三方
+};
+
+DaclInfo inspect_dacl(const std::filesystem::path& path) {
+    DaclInfo info;
+    PACL dacl = nullptr;
+    PSID owner = nullptr;
+    PSECURITY_DESCRIPTOR sd = nullptr;
+    if (GetNamedSecurityInfoW(path.c_str(), SE_FILE_OBJECT,
+                              OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION |
+                                  PROTECTED_DACL_SECURITY_INFORMATION,
+                              &owner, nullptr, &dacl, nullptr, &sd) != ERROR_SUCCESS) {
+        return info;
+    }
+
+    ACL_SIZE_INFORMATION size_info{};
+    if (dacl && GetAclInformation(dacl, &size_info, sizeof(size_info), AclSizeInformation)) {
+        info.ace_count = size_info.AceCount;
+    }
+    SECURITY_DESCRIPTOR_CONTROL control = 0;
+    DWORD revision = 0;
+    if (sd && GetSecurityDescriptorControl(sd, &control, &revision)) {
+        info.protected_dacl = (control & SE_DACL_PROTECTED) != 0;
+    }
+    BYTE sys_sid[SECURITY_MAX_SID_SIZE];
+    DWORD sys_len = sizeof(sys_sid);
+    const bool sys_ok = CreateWellKnownSid(WinLocalSystemSid, nullptr, sys_sid, &sys_len) == TRUE;
+    PSID token_user = current_process_user_sid();
+    if (dacl && sys_ok) {
+        for (DWORD i = 0; i < info.ace_count; ++i) {
+            LPVOID entry = nullptr;
+            if (!GetAce(dacl, i, &entry)) continue;
+            if (static_cast<ACE_HEADER*>(entry)->AceType == ACCESS_DENIED_ACE_TYPE) continue;
+            PSID sid = &static_cast<ACCESS_ALLOWED_ACE*>(entry)->SidStart;
+            // 三者可能重合（非提权时属主即令牌用户），故逐一独立判定而非 if-else 链：
+            // 用 else-if 会让「同一个 SID 既是属主又是当前用户」只命中前者，#177 的
+            // 断言便会在该常见场景下恒为 false。
+            const bool is_system = EqualSid(sid, sys_sid);
+            const bool is_owner = owner != nullptr && EqualSid(sid, owner);
+            const bool is_current_user = token_user != nullptr && EqualSid(sid, token_user);
+            if (is_system) info.has_local_system = true;
+            if (is_owner) info.has_owner = true;
+            if (is_current_user) info.has_current_user = true;
+            if (!is_system && !is_owner && !is_current_user) info.only_trusted = false;
+        }
+    }
+    LocalFree(token_user);
+    LocalFree(sd);
+    return info;
+}
+
+/// 置空 DACL：Windows 语义为「everyone 全权」，比任何显性授权都更开放
+bool null_out_dacl(const std::filesystem::path& path) {
+    return SetNamedSecurityInfoW(const_cast<LPWSTR>(path.c_str()), SE_FILE_OBJECT,
+                                 DACL_SECURITY_INFORMATION, nullptr, nullptr, nullptr,
+                                 nullptr) == ERROR_SUCCESS;
+}
+
+/// 在已有 DACL 上追加一条 Everyone 只读 ALLOW ACE
+/// @details 这才是真实场景的形态：老配置文件继承自父目录，于是多出一条
+///          针对非属主的 ACE。只测 NULL DACL 会短路掉 ACE 扫描循环的判定分支。
+bool grant_world_read(const std::filesystem::path& path) {
+    BYTE world_buf[SECURITY_MAX_SID_SIZE];
+    DWORD world_len = sizeof(world_buf);
+    if (!CreateWellKnownSid(WinWorldSid, nullptr, world_buf, &world_len)) return false;
+
+    EXPLICIT_ACCESS_W ea{};
+    ea.grfAccessPermissions = FILE_GENERIC_READ;
+    ea.grfAccessMode = SET_ACCESS;
+    ea.grfInheritance = NO_INHERITANCE;
+    ea.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+    ea.Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
+    ea.Trustee.ptstrName = reinterpret_cast<LPWSTR>(world_buf);
+
+    PACL old_dacl = nullptr;
+    PSECURITY_DESCRIPTOR sd = nullptr;
+    if (GetNamedSecurityInfoW(path.c_str(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, nullptr,
+                              nullptr, &old_dacl, nullptr, &sd) != ERROR_SUCCESS) {
+        return false;
+    }
+    PACL merged = nullptr;
+    const bool ok = SetEntriesInAclW(1, &ea, old_dacl, &merged) == ERROR_SUCCESS &&
+                    SetNamedSecurityInfoW(const_cast<LPWSTR>(path.c_str()), SE_FILE_OBJECT,
+                                          DACL_SECURITY_INFORMATION, nullptr, nullptr, merged,
+                                          nullptr) == ERROR_SUCCESS;
+    LocalFree(merged);
+    LocalFree(sd);
+    return ok;
+}
+
+/// 把路径属主改为 BUILTIN\Administrators，模拟「提权进程创建的对象」（#177）
+/// @return false = 当前进程无权限改属主（需 SE_RESTORE_NAME，非提权进程通常失败）
+bool set_owner_administrators(const std::filesystem::path& path) {
+    BYTE adm_buf[SECURITY_MAX_SID_SIZE];
+    DWORD adm_len = sizeof(adm_buf);
+    if (!CreateWellKnownSid(WinBuiltinAdministratorsSid, nullptr, adm_buf, &adm_len)) return false;
+    return SetNamedSecurityInfoW(const_cast<LPWSTR>(path.c_str()), SE_FILE_OBJECT,
+                                 OWNER_SECURITY_INFORMATION, adm_buf, nullptr, nullptr,
+                                 nullptr) == ERROR_SUCCESS;
+}
+
+/// DACL 中是否存在「宽授权」ACE（Everyone / BUILTIN\Users / Authenticated Users）
+/// @return 读不到 DACL 时返回 true（视为不安全）
+bool has_broad_ace(const std::filesystem::path& path) {
+    static const WELL_KNOWN_SID_TYPE kBroad[] = {WinWorldSid, WinBuiltinUsersSid,
+                                                 WinAuthenticatedUserSid};
+    PACL dacl = nullptr;
+    PSECURITY_DESCRIPTOR sd = nullptr;
+    if (GetNamedSecurityInfoW(path.c_str(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, nullptr,
+                              nullptr, &dacl, nullptr, &sd) != ERROR_SUCCESS) {
+        return true;
+    }
+    bool broad = false;
+    ACL_SIZE_INFORMATION size_info{};
+    if (dacl && GetAclInformation(dacl, &size_info, sizeof(size_info), AclSizeInformation)) {
+        for (DWORD i = 0; i < size_info.AceCount && !broad; ++i) {
+            LPVOID entry = nullptr;
+            if (!GetAce(dacl, i, &entry)) continue;
+            PSID sid = &static_cast<ACCESS_ALLOWED_ACE*>(entry)->SidStart;
+            for (WELL_KNOWN_SID_TYPE type : kBroad) {
+                BYTE buf[SECURITY_MAX_SID_SIZE];
+                DWORD len = sizeof(buf);
+                if (CreateWellKnownSid(type, nullptr, buf, &len) && EqualSid(sid, buf)) {
+                    broad = true;
+                }
+            }
+        }
+    }
+    LocalFree(sd);
+    return broad;
+}
+
+#else
+
+/// 读回 0777 掩码下的权限位
+unsigned mode_bits(const std::filesystem::path& path) {
+    const auto mask = std::filesystem::perms::owner_all | std::filesystem::perms::group_all |
+                      std::filesystem::perms::others_all;
+    return static_cast<unsigned>(std::filesystem::status(path).permissions() & mask);
+}
+
+constexpr unsigned kFilePrivate = 0600;
+constexpr unsigned kDirPrivate = 0700;
+
+#endif
+
+}  // namespace
+
+TEST_CASE("file_permissions: 新文件收紧为仅属主可读写", "[file_permissions][issue88]") {
+    TempDir dir("new_file");
+    const auto file = dir.path / "config.json";
+    make_file(file);
+
+    REQUIRE(harden_private_file(file).is_ok());
+
+#if defined(_WIN32)
+    const auto info = inspect_dacl(file);
+    CHECK(info.protected_dacl);
+    CHECK(info.has_local_system);
+    CHECK(info.has_owner);
+    CHECK(info.has_current_user);
+    CHECK(info.only_trusted);
+    CHECK_FALSE(has_broad_ace(file));
+#else
+    CHECK(mode_bits(file) == kFilePrivate);
+#endif
+}
+
+TEST_CASE("file_permissions: 已存在的过宽文件被就地收紧", "[file_permissions][issue88]") {
+    TempDir dir("widen_file");
+    const auto file = dir.path / "config.json";
+    make_file(file);
+
+#if defined(_WIN32)
+    // 与 save_to_file 同样顺序：二次写入(trunc)不得撤销已加固的 DACL
+    REQUIRE(harden_private_file(file).is_ok());
+    make_file(file);
+    REQUIRE(harden_private_file(file).is_ok());
+    const auto info = inspect_dacl(file);
+    CHECK(info.protected_dacl);
+    CHECK(info.has_owner);
+    CHECK(info.has_current_user);
+    CHECK(info.only_trusted);
+    CHECK_FALSE(has_broad_ace(file));
+#else
+    // 模拟老用户历史遗留的 0644：加固必须就地收紧，而不是只在创建路径生效
+    // 注意 owner_all 含 owner_exec（0700），这里要的是 owner_read|owner_write
+    std::filesystem::permissions(
+        file, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write |
+                  std::filesystem::perms::group_read | std::filesystem::perms::others_read);
+    REQUIRE(mode_bits(file) == 0644);
+    REQUIRE(harden_private_file(file).is_ok());
+    CHECK(mode_bits(file) == kFilePrivate);
+#endif
+}
+
+TEST_CASE("file_permissions: 目录收紧为仅属主可访问", "[file_permissions][issue88]") {
+    TempDir dir("new_dir");
+    const auto sub = dir.path / "cfg";
+    std::filesystem::create_directories(sub);
+
+    REQUIRE(harden_private_dir(sub).is_ok());
+
+#if defined(_WIN32)
+    const auto info = inspect_dacl(sub);
+    CHECK(info.protected_dacl);
+    CHECK(info.has_owner);
+    CHECK(info.has_current_user);
+    CHECK(info.only_trusted);
+    CHECK_FALSE(has_broad_ace(sub));
+#else
+    CHECK(mode_bits(sub) == kDirPrivate);
+#endif
+}
+
+TEST_CASE("file_permissions: 加固后的文件被判为已收紧", "[file_permissions][issue88]") {
+    TempDir dir("inspect_tight");
+    const auto file = dir.path / "config.json";
+    make_file(file);
+    REQUIRE(harden_private_file(file).is_ok());
+
+    // 不变式：harden 的产出必须被 is_private_file 判定为收紧，
+    // 否则「启动告警」会对已经合规的用户误报。
+    const auto privacy = is_private_file(file);
+    REQUIRE(privacy.is_ok());
+    CHECK(privacy.value());
+}
+
+TEST_CASE("file_permissions: 过宽文件被判为未收紧", "[file_permissions][issue88]") {
+    TempDir dir("inspect_loose");
+    const auto file = dir.path / "config.json";
+    make_file(file);
+
+#if defined(_WIN32)
+    REQUIRE(harden_private_file(file).is_ok());
+    REQUIRE(grant_world_read(file));
+    CHECK(has_broad_ace(file));  // 前置确认：Everyone ACE 确实加上了
+#else
+    std::filesystem::permissions(
+        file, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write |
+                  std::filesystem::perms::group_read | std::filesystem::perms::others_read);
+    REQUIRE(mode_bits(file) == 0644);
+#endif
+
+    const auto privacy = is_private_file(file);
+    REQUIRE(privacy.is_ok());
+    CHECK_FALSE(privacy.value());
+}
+
+TEST_CASE("file_permissions: 空 DACL 视为 everyone 全权", "[file_permissions][issue88]") {
+#if !defined(_WIN32)
+    SKIP("空 DACL 是 Windows 独有语义，POSIX 侧由上一条用例覆盖");
+#else
+    TempDir dir("null_dacl");
+    const auto file = dir.path / "config.json";
+    make_file(file);
+
+    // 比任何显性授权都更开放：pDacl 为 nullptr 意味着 everyone 全权
+    REQUIRE(null_out_dacl(file));
+
+    const auto privacy = is_private_file(file);
+    REQUIRE(privacy.is_ok());
+    CHECK_FALSE(privacy.value());
+#endif
+}
+
+TEST_CASE("file_permissions: 属主为 Administrators 时真实用户不被锁死",
+          "[file_permissions][issue177]") {
+#if !defined(_WIN32)
+    SKIP("Windows 专属：提权场景下「属主」与「令牌用户」分离");
+#else
+    TempDir dir("owner_admin");
+    const auto file = dir.path / "config.json";
+    make_file(file);
+
+    if (!set_owner_administrators(file)) {
+        SKIP("当前进程无权限修改属主（非提权），跳过");
+    }
+
+    // 复现提权进程产出：属主 = BUILTIN\Administrators
+    REQUIRE(harden_private_file(file).is_ok());
+
+    // 回归点（#177）：加固后真实登录用户（当前令牌用户）必须仍在 DACL 中。
+    // 修复前 DACL 只有 [Administrators, SYSTEM] —— 该用户此后读写 ~/.workx 下
+    // 一切都会被拒，且每次 save_to_file 加固都会复发。
+    const auto info = inspect_dacl(file);
+    CHECK(info.has_current_user);
+    CHECK(info.has_owner);
+    CHECK(info.has_local_system);
+    CHECK(info.only_trusted);
+    CHECK(info.ace_count >= 2);
+    CHECK_FALSE(has_broad_ace(file));
+
+    // 契约不变：加固产出必须被 is_private_file 判为已收紧
+    const auto privacy = is_private_file(file);
+    REQUIRE(privacy.is_ok());
+    CHECK(privacy.value());
+#endif
+}
+
+TEST_CASE("file_permissions: 目标不存在返回 ResourceNotFound", "[file_permissions][issue88]") {
+    TempDir dir("missing");
+    const auto file_result = harden_private_file(dir.path / "nope.json");
+    REQUIRE(file_result.is_err());
+    CHECK(file_result.error().code == agent::Error::Code::ResourceNotFound);
+
+    const auto dir_result = harden_private_dir(dir.path / "no_such_dir");
+    REQUIRE(dir_result.is_err());
+    CHECK(dir_result.error().code == agent::Error::Code::ResourceNotFound);
+}
+
+TEST_CASE("file_permissions: save_to_file 落盘后收紧权限", "[file_permissions][issue88]") {
+    TempDir dir("config_save");
+    const auto file = dir.path / "config.json";
+    auto& cfg = agent::ConfigManager::instance();
+    cfg.clear();
+    cfg.set("backend.api_key", std::string("sk-secret"));
+
+    REQUIRE(cfg.save_to_file(file).is_ok());
+
+#if defined(_WIN32)
+    const auto info = inspect_dacl(file);
+    CHECK(info.protected_dacl);
+    CHECK(info.has_owner);
+    CHECK(info.has_current_user);
+    CHECK(info.only_trusted);
+    CHECK_FALSE(has_broad_ace(file));
+#else
+    CHECK(mode_bits(file) == kFilePrivate);
+    CHECK(mode_bits(dir.path) == kDirPrivate);
+#endif
+
+    std::filesystem::remove(file);
+    cfg.clear();
+}

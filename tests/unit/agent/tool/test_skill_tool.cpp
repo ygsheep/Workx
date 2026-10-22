@@ -17,23 +17,20 @@ namespace {
 
 std::shared_ptr<PromptCommand> make_skill_cmd(const std::string& name, const std::string& body) {
     auto cmd = std::make_shared<PromptCommand>(name, "desc of " + name);
-    cmd->set_prompt_generator(
-        [body](const std::string& /*args*/, const CommandContext& /*ctx*/) {
-            PromptBlock block;
-            block.type = PromptBlockType::Text;
-            block.text = "Base directory for this skill: /x\n\n" + body;
-            return std::vector<PromptBlock>{std::move(block)};
-        });
+    cmd->set_prompt_generator([body](const std::string& /*args*/, const CommandContext& /*ctx*/) {
+        PromptBlock block;
+        block.type = PromptBlockType::Text;
+        block.text = "Base directory for this skill: /x\n\n" + body;
+        return std::vector<PromptBlock>{std::move(block)};
+    });
     cmd->set_loaded_from(LoadSource::Skills);
     return cmd;
 }
 
 /// @brief 填充工具上下文（ToolContext 不可拷贝，按左值传入）
-void fill_ctx(ToolContext& ctx) {
-    ctx.cwd = "C:\\proj";
-}
+void fill_ctx(ToolContext& ctx) { ctx.cwd = "C:\\proj"; }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 TEST_CASE("SkillTool returns skill body by name", "[skill][tool]") {
     auto registry = std::make_shared<CommandRegistry>();
@@ -77,9 +74,8 @@ TEST_CASE("SkillTool rejects missing or empty name", "[skill][tool]") {
 TEST_CASE("SkillTool rejects non-prompt commands", "[skill][tool]") {
     auto registry = std::make_shared<CommandRegistry>();
     auto local = std::make_shared<LocalCommand>("echo", "local");
-    local->set_call([](const std::string&, const CommandContext&) {
-        return CommandResult::ok("hi");
-    });
+    local->set_call(
+        [](const std::string&, const CommandContext&) { return CommandResult::ok("hi"); });
     registry->register_command(local);
 
     ToolContext ctx;

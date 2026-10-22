@@ -35,6 +35,13 @@ namespace {
 // 平台无关辅助
 // ============================================================
 
+// #84 方案 B：restrictive 档派生的进程级上限。
+// 刻意取宽松值 —— 目的是"防失控"（挡住 fork bomb / 单个进程内存爆炸），不是
+// "精确配额"。过紧会让正常的多进程构建（MSBuild -j / npm install）直接失败，
+// 那比不做更糟。
+constexpr uint32_t kRestrictiveMaxProcesses = 128;
+constexpr uint64_t kRestrictiveMaxProcessMemoryBytes = 4ull * 1024 * 1024 * 1024;  // 4 GiB
+
 /// 获取系统临时目录路径
 std::string get_temp_dir() {
 #ifdef _WIN32
@@ -71,9 +78,14 @@ std::string escape_sbpl_string(const std::string& s) {
     out += '"';
     for (char c : s) {
         switch (c) {
-            case '"':  out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            default:   out += c;
+            case '"':
+                out += "\\\"";
+                break;
+            case '\\':
+                out += "\\\\";
+                break;
+            default:
+                out += c;
         }
     }
     out += '"';
@@ -100,10 +112,8 @@ std::string generate_seatbelt_profile(const SandboxConfig& config) {
 
     // 系统目录读权限
     if (config.allow_system_read) {
-        const char* sys_paths[] = {
-            "/usr", "/lib", "/lib64", "/etc",
-            "/bin", "/sbin", "/System", "/Library"
-        };
+        const char* sys_paths[] = {"/usr", "/lib",  "/lib64",  "/etc",
+                                   "/bin", "/sbin", "/System", "/Library"};
         for (const char* p : sys_paths) {
             ss << "(allow file-read* (subpath " << escape_sbpl_string(p) << "))\n";
         }
@@ -172,7 +182,7 @@ std::string generate_seatbelt_profile(const SandboxConfig& config) {
     return ss.str();
 }
 
-#endif // __APPLE__
+#endif  // __APPLE__
 
 // ============================================================
 // Linux Bubblewrap 参数生成
@@ -238,7 +248,10 @@ std::vector<std::string> generate_bwrap_args(const SandboxConfig& config) {
         // 避免与 deny_write 重复挂载
         bool already_denied = false;
         for (const auto& dw : config.deny_write) {
-            if (normalize_path(dw) == np) { already_denied = true; break; }
+            if (normalize_path(dw) == np) {
+                already_denied = true;
+                break;
+            }
         }
         if (!already_denied) {
             args.push_back("--tmpfs");
@@ -249,9 +262,9 @@ std::vector<std::string> generate_bwrap_args(const SandboxConfig& config) {
     return args;
 }
 
-#endif // __linux__
+#endif  // __linux__
 
-} // namespace
+}  // namespace
 
 // ============================================================
 // SandboxConfig 工厂方法实现
@@ -280,22 +293,17 @@ SandboxConfig SandboxConfig::permissive() {
 bool SandboxConfig::is_permissive() const noexcept {
     // network_isolated=false 且无任何 deny 规则且无 allow 限制
     // （allow 为空 + network_isolated=false 意味着无任何限制）
-    return !network_isolated
-        && deny_write.empty() && deny_read.empty()
-        && deny_domains.empty()
-        && allow_write.empty() && allow_read.empty()
-        && allow_domains.empty();
+    return !network_isolated && deny_write.empty() && deny_read.empty() && deny_domains.empty() &&
+           allow_write.empty() && allow_read.empty() && allow_domains.empty();
 }
 
 // ============================================================
 // SandboxAdapter 实现
 // ============================================================
 
-WrappedCommand SandboxAdapter::wrap_command(
-    const std::string& cmd,
-    const std::vector<std::string>& args,
-    const SandboxConfig& config
-) {
+WrappedCommand SandboxAdapter::wrap_command(const std::string& cmd,
+                                            const std::vector<std::string>& args,
+                                            const SandboxConfig& config) {
     // 宽松配置：直接返回原命令
     if (config.is_permissive()) {
         return make_passthrough(cmd, args);
@@ -320,8 +328,22 @@ WrappedCommand SandboxAdapter::wrap_command(
             return make_degraded(cmd, args, "none");
         }
         default:
-            return make_degraded(cmd, args, "none");
+            // Windows（及未知平台）：没有 FS/网络后端，但 Job Object 仍能提供
+            // 进程树与资源约束（#84 方案 B），故把派生的隔离规格一并带上。
+            return make_degraded(cmd, args, "none", derive_isolation(config));
     }
+}
+
+std::optional<ProcessIsolationSpec> SandboxAdapter::derive_isolation(const SandboxConfig& config) {
+    // 宽松配置本就不打算限制任何东西，明确不施加进程级约束
+    if (config.is_permissive()) {
+        return std::nullopt;
+    }
+    ProcessIsolationSpec spec;
+    spec.max_processes = kRestrictiveMaxProcesses;
+    spec.max_process_memory_bytes = kRestrictiveMaxProcessMemoryBytes;
+    spec.kill_tree_on_exit = true;
+    return spec;
 }
 
 bool SandboxAdapter::is_enabled() {
@@ -332,12 +354,10 @@ bool SandboxAdapter::is_enabled() {
 #endif
 }
 
-WrappedCommand SandboxAdapter::wrap_with_seatbelt(
-    const std::string& sandbox_exec_path,
-    const std::string& cmd,
-    const std::vector<std::string>& args,
-    const SandboxConfig& config
-) {
+WrappedCommand SandboxAdapter::wrap_with_seatbelt(const std::string& sandbox_exec_path,
+                                                  const std::string& cmd,
+                                                  const std::vector<std::string>& args,
+                                                  const SandboxConfig& config) {
 #if defined(__APPLE__)
     WrappedCommand result;
     result.cmd = sandbox_exec_path;
@@ -362,12 +382,10 @@ WrappedCommand SandboxAdapter::wrap_with_seatbelt(
 #endif
 }
 
-WrappedCommand SandboxAdapter::wrap_with_bubblewrap(
-    const std::string& bwrap_path,
-    const std::string& cmd,
-    const std::vector<std::string>& args,
-    const SandboxConfig& config
-) {
+WrappedCommand SandboxAdapter::wrap_with_bubblewrap(const std::string& bwrap_path,
+                                                    const std::string& cmd,
+                                                    const std::vector<std::string>& args,
+                                                    const SandboxConfig& config) {
 #if defined(__linux__)
     WrappedCommand result;
     result.cmd = bwrap_path;
@@ -392,24 +410,22 @@ WrappedCommand SandboxAdapter::wrap_with_bubblewrap(
 #endif
 }
 
-WrappedCommand SandboxAdapter::make_degraded(
-    const std::string& cmd,
-    const std::vector<std::string>& args,
-    const std::string& backend_name
-) {
+WrappedCommand SandboxAdapter::make_degraded(const std::string& cmd,
+                                             const std::vector<std::string>& args,
+                                             const std::string& backend_name,
+                                             std::optional<ProcessIsolationSpec> isolation) {
     WrappedCommand result;
     result.cmd = cmd;
     result.args = args;
     result.was_wrapped = false;
     result.degraded = true;
     result.backend_name = backend_name;
+    result.isolation = std::move(isolation);
     return result;
 }
 
-WrappedCommand SandboxAdapter::make_passthrough(
-    const std::string& cmd,
-    const std::vector<std::string>& args
-) {
+WrappedCommand SandboxAdapter::make_passthrough(const std::string& cmd,
+                                                const std::vector<std::string>& args) {
     WrappedCommand result;
     result.cmd = cmd;
     result.args = args;
@@ -419,4 +435,4 @@ WrappedCommand SandboxAdapter::make_passthrough(
     return result;
 }
 
-} // namespace agent::process::sandbox
+}  // namespace agent::process::sandbox

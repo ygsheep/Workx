@@ -9,10 +9,7 @@
 
 namespace agent {
 
-SSEParser::SSEParser(EventCallback callback)
-    : m_callback(std::move(callback))
-{
-}
+SSEParser::SSEParser(EventCallback callback) : m_callback(std::move(callback)) {}
 
 void SSEParser::parse(std::string_view chunk) {
     if (chunk.empty()) return;
@@ -127,12 +124,13 @@ SSEEvent SSEParser::parse_event(std::string_view event_text) {
         } else if (field == "retry") {
             try {
                 event.retry = std::stoi(std::string(value));
-            } catch (...) {}
+            } catch (...) {
+            }
         }
     }
     // 安全：不记录 event.data 内容，避免泄露响应正文
-    LOG_INFO("SSEParser parsed event: data_len={}, has_event={}",
-             event.data.size(), !event.event.empty());
+    LOG_INFO("SSEParser parsed event: data_len={}, has_event={}", event.data.size(),
+             !event.event.empty());
     return event;
 }
 
@@ -141,10 +139,7 @@ void SSEParser::reset() {
     m_event_count = 0;
 }
 
-NDJSONParser::NDJSONParser(LineCallback callback)
-    : m_callback(std::move(callback))
-{
-}
+NDJSONParser::NDJSONParser(LineCallback callback) : m_callback(std::move(callback)) {}
 
 void NDJSONParser::parse(std::string_view chunk) {
     if (chunk.empty()) return;
@@ -183,8 +178,6 @@ void NDJSONParser::process_lines() {
     }
 }
 
-void NDJSONParser::reset() {
-    m_buffer.clear();
-}
+void NDJSONParser::reset() { m_buffer.clear(); }
 
-} // namespace agent
+}  // namespace agent

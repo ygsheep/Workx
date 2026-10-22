@@ -24,16 +24,13 @@ namespace agent::tool {
 /// 用户操作完成通过 result_promise->set_value() 回填，工具阻塞 future.wait_for()。
 /// 超时自动返回 timeout 状态，避免工作线程永久阻塞。
 class AskUserTool : public ITool {
-public:
+   public:
     const std::string& name() const override;
     const std::string& description() const override;
     const std::string& prompt() const override;
     nlohmann::json input_schema() const override;
 
-    ResultV2<ToolResult> call(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    ResultV2<ToolResult> call(const nlohmann::json& input, const ToolContext& ctx) const override;
 };
 
-} // namespace agent::tool
+}  // namespace agent::tool

@@ -6,7 +6,7 @@
  *          - 参数校验（缺 command / 空 command）
  *          - 同步执行（echo 命令）
  *          - 超时/取消路径
- *          - 后台任务（TaskManager nullptr 检查）
+ *          - 后台任务（TaskManager nullptr 检查 / #166 结果回传追踪器）
  *          - 进度回调（report_progress 触发）
  *
  *          跨平台命令选择：
@@ -26,6 +26,7 @@
 
 #include "agent/tool/BashTool/bash_tool.h"
 #include "agent/tool/ShellTool/shell_detector.h"  // detect()：按实际 shell 选命令
+#include "agent/tool/ShellTool/shell_tool_common.h"  // #137 clamp_timeout_by_wall_clock
 #include "agent/tool/context.h"
 #include "agent/tool/result.h"
 #include "core/task/task_manager.h"
@@ -48,7 +49,7 @@ void fill_ctx(ToolContext& ctx) {
     // task_manager_ptr 故意留 nullptr（后台任务测试用）
 }
 
-} // namespace
+}  // namespace
 
 // ============================================================
 // 元信息
@@ -98,7 +99,8 @@ TEST_CASE("BashTool input_schema has command required", "[tool][bash][metadata]"
 
 TEST_CASE("BashTool rejects missing command", "[tool][bash][validation]") {
     BashTool tool;
-    ToolContext ctx; fill_ctx(ctx);
+    ToolContext ctx;
+    fill_ctx(ctx);
     nlohmann::json input = {{"timeout", 1000}};
 
     auto r = tool.call(input, ctx);
@@ -108,7 +110,8 @@ TEST_CASE("BashTool rejects missing command", "[tool][bash][validation]") {
 
 TEST_CASE("BashTool rejects empty command", "[tool][bash][validation]") {
     BashTool tool;
-    ToolContext ctx; fill_ctx(ctx);
+    ToolContext ctx;
+    fill_ctx(ctx);
     nlohmann::json input = {{"command", ""}};
 
     auto r = tool.call(input, ctx);
@@ -118,7 +121,8 @@ TEST_CASE("BashTool rejects empty command", "[tool][bash][validation]") {
 
 TEST_CASE("BashTool rejects non-string command", "[tool][bash][validation]") {
     BashTool tool;
-    ToolContext ctx; fill_ctx(ctx);
+    ToolContext ctx;
+    fill_ctx(ctx);
     nlohmann::json input = {{"command", 123}};
 
     auto r = tool.call(input, ctx);
@@ -132,7 +136,8 @@ TEST_CASE("BashTool rejects non-string command", "[tool][bash][validation]") {
 
 TEST_CASE("BashTool executes echo command successfully", "[tool][bash][sync]") {
     BashTool tool;
-    ToolContext ctx; fill_ctx(ctx);
+    ToolContext ctx;
+    fill_ctx(ctx);
     nlohmann::json input = {{"command", "echo hello_world"}};
 
     auto r = tool.call(input, ctx);
@@ -145,7 +150,8 @@ TEST_CASE("BashTool executes echo command successfully", "[tool][bash][sync]") {
 
 TEST_CASE("BashTool reports non-zero exit code", "[tool][bash][sync]") {
     BashTool tool;
-    ToolContext ctx; fill_ctx(ctx);
+    ToolContext ctx;
+    fill_ctx(ctx);
     // 命令按实际检测到的 shell 语法选择：Git Bash/POSIX 用 `exit N`，
     // cmd.exe 用 `exit /b N`（BashTool 内部同样按 detect() 选 shell，两者必须一致）
     const auto& sh = shell_detect::detect();
@@ -160,7 +166,8 @@ TEST_CASE("BashTool reports non-zero exit code", "[tool][bash][sync]") {
 
 TEST_CASE("BashTool handles timeout", "[tool][bash][sync]") {
     BashTool tool;
-    ToolContext ctx; fill_ctx(ctx);
+    ToolContext ctx;
+    fill_ctx(ctx);
 #ifdef _WIN32
     nlohmann::json input = {{"command", "ping -n 10 127.0.0.1"}, {"timeout", 200}};
 #else
@@ -174,7 +181,8 @@ TEST_CASE("BashTool handles timeout", "[tool][bash][sync]") {
 
 TEST_CASE("BashTool respects cancellation", "[tool][bash][sync]") {
     BashTool tool;
-    ToolContext ctx; fill_ctx(ctx);
+    ToolContext ctx;
+    fill_ctx(ctx);
     std::atomic<bool> cancel{true};
     ctx.cancel_flag = &cancel;
 
@@ -190,12 +198,10 @@ TEST_CASE("BashTool respects cancellation", "[tool][bash][sync]") {
 
 TEST_CASE("BashTool background requires TaskManager", "[tool][bash][background]") {
     BashTool tool;
-    ToolContext ctx; fill_ctx(ctx);  // task_manager_ptr = nullptr
+    ToolContext ctx;
+    fill_ctx(ctx);  // task_manager_ptr = nullptr
 
-    nlohmann::json input = {
-        {"command", "echo bg"},
-        {"run_in_background", true}
-    };
+    nlohmann::json input = {{"command", "echo bg"}, {"run_in_background", true}};
 
     auto r = tool.call(input, ctx);
     REQUIRE(r.is_err());
@@ -203,7 +209,8 @@ TEST_CASE("BashTool background requires TaskManager", "[tool][bash][background]"
 }
 
 #ifndef _WIN32
-TEST_CASE("BashTool background cancel kills process and marks Cancelled", "[tool][bash][background][cancel]") {
+TEST_CASE("BashTool background cancel kills process and marks Cancelled",
+          "[tool][bash][background][cancel]") {
     // #23 P3：run_in_background 任务取消联动。
     // task->cancel() → should_cancel → subprocess 轮询 → 进程组 kill（P1 已通），
     // 任务以 Cancelled 结束但 BashTool::call 不报错（后台立即返回 task_id）。
@@ -213,14 +220,12 @@ TEST_CASE("BashTool background cancel kills process and marks Cancelled", "[tool
     task_mgr.waitForAll();
     task_mgr.update();
 
-    ToolContext ctx; fill_ctx(ctx);
+    ToolContext ctx;
+    fill_ctx(ctx);
     ctx.task_manager_ptr = &task_mgr;
 
     BashTool tool;
-    nlohmann::json input = {
-        {"command", "sleep 30"},
-        {"run_in_background", true}
-    };
+    nlohmann::json input = {{"command", "sleep 30"}, {"run_in_background", true}};
 
     auto r = tool.call(input, ctx);
     REQUIRE(r.is_ok());
@@ -236,7 +241,10 @@ TEST_CASE("BashTool background cancel kills process and marks Cancelled", "[tool
     // 找到后台任务并取消
     std::shared_ptr<Task> bg_task;
     for (const auto& t : task_mgr.getTasks()) {
-        if (t->getName() == id) { bg_task = t; break; }
+        if (t->getName() == id) {
+            bg_task = t;
+            break;
+        }
     }
     REQUIRE(bg_task != nullptr);
 
@@ -250,7 +258,107 @@ TEST_CASE("BashTool background cancel kills process and marks Cancelled", "[tool
     task_mgr.update();
     EventBus::instance().clear();
 }
-#endif // !_WIN32
+#endif  // !_WIN32
+
+// ============================================================
+// #166：后台任务结果回传（BackgroundTaskTracker）
+// ============================================================
+
+TEST_CASE("#166 BackgroundTaskTracker 基本语义", "[tool][background][tracker]") {
+    auto tracker = BackgroundTaskTracker::create();
+    REQUIRE_FALSE(tracker->has_pending());
+    REQUIRE(tracker->pending_count() == 0);
+
+    tracker->add_pending("bash:1:echo hi");
+    REQUIRE(tracker->has_pending());
+    REQUIRE(tracker->pending_count() == 1);
+
+    // drain 只取已完成结果，不触碰 pending
+    REQUIRE(tracker->drain_completed().empty());
+    REQUIRE(tracker->has_pending());
+
+    tracker->mark_done(
+        BackgroundTaskResult{"bash:1:echo hi", "Bash", "<stdout>\nhi\n</stdout>\n", false});
+    REQUIRE_FALSE(tracker->has_pending());  // mark_done 同时移出 pending
+    REQUIRE(tracker->pending_count() == 0);
+
+    auto done = tracker->drain_completed();
+    REQUIRE(done.size() == 1);
+    REQUIRE(done[0].task_name == "bash:1:echo hi");
+    REQUIRE(done[0].tool_name == "Bash");
+    REQUIRE(done[0].output.find("hi") != std::string::npos);
+    REQUIRE_FALSE(done[0].is_error);
+
+    // 取走后队列清空（幂等，不重复回传）
+    REQUIRE(tracker->drain_completed().empty());
+}
+
+TEST_CASE("#166 BackgroundTaskTracker remove_pending 撤销登记", "[tool][background][tracker]") {
+    auto tracker = BackgroundTaskTracker::create();
+    tracker->add_pending("bash:7:true");
+    tracker->remove_pending("bash:7:true");
+    REQUIRE_FALSE(tracker->has_pending());
+
+    // 撤销后仍可安全 mark_done（不会重复移除/越界）
+    tracker->mark_done(BackgroundTaskResult{"bash:7:true", "Bash", "ok", false});
+    REQUIRE(tracker->drain_completed().size() == 1);
+}
+
+#ifndef _WIN32
+TEST_CASE("#166 BashTool 后台任务完成后结果进入追踪器", "[tool][bash][background][callback]") {
+    // run_in_background=true：工具立即返回（非阻塞），任务完成后
+    // 结果写入 tracker（tool_name/output/is_error），供 ReActLoop drain 注入对话。
+    EventBus::instance().clear();
+    auto& task_mgr = TaskManager::instance();
+    task_mgr.cancelAll();
+    task_mgr.waitForAll();
+    task_mgr.update();
+
+    auto tracker = BackgroundTaskTracker::create();
+    ToolContext ctx;
+    fill_ctx(ctx);
+    ctx.task_manager_ptr = &task_mgr;
+    ctx.background_tracker = tracker;
+
+    BashTool tool;
+    nlohmann::json input = {{"command", "echo bg_callback_ok"}, {"run_in_background", true}};
+    auto r = tool.call(input, ctx);
+    REQUIRE(r.is_ok());
+
+    // 从返回文本提取 task_id（格式 "ID: bash:<n>:<cmd>"）
+    const std::string text = r.value().text;
+    const std::string prefix = "ID: ";
+    REQUIRE(text.find(prefix) != std::string::npos);
+    std::string id = text.substr(text.find(prefix) + prefix.size());
+    id = id.substr(0, id.find('\n'));
+    REQUIRE(id.rfind("bash:", 0) == 0);
+
+    // 注：echo 命令可能在下一行执行前就已执行完毕，故不断言"此刻仍 pending"。
+    // 完成后结果必须恰好回传一次（下面的断言覆盖完整路径）。
+    std::shared_ptr<Task> bg_task;
+    for (const auto& t : task_mgr.getTasks()) {
+        if (t->getName() == id) {
+            bg_task = t;
+            break;
+        }
+    }
+    REQUIRE(bg_task != nullptr);
+    task_mgr.wait(bg_task);  // 等待后台命令执行完毕（mark_done 已完成）
+
+    REQUIRE_FALSE(tracker->has_pending());
+    auto done = tracker->drain_completed();
+    REQUIRE(done.size() == 1);
+    REQUIRE(done[0].task_name == id);
+    REQUIRE(done[0].tool_name == "Bash");
+    REQUIRE(done[0].output.find("bg_callback_ok") != std::string::npos);
+    REQUIRE_FALSE(done[0].is_error);
+
+    task_mgr.cancelAll();
+    task_mgr.waitForAll();
+    task_mgr.update();
+    EventBus::instance().clear();
+}
+#endif  // !_WIN32
 
 // ============================================================
 // 进度回调
@@ -258,7 +366,8 @@ TEST_CASE("BashTool background cancel kills process and marks Cancelled", "[tool
 
 TEST_CASE("BashTool reports progress via callback", "[tool][bash][progress]") {
     BashTool tool;
-    ToolContext ctx; fill_ctx(ctx);
+    ToolContext ctx;
+    fill_ctx(ctx);
 
     std::vector<std::string> progress_reports;
     ctx.progress_callback = [&progress_reports](const std::string& text) {
@@ -280,13 +389,11 @@ TEST_CASE("BashTool reports progress via callback", "[tool][bash][progress]") {
 
 TEST_CASE("BashTool accepts dangerously_disable_sandbox", "[tool][bash][sandbox]") {
     BashTool tool;
-    ToolContext ctx; fill_ctx(ctx);
+    ToolContext ctx;
+    fill_ctx(ctx);
 
     // 禁用沙盒不应导致错误（实际是否降级由平台决定）
-    nlohmann::json input = {
-        {"command", "echo no_sandbox"},
-        {"dangerously_disable_sandbox", true}
-    };
+    nlohmann::json input = {{"command", "echo no_sandbox"}, {"dangerously_disable_sandbox", true}};
 
     auto r = tool.call(input, ctx);
     REQUIRE(r.is_ok());
@@ -299,17 +406,59 @@ TEST_CASE("BashTool accepts dangerously_disable_sandbox", "[tool][bash][sandbox]
 
 TEST_CASE("BashTool clamps timeout to max", "[tool][bash][timeout]") {
     BashTool tool;
-    ToolContext ctx; fill_ctx(ctx);
+    ToolContext ctx;
+    fill_ctx(ctx);
 
     // 设置超过上限的 timeout，应被截断为 600000ms
-    nlohmann::json input = {
-        {"command", "echo max_timeout"},
-        {"timeout", 999999999}
-    };
+    nlohmann::json input = {{"command", "echo max_timeout"}, {"timeout", 999999999}};
 
     auto r = tool.call(input, ctx);
     REQUIRE(r.is_ok());
     REQUIRE(r.value().text.find("max_timeout") != std::string::npos);
+}
+
+// ============================================================
+// Issue #137：按剩余墙钟封顶单次命令超时
+// ============================================================
+
+TEST_CASE("#137: clamp_timeout_by_wall_clock 边界", "[tool][bash][wallclock]") {
+    using agent::tool::shell_common::clamp_timeout_by_wall_clock;
+
+    // 未注入预算（<0）或预算充裕：行为与注入前完全一致
+    REQUIRE(clamp_timeout_by_wall_clock(600'000, -1) == 600'000);
+    REQUIRE(clamp_timeout_by_wall_clock(600'000, 900'000) == 600'000);
+    // 剩余 30s：扣掉 20s 收尾余量，封顶到 10s
+    REQUIRE(clamp_timeout_by_wall_clock(600'000, 30'000) == 10'000);
+    // 请求值本就低于封顶值：不放大
+    REQUIRE(clamp_timeout_by_wall_clock(5'000, 30'000) == 5'000);
+    // 剩余不足以留出收尾余量：退到下限 5s（而非 0/负值）
+    REQUIRE(clamp_timeout_by_wall_clock(600'000, 22'000) == 5'000);
+    REQUIRE(clamp_timeout_by_wall_clock(600'000, 0) == 5'000);
+}
+
+TEST_CASE("#137: BashTool 按剩余墙钟封顶——卡住的命令不再独吞整轮预算",
+          "[tool][bash][wallclock]") {
+    BashTool tool;
+    ToolContext ctx;
+    fill_ctx(ctx);
+    // 剩余 25s：请求 600s 会被封顶到 5s（25s - 20s 余量 < 5s 下限）
+    ctx.remaining_wall_clock_ms = 25'000;
+
+    const auto t0 = std::chrono::steady_clock::now();
+    // 命令远超封顶值：应在 ~5s 失败返回，而不是跑满命令时长或 600s
+#ifdef _WIN32
+    nlohmann::json input = {{"command", "ping -n 30 127.0.0.1"}, {"timeout", 600'000}};
+#else
+    nlohmann::json input = {{"command", "sleep 30"}, {"timeout", 600'000}};
+#endif
+    auto r = tool.call(input, ctx);
+    const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - t0)
+                                .count();
+
+    REQUIRE(r.is_ok());
+    REQUIRE(r.value().text.find("timed out") != std::string::npos);
+    REQUIRE(elapsed_ms < 9'000);  // 封顶生效（未封顶会跑满 10s）
 }
 
 // ============================================================
@@ -318,14 +467,12 @@ TEST_CASE("BashTool clamps timeout to max", "[tool][bash][timeout]") {
 
 TEST_CASE("BashTool accepts cwd field in input", "[tool][bash][cwd]") {
     BashTool tool;
-    ToolContext ctx; fill_ctx(ctx);
+    ToolContext ctx;
+    fill_ctx(ctx);
 
     // 通过 input 指定 cwd，应在该目录下执行
     std::string temp_dir = std::filesystem::current_path().string();
-    nlohmann::json input = {
-        {"command", "echo cwd_test"},
-        {"cwd", temp_dir}
-    };
+    nlohmann::json input = {{"command", "echo cwd_test"}, {"cwd", temp_dir}};
 
     auto r = tool.call(input, ctx);
     REQUIRE(r.is_ok());
@@ -338,7 +485,8 @@ TEST_CASE("BashTool accepts cwd field in input", "[tool][bash][cwd]") {
 
 TEST_CASE("BashTool output has no trailing blank line in stdout", "[tool][bash][output]") {
     BashTool tool;
-    ToolContext ctx; fill_ctx(ctx);
+    ToolContext ctx;
+    fill_ctx(ctx);
 
     // echo 输出末尾自带换行，strip_empty_lines 应只保留一个
     // 验证 </stdout> 紧跟在内容之后，不出现空行

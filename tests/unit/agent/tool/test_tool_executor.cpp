@@ -29,7 +29,7 @@ namespace {
 // ============================================================
 
 class EchoTool : public ITool {
-public:
+   public:
     mutable int call_count = 0;
     mutable std::string last_input;
 
@@ -46,10 +46,7 @@ public:
         return p;
     }
     nlohmann::json input_schema() const override {
-        return {
-            {"type", "object"},
-            {"properties", {{"text", {{"type", "string"}}}}}
-        };
+        return {{"type", "object"}, {"properties", {{"text", {{"type", "string"}}}}}};
     }
     ResultV2<ToolResult> call(const nlohmann::json& input, const ToolContext&) const override {
         call_count++;
@@ -59,13 +56,19 @@ public:
 };
 
 class FailingTool : public ITool {
-public:
+   public:
     const std::string& name() const override {
         static const std::string n = "Failing";
         return n;
     }
-    const std::string& description() const override { static const std::string d; return d; }
-    const std::string& prompt() const override { static const std::string p; return p; }
+    const std::string& description() const override {
+        static const std::string d;
+        return d;
+    }
+    const std::string& prompt() const override {
+        static const std::string p;
+        return p;
+    }
     nlohmann::json input_schema() const override { return {{"type", "object"}}; }
     ResultV2<ToolResult> call(const nlohmann::json&, const ToolContext&) const override {
         throw std::runtime_error("intentional failure");
@@ -73,13 +76,19 @@ public:
 };
 
 class DeniedTool : public ITool {
-public:
+   public:
     const std::string& name() const override {
         static const std::string n = "Denied";
         return n;
     }
-    const std::string& description() const override { static const std::string d; return d; }
-    const std::string& prompt() const override { static const std::string p; return p; }
+    const std::string& description() const override {
+        static const std::string d;
+        return d;
+    }
+    const std::string& prompt() const override {
+        static const std::string p;
+        return p;
+    }
     nlohmann::json input_schema() const override { return {{"type", "object"}}; }
     PermissionResult check_permissions(const nlohmann::json&, const ToolContext&) const override {
         return PermissionResult::err(Error::Code::PermissionDenied, "policy denied");
@@ -90,36 +99,49 @@ public:
 };
 
 class ValidatingTool : public ITool {
-public:
+   public:
     const std::string& name() const override {
         static const std::string n = "Validating";
         return n;
     }
-    const std::string& description() const override { static const std::string d; return d; }
-    const std::string& prompt() const override { static const std::string p; return p; }
+    const std::string& description() const override {
+        static const std::string d;
+        return d;
+    }
+    const std::string& prompt() const override {
+        static const std::string p;
+        return p;
+    }
     nlohmann::json input_schema() const override {
         return {{"type", "object"}, {"required", {"value"}}};
     }
-    ValidationResult validate_input(const nlohmann::json& input, const ToolContext&) const override {
+    ValidationResult validate_input(const nlohmann::json& input,
+                                    const ToolContext&) const override {
         if (!input.contains("value")) {
             return ValidationResult::err(Error::Code::MissingArgument, "missing 'value' field");
         }
         return ValidationResult::ok();
     }
     ResultV2<ToolResult> call(const nlohmann::json& input, const ToolContext&) const override {
-        return ResultV2<ToolResult>::ok(ToolResult::ok(
-            std::string("got: ") + input["value"].get<std::string>()));
+        return ResultV2<ToolResult>::ok(
+            ToolResult::ok(std::string("got: ") + input["value"].get<std::string>()));
     }
 };
 
 class JsonExceptionTool : public ITool {
-public:
+   public:
     const std::string& name() const override {
         static const std::string n = "JsonException";
         return n;
     }
-    const std::string& description() const override { static const std::string d; return d; }
-    const std::string& prompt() const override { static const std::string p; return p; }
+    const std::string& description() const override {
+        static const std::string d;
+        return d;
+    }
+    const std::string& prompt() const override {
+        static const std::string p;
+        return p;
+    }
     nlohmann::json input_schema() const override { return {{"type", "object"}}; }
     ResultV2<ToolResult> call(const nlohmann::json&, const ToolContext&) const override {
         throw nlohmann::json::type_error::create(302, "intentional json error", nullptr);
@@ -127,30 +149,40 @@ public:
 };
 
 class FilesystemErrorTool : public ITool {
-public:
+   public:
     const std::string& name() const override {
         static const std::string n = "FsError";
         return n;
     }
-    const std::string& description() const override { static const std::string d; return d; }
-    const std::string& prompt() const override { static const std::string p; return p; }
+    const std::string& description() const override {
+        static const std::string d;
+        return d;
+    }
+    const std::string& prompt() const override {
+        static const std::string p;
+        return p;
+    }
     nlohmann::json input_schema() const override { return {{"type", "object"}}; }
     ResultV2<ToolResult> call(const nlohmann::json&, const ToolContext&) const override {
         throw std::filesystem::filesystem_error(
-            "intentional fs error",
-            std::make_error_code(std::errc::no_such_file_or_directory)
-        );
+            "intentional fs error", std::make_error_code(std::errc::no_such_file_or_directory));
     }
 };
 
 class UnknownExceptionTool : public ITool {
-public:
+   public:
     const std::string& name() const override {
         static const std::string n = "Unknown";
         return n;
     }
-    const std::string& description() const override { static const std::string d; return d; }
-    const std::string& prompt() const override { static const std::string p; return p; }
+    const std::string& description() const override {
+        static const std::string d;
+        return d;
+    }
+    const std::string& prompt() const override {
+        static const std::string p;
+        return p;
+    }
     nlohmann::json input_schema() const override { return {{"type", "object"}}; }
     ResultV2<ToolResult> call(const nlohmann::json&, const ToolContext&) const override {
         throw 42;  // non-std exception
@@ -158,13 +190,19 @@ public:
 };
 
 class ErrorResultTool : public ITool {
-public:
+   public:
     const std::string& name() const override {
         static const std::string n = "ErrorResult";
         return n;
     }
-    const std::string& description() const override { static const std::string d; return d; }
-    const std::string& prompt() const override { static const std::string p; return p; }
+    const std::string& description() const override {
+        static const std::string d;
+        return d;
+    }
+    const std::string& prompt() const override {
+        static const std::string p;
+        return p;
+    }
     nlohmann::json input_schema() const override { return {{"type", "object"}}; }
     ResultV2<ToolResult> call(const nlohmann::json&, const ToolContext&) const override {
         return ResultV2<ToolResult>::err(Error::Code::ToolExecutionFailed, "business logic error");
@@ -191,13 +229,14 @@ struct ToolExecutorFixture {
     }
 };
 
-} // namespace
+}  // namespace
 
 // ============================================================================
 // 正常执行
 // ============================================================================
 
-TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor executes registered tool", "[tool_executor][basic]") {
+TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor executes registered tool",
+                 "[tool_executor][basic]") {
     auto result = executor->execute("Echo", R"({"text":"hello"})"_json, ctx);
 
     REQUIRE(result.is_ok());
@@ -206,7 +245,8 @@ TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor executes registered tool", "
     REQUIRE(echo->call_count == 1);
 }
 
-TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor returns Json result type for json output", "[tool_executor][basic]") {
+TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor returns Json result type for json output",
+                 "[tool_executor][basic]") {
     // EchoTool 返回文本，验证 type 正确
     auto result = executor->execute("Echo", R"({"text":"x"})"_json, ctx);
     REQUIRE(result.is_ok());
@@ -217,7 +257,8 @@ TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor returns Json result type for
 // 工具未找到
 // ============================================================================
 
-TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor returns error for unknown tool", "[tool_executor][not_found]") {
+TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor returns error for unknown tool",
+                 "[tool_executor][not_found]") {
     auto result = executor->execute("NonExistent", R"({})"_json, ctx);
 
     REQUIRE(result.is_err());
@@ -231,7 +272,8 @@ TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor returns error for unknown to
 // 取消信号
 // ============================================================================
 
-TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor respects cancellation", "[tool_executor][cancel]") {
+TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor respects cancellation",
+                 "[tool_executor][cancel]") {
     ctx.cancel();
 
     auto result = executor->execute("Echo", R"({"text":"x"})"_json, ctx);
@@ -246,7 +288,8 @@ TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor respects cancellation", "[to
 // 权限检查
 // ============================================================================
 
-TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor denies on permission failure", "[tool_executor][permission]") {
+TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor denies on permission failure",
+                 "[tool_executor][permission]") {
     registry->register_tool(std::make_shared<DeniedTool>());
 
     auto result = executor->execute("Denied", R"({})"_json, ctx);
@@ -277,7 +320,7 @@ TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor allows allowlisted tool in m
                  "[tool_executor][minimal_mode]") {
     // 注册一个名字在白名单内的工具（模拟 Bash）
     class BashNamedTool : public EchoTool {
-    public:
+       public:
         const std::string& name() const override {
             static const std::string n = "Bash";
             return n;
@@ -315,7 +358,8 @@ TEST_CASE("is_minimal_mode_tool matches the allowlist", "[tool_executor][minimal
 // 输入验证
 // ============================================================================
 
-TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor validates input before execution", "[tool_executor][validation]") {
+TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor validates input before execution",
+                 "[tool_executor][validation]") {
     registry->register_tool(std::make_shared<ValidatingTool>());
 
     SECTION("valid input passes validation") {
@@ -336,7 +380,8 @@ TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor validates input before execu
 // 异常捕获
 // ============================================================================
 
-TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor catches std::exception from tool", "[tool_executor][exception]") {
+TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor catches std::exception from tool",
+                 "[tool_executor][exception]") {
     registry->register_tool(std::make_shared<FailingTool>());
 
     auto result = executor->execute("Failing", R"({})"_json, ctx);
@@ -347,7 +392,8 @@ TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor catches std::exception from 
     REQUIRE(result.error().message.find("intentional failure") != std::string::npos);
 }
 
-TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor catches nlohmann::json::exception", "[tool_executor][exception]") {
+TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor catches nlohmann::json::exception",
+                 "[tool_executor][exception]") {
     registry->register_tool(std::make_shared<JsonExceptionTool>());
 
     auto result = executor->execute("JsonException", R"({})"_json, ctx);
@@ -357,7 +403,8 @@ TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor catches nlohmann::json::exce
     REQUIRE(result.error().message.find("JSON error in tool") != std::string::npos);
 }
 
-TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor catches std::filesystem::filesystem_error", "[tool_executor][exception]") {
+TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor catches std::filesystem::filesystem_error",
+                 "[tool_executor][exception]") {
     registry->register_tool(std::make_shared<FilesystemErrorTool>());
 
     auto result = executor->execute("FsError", R"({})"_json, ctx);
@@ -367,7 +414,8 @@ TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor catches std::filesystem::fil
     REQUIRE(result.error().message.find("Filesystem error in tool") != std::string::npos);
 }
 
-TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor catches unknown exception", "[tool_executor][exception]") {
+TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor catches unknown exception",
+                 "[tool_executor][exception]") {
     registry->register_tool(std::make_shared<UnknownExceptionTool>());
 
     auto result = executor->execute("Unknown", R"({})"_json, ctx);
@@ -381,7 +429,8 @@ TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor catches unknown exception", 
 // 业务错误（ResultV2<ToolResult>::err）
 // ============================================================================
 
-TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor propagates tool error as ResultV2 err", "[tool_executor][business_error]") {
+TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor propagates tool error as ResultV2 err",
+                 "[tool_executor][business_error]") {
     registry->register_tool(std::make_shared<ErrorResultTool>());
 
     auto result = executor->execute("ErrorResult", R"({})"_json, ctx);
@@ -395,7 +444,8 @@ TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor propagates tool error as Res
 // 上下文传递
 // ============================================================================
 
-TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor passes ToolContext to tool", "[tool_executor][context]") {
+TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor passes ToolContext to tool",
+                 "[tool_executor][context]") {
     ctx.session_id = "session-123";
     ctx.model = "test-model";
     ctx.cwd = "/test/path";
@@ -410,7 +460,9 @@ TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor passes ToolContext to tool",
 // execute is const method
 // ============================================================================
 
-TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor execute is const method (parallel-safe requirement)", "[tool_executor][const]") {
+TEST_CASE_METHOD(ToolExecutorFixture,
+                 "ToolExecutor execute is const method (parallel-safe requirement)",
+                 "[tool_executor][const]") {
     // 验证 execute 是 const 方法（PLAN 3.x K-1 审计前置）
     const ToolExecutor& const_executor = *executor;
     auto result = const_executor.execute("Echo", R"({"text":"const"})"_json, ctx);
@@ -434,7 +486,8 @@ TEST_CASE("truncate_result keeps short text unchanged", "[tool_executor][m3][tru
     REQUIRE(text == "short text");
 }
 
-TEST_CASE("truncate_result truncates long text with marker", "[tool_executor][m3][truncation][l2]") {
+TEST_CASE("truncate_result truncates long text with marker",
+          "[tool_executor][m3][truncation][l2]") {
     // 构造超长文本（2000 字节），最大保留 1000 字节
     std::string text(2000, 'x');
     auto [result, truncated] = truncate_result(text, 1000);
@@ -449,7 +502,8 @@ TEST_CASE("truncate_result truncates long text with marker", "[tool_executor][m3
     REQUIRE(text.size() == 2000);
 }
 
-TEST_CASE("truncate_result preserves head and tail of long text", "[tool_executor][m3][truncation][l2]") {
+TEST_CASE("truncate_result preserves head and tail of long text",
+          "[tool_executor][m3][truncation][l2]") {
     // 头部为 "HEADHEAD"，尾部为 "TAILTAIL"，中间填充 2000 个 'M'
     std::string text = "HEADHEAD";
     text.append(std::string(2000, 'M'));
@@ -470,7 +524,8 @@ TEST_CASE("truncate_result preserves head and tail of long text", "[tool_executo
     REQUIRE(text.size() == 2000 + 8 + 8);
 }
 
-TEST_CASE("truncate_result default max_length uses MAX_TOOL_RESULT_LENGTH", "[tool_executor][m3][truncation][l2]") {
+TEST_CASE("truncate_result default max_length uses MAX_TOOL_RESULT_LENGTH",
+          "[tool_executor][m3][truncation][l2]") {
     // L-2：验证默认参数 max_length = MAX_TOOL_RESULT_LENGTH
     std::string text(MAX_TOOL_RESULT_LENGTH, 'a');
     auto [result_eq, truncated_eq] = truncate_result(text);
@@ -491,29 +546,35 @@ namespace {
 
 /// @brief 返回超长文本的工具，用于测试 finalize_result 的截断行为
 class LongTextTool : public ITool {
-public:
+   public:
     explicit LongTextTool(size_t length) : length_(length) {}
 
     const std::string& name() const override {
         static const std::string n = "LongText";
         return n;
     }
-    const std::string& description() const override { static const std::string d; return d; }
-    const std::string& prompt() const override { static const std::string p; return p; }
+    const std::string& description() const override {
+        static const std::string d;
+        return d;
+    }
+    const std::string& prompt() const override {
+        static const std::string p;
+        return p;
+    }
     nlohmann::json input_schema() const override { return {{"type", "object"}}; }
 
     ResultV2<ToolResult> call(const nlohmann::json&, const ToolContext&) const override {
-        return ResultV2<ToolResult>::ok(
-            ToolResult::ok(std::string(length_, 'A')));
+        return ResultV2<ToolResult>::ok(ToolResult::ok(std::string(length_, 'A')));
     }
 
-private:
+   private:
     size_t length_;
 };
 
-} // namespace
+}  // namespace
 
-TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor truncates long result via finalize_result", "[tool_executor][m3][finalize]") {
+TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor truncates long result via finalize_result",
+                 "[tool_executor][m3][finalize]") {
     // 构造超过 MAX_TOOL_RESULT_LENGTH 的输出
     const size_t long_len = MAX_TOOL_RESULT_LENGTH + 1000;
     registry->register_tool(std::make_shared<LongTextTool>(long_len));
@@ -534,7 +595,8 @@ TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor truncates long result via fi
     REQUIRE(result.value().result.text.back() == 'A');
 }
 
-TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor does not truncate short result", "[tool_executor][m3][finalize]") {
+TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor does not truncate short result",
+                 "[tool_executor][m3][finalize]") {
     // 短于 MAX_TOOL_RESULT_LENGTH 的输出不应被截断
     const size_t short_len = 100;
     registry->register_tool(std::make_shared<LongTextTool>(short_len));
@@ -553,7 +615,8 @@ TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor does not truncate short resu
 //       M-3 拆分后的契约：所有异常分支统一返回 ToolExecutionFailed/Unknown
 // ============================================================================
 
-TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor run_with_safety classifies all exception types", "[tool_executor][m3][exception_classification]") {
+TEST_CASE_METHOD(ToolExecutorFixture, "ToolExecutor run_with_safety classifies all exception types",
+                 "[tool_executor][m3][exception_classification]") {
     // 验证 M-3 拆分后 run_with_safety 的异常分类契约：
     // - std::exception 子类 → ToolExecutionFailed
     // - 未知异常 → Unknown

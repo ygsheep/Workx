@@ -38,11 +38,11 @@ std::vector<std::string> split_lines(const std::string& text) {
 
 /// @brief 判定 tool_result 是否已被 snip/prune 过
 bool already_elided(const std::string& content) {
-    return content.find("[snipped") != std::string::npos
-        || content.find("[elided") != std::string::npos;
+    return content.find("[snipped") != std::string::npos ||
+           content.find("[elided") != std::string::npos;
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 // ============================================================
 // 默认策略
@@ -66,22 +66,16 @@ bool is_read_only_tool(const std::string& tool_name) {
     // 已知副作用工具列表（白名单反转：默认只读，副作用工具显式列出）
     // 对齐 tool_result_maintainer.h 文档：未知工具按只读处理（默认头长尾短）
     static const std::vector<std::string> side_effecting = {
-        "Write", "FileWrite", "file_write",
-        "Edit", "FileEdit", "file_edit",
-        "Bash", "bash",
-        "PowerShell", "powershell",
-        "Agent", "TaskCreate", "TaskUpdate", "TaskComplete",
-        "TodoWrite", "todo_write"
-    };
+        "Write",      "FileWrite",    "file_write", "Edit",       "FileEdit", "file_edit",
+        "Bash",       "bash",         "PowerShell", "powershell", "Agent",    "TaskCreate",
+        "TaskUpdate", "TaskComplete", "TodoWrite",  "todo_write"};
     // 已知副作用工具返回 false；未知工具默认 true（保守策略，避免误截短）
-    return std::find(side_effecting.begin(), side_effecting.end(), tool_name)
-           == side_effecting.end();
+    return std::find(side_effecting.begin(), side_effecting.end(), tool_name) ==
+           side_effecting.end();
 }
 
 const SnipStrategy& select_strategy_by_tool_name(const std::string& tool_name) {
-    return is_read_only_tool(tool_name)
-        ? default_read_only_snip()
-        : default_side_effecting_snip();
+    return is_read_only_tool(tool_name) ? default_read_only_snip() : default_side_effecting_snip();
 }
 
 // ============================================================
@@ -106,8 +100,8 @@ int snip_tool_result(ChatMessage& msg, const SnipStrategy& strategy) {
             return 0;
         }
         // 字符级截短
-        std::string head = msg.content.substr(0,
-            std::min<size_t>(msg.content.size(), strategy.head_chars));
+        std::string head =
+            msg.content.substr(0, std::min<size_t>(msg.content.size(), strategy.head_chars));
         std::string tail;
         if (msg.content.size() > static_cast<size_t>(strategy.head_chars + strategy.tail_chars)) {
             tail = msg.content.substr(msg.content.size() - strategy.tail_chars);
@@ -157,10 +151,9 @@ int prune_tool_result(ChatMessage& msg, const std::string& archive_dir) {
     if (already_elided(msg.content)) return 0;
 
     const size_t original_len = msg.content.size();
-    std::string elided_str = std::format(
-        "[elided tool result — {} bytes{}]\n",
-        original_len,
-        archive_dir.empty() ? "" : (", archived to " + archive_dir));
+    std::string elided_str =
+        std::format("[elided tool result — {} bytes{}]\n", original_len,
+                    archive_dir.empty() ? "" : (", archived to " + archive_dir));
     msg.content = std::move(elided_str);
     int saved = static_cast<int>(original_len) - static_cast<int>(msg.content.size());
     return saved > 0 ? saved : 0;
@@ -170,8 +163,7 @@ int prune_tool_result(ChatMessage& msg, const std::string& archive_dir) {
 // 批量操作
 // ============================================================
 
-SnipStats snip_range(std::vector<ChatMessage>& messages,
-                     size_t head_end, size_t tail_start,
+SnipStats snip_range(std::vector<ChatMessage>& messages, size_t head_end, size_t tail_start,
                      const std::string& archive_dir) {
     SnipStats stats;
     if (head_end >= tail_start || tail_start > messages.size()) {
@@ -194,8 +186,7 @@ SnipStats snip_range(std::vector<ChatMessage>& messages,
     return stats;
 }
 
-SnipStats prune_range(std::vector<ChatMessage>& messages,
-                      size_t head_end, size_t tail_start,
+SnipStats prune_range(std::vector<ChatMessage>& messages, size_t head_end, size_t tail_start,
                       const std::string& archive_dir) {
     SnipStats stats;
     if (head_end >= tail_start || tail_start > messages.size()) {
@@ -217,4 +208,4 @@ SnipStats prune_range(std::vector<ChatMessage>& messages,
     return stats;
 }
 
-} // namespace agent::compact
+}  // namespace agent::compact

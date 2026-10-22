@@ -76,10 +76,8 @@ TEST_CASE("build_markdown min width never exceeds wrap width", "[wrap][adapt]") 
             std::cerr << "== width=" << w << " min_width=" << mw << "\n";
             for (auto [b, e] : wrap_text(long_para, w)) {
                 const auto seg = long_para.substr(b, e - b);
-                std::cerr << "  seg[" << b << "," << e << ") disp="
-                          << utf8_display_width(seg)
-                          << " ftxui=" << ftxui::string_width(seg)
-                          << " : " << seg << "\n";
+                std::cerr << "  seg[" << b << "," << e << ") disp=" << utf8_display_width(seg)
+                          << " ftxui=" << ftxui::string_width(seg) << " : " << seg << "\n";
             }
         }
         REQUIRE(mw <= w);
@@ -107,7 +105,9 @@ TEST_CASE("table cells wrap to fit available width", "[wrap][table]") {
     const std::string md =
         "| 名称 | 描述 |\n"
         "| --- | --- |\n"
-        "| 功能 | 这是一个非常非常非常长的描述文本用来测试表格单元格内容是否能够根据列宽自动换行不溢出显示区域 |\n"
+        "| 功能 | "
+        "这是一个非常非常非常长的描述文本用来测试表格单元格内容是否能够根据列宽自动换行不溢出显示区"
+        "域 |\n"
         "| 限制 | O(n log n) 平均复杂度，最坏情况 O(n^2) |";
     for (const int w : {30, 40, 60, 80}) {
         const int mw = md_min_width(md, w);
@@ -137,7 +137,9 @@ TEST_CASE("wrapped table estimate matches render at narrow widths", "[wrap][tabl
     const std::string md =
         "| 名称 | 描述 |\n"
         "| --- | --- |\n"
-        "| 功能 | 这是一个非常非常非常长的描述文本用来测试表格单元格内容是否能够根据列宽自动换行不溢出显示区域 |\n"
+        "| 功能 | "
+        "这是一个非常非常非常长的描述文本用来测试表格单元格内容是否能够根据列宽自动换行不溢出显示区"
+        "域 |\n"
         "| 限制 | O(n log n) 平均复杂度，最坏情况 O(n^2) |";
     for (const int w : {24, 30, 40, 60, 80}) {
         const int est = estimate_markdown_height(md, w);

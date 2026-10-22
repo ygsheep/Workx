@@ -19,25 +19,28 @@ using namespace agent::tool;
 namespace {
 
 class StubTool : public ITool {
-public:
+   public:
     StubTool(std::string n, std::string d = "", nlohmann::json schema = {{"type", "object"}})
         : name_(std::move(n)), desc_(std::move(d)), schema_(std::move(schema)) {}
 
     const std::string& name() const override { return name_; }
     const std::string& description() const override { return desc_; }
-    const std::string& prompt() const override { static const std::string p; return p; }
+    const std::string& prompt() const override {
+        static const std::string p;
+        return p;
+    }
     nlohmann::json input_schema() const override { return schema_; }
     ResultV2<ToolResult> call(const nlohmann::json&, const ToolContext&) const override {
         return ResultV2<ToolResult>::ok(ToolResult::ok(std::string("ok")));
     }
 
-private:
+   private:
     std::string name_;
     std::string desc_;
     nlohmann::json schema_;
 };
 
-} // namespace
+}  // namespace
 
 // ============================================================================
 // register_tool
@@ -60,7 +63,8 @@ TEST_CASE("ToolRegistry register_tool ignores null", "[tool_registry][register]"
     REQUIRE(registry.size() == 0);
 }
 
-TEST_CASE("ToolRegistry register_tool allows duplicate name - last wins", "[tool_registry][register]") {
+TEST_CASE("ToolRegistry register_tool allows duplicate name - last wins",
+          "[tool_registry][register]") {
     ToolRegistry registry;
     registry.register_tool(std::make_shared<StubTool>("Dup"));
     registry.register_tool(std::make_shared<StubTool>("Dup"));
@@ -128,7 +132,8 @@ TEST_CASE("ToolRegistry get_all_tools on empty returns empty vector", "[tool_reg
 TEST_CASE("ToolRegistry get_all_schemas returns JSON array", "[tool_registry][schema]") {
     ToolRegistry registry;
     registry.register_tool(std::make_shared<StubTool>(
-        "ToolA", "Description A", R"({"type":"object","properties":{"x":{"type":"string"}}})"_json));
+        "ToolA", "Description A",
+        R"({"type":"object","properties":{"x":{"type":"string"}}})"_json));
 
     auto schemas = registry.get_all_schemas();
 
@@ -158,7 +163,8 @@ TEST_CASE("ToolRegistry get_all_schemas on empty returns empty array", "[tool_re
     REQUIRE(schemas.empty());
 }
 
-TEST_CASE("ToolRegistry get_schemas_by_names filters by whitelist", "[tool_registry][schema][filter]") {
+TEST_CASE("ToolRegistry get_schemas_by_names filters by whitelist",
+          "[tool_registry][schema][filter]") {
     ToolRegistry registry;
     registry.register_tool(std::make_shared<StubTool>("A", "desc A"));
     registry.register_tool(std::make_shared<StubTool>("B", "desc B"));
@@ -171,7 +177,8 @@ TEST_CASE("ToolRegistry get_schemas_by_names filters by whitelist", "[tool_regis
     REQUIRE(schemas[1]["name"] == "C");
 }
 
-TEST_CASE("ToolRegistry get_schemas_by_names ignores unknown names", "[tool_registry][schema][filter]") {
+TEST_CASE("ToolRegistry get_schemas_by_names ignores unknown names",
+          "[tool_registry][schema][filter]") {
     ToolRegistry registry;
     registry.register_tool(std::make_shared<StubTool>("A", "desc A"));
 
@@ -180,7 +187,8 @@ TEST_CASE("ToolRegistry get_schemas_by_names ignores unknown names", "[tool_regi
     REQUIRE(schemas[0]["name"] == "A");
 }
 
-TEST_CASE("ToolRegistry get_schemas_by_names with empty whitelist returns empty", "[tool_registry][schema][filter]") {
+TEST_CASE("ToolRegistry get_schemas_by_names with empty whitelist returns empty",
+          "[tool_registry][schema][filter]") {
     ToolRegistry registry;
     registry.register_tool(std::make_shared<StubTool>("A", "desc A"));
 
@@ -224,24 +232,22 @@ namespace {
 /// @brief 仅实现 IToolCallable 的 Stub（M-5 ISP）
 /// @details 验证消费方可以只依赖执行能力，不需要元信息或 Guard。
 class StubToolCallable : public IToolCallable {
-public:
+   public:
     mutable int call_count = 0;
     mutable std::string last_input;
 
-    ResultV2<ToolResult> call(
-        const nlohmann::json& input, const ToolContext& /*ctx*/
+    ResultV2<ToolResult> call(const nlohmann::json& input, const ToolContext& /*ctx*/
     ) const override {
         ++call_count;
         last_input = input.value("text", "");
-        return ResultV2<ToolResult>::ok(
-            ToolResult::ok(std::string("callable: ") + last_input));
+        return ResultV2<ToolResult>::ok(ToolResult::ok(std::string("callable: ") + last_input));
     }
 };
 
 /// @brief 仅实现 IToolMetadata 的 Stub（M-5 ISP）
 /// @details 验证 UI/registry 列举场景可只依赖元信息，不需要执行能力。
 class StubToolMetadata : public IToolMetadata {
-public:
+   public:
     const std::string& name() const override {
         static const std::string n = "StubMeta";
         return n;
@@ -262,28 +268,24 @@ public:
 /// @brief 仅实现 IToolGuard 的 Stub（M-5 ISP）
 /// @details 验证审计/拦截层可只依赖 Guard，不需要执行能力或元信息。
 class StubToolGuard : public IToolGuard {
-public:
+   public:
     mutable int perm_count = 0;
     mutable int valid_count = 0;
 
-    PermissionResult check_permissions(
-        const nlohmann::json& input, const ToolContext& /*ctx*/
+    PermissionResult check_permissions(const nlohmann::json& input, const ToolContext& /*ctx*/
     ) const override {
         ++perm_count;
         if (!input.contains("forbidden")) {
             return PermissionResult::ok();
         }
-        return PermissionResult::err(
-            Error::Code::PermissionDenied, "forbidden field present");
+        return PermissionResult::err(Error::Code::PermissionDenied, "forbidden field present");
     }
 
-    ValidationResult validate_input(
-        const nlohmann::json& input, const ToolContext& /*ctx*/
+    ValidationResult validate_input(const nlohmann::json& input, const ToolContext& /*ctx*/
     ) const override {
         ++valid_count;
         if (!input.contains("required_field")) {
-            return ValidationResult::err(
-                Error::Code::MissingArgument, "required_field missing");
+            return ValidationResult::err(Error::Code::MissingArgument, "required_field missing");
         }
         return ValidationResult::ok();
     }
@@ -292,11 +294,8 @@ public:
 /// @brief 自由函数：只依赖 IToolCallable&（M-5 ISP 契约）
 /// @details 若 IToolCallable 不能被独立实现/消费，此函数无法编译。
 ///          等价于 ToolExecutor::run_with_safety 的依赖最小化契约。
-static ResultV2<ToolResult> invoke_callable(
-    IToolCallable& callable,
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) {
+static ResultV2<ToolResult> invoke_callable(IToolCallable& callable, const nlohmann::json& input,
+                                            const ToolContext& ctx) {
     return callable.call(input, ctx);
 }
 
@@ -312,19 +311,17 @@ static nlohmann::json describe_metadata(IToolMetadata& meta) {
 
 /// @brief 自由函数：只依赖 IToolGuard&（M-5 ISP 契约）
 /// @details 模拟审计层场景，只需要权限/输入校验。
-static ResultV2<void> audit_guard(
-    IToolGuard& guard,
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) {
+static ResultV2<void> audit_guard(IToolGuard& guard, const nlohmann::json& input,
+                                  const ToolContext& ctx) {
     auto perm = guard.check_permissions(input, ctx);
     if (perm.is_err()) return perm;
     return guard.validate_input(input, ctx);
 }
 
-} // namespace
+}  // namespace
 
-TEST_CASE("IToolCallable can be implemented and consumed independently", "[tool_registry][m5][isp]") {
+TEST_CASE("IToolCallable can be implemented and consumed independently",
+          "[tool_registry][m5][isp]") {
     // M-5 ISP 契约：仅实现 IToolCallable 的类可以被只依赖 IToolCallable& 的代码消费
     StubToolCallable callable;
     ToolContext ctx;
@@ -346,7 +343,8 @@ TEST_CASE("IToolCallable can be implemented and consumed independently", "[tool_
     }
 }
 
-TEST_CASE("IToolMetadata can be implemented and consumed independently", "[tool_registry][m5][isp]") {
+TEST_CASE("IToolMetadata can be implemented and consumed independently",
+          "[tool_registry][m5][isp]") {
     // M-5 ISP 契约：仅实现 IToolMetadata 的类可以被只依赖 IToolMetadata& 的代码消费
     StubToolMetadata meta;
 
@@ -399,8 +397,7 @@ TEST_CASE("ITool combines Metadata/Guard/Callable (backward compat)", "[tool_reg
     // 已被 StubTool（本文件顶部）覆盖，这里通过 static_assert 补充编译期契约
     static_assert(std::is_base_of_v<IToolMetadata, ITool>,
                   "ITool must inherit IToolMetadata (M-5 ISP)");
-    static_assert(std::is_base_of_v<IToolGuard, ITool>,
-                  "ITool must inherit IToolGuard (M-5 ISP)");
+    static_assert(std::is_base_of_v<IToolGuard, ITool>, "ITool must inherit IToolGuard (M-5 ISP)");
     static_assert(std::is_base_of_v<IToolCallable, ITool>,
                   "ITool must inherit IToolCallable (M-5 ISP)");
 

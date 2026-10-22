@@ -35,7 +35,7 @@ namespace agent::tool {
 /// @par 错误处理
 /// 所有错误通过 ToolResult::error() 返回，不抛异常。
 class FileReadTool : public ITool {
-public:
+   public:
     /// @brief 获取工具名称
     /// @return 工具名称常量引用 "Read"
     const std::string& name() const override;
@@ -60,30 +60,23 @@ public:
     /// @param input 输入 JSON 对象
     /// @param ctx 工具执行上下文（当前未使用）
     /// @return 验证通过返回 ValidationResult::ok()，否则返回错误信息
-    ValidationResult validate_input(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    ValidationResult validate_input(const nlohmann::json& input,
+                                    const ToolContext& ctx) const override;
 
     /// @brief 权限检查（#34/#36：路径边界 + 敏感文件拦截）
     /// @param input 输入 JSON 对象
     /// @param ctx 工具执行上下文（cwd 作为路径边界基准）
     /// @return 允许返回 ok；越界/敏感路径返回 PermissionDenied
-    PermissionResult check_permissions(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    PermissionResult check_permissions(const nlohmann::json& input,
+                                       const ToolContext& ctx) const override;
 
     /// @brief 执行文件读取
     /// @param input 输入 JSON 对象（符合 input_schema）
     /// @param ctx 工具执行上下文（用于获取 cwd 解析相对路径）
     /// @return 工具结果：成功返回带行号的文本，失败返回错误信息
-    ResultV2<ToolResult> call(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    ResultV2<ToolResult> call(const nlohmann::json& input, const ToolContext& ctx) const override;
 
-private:
+   private:
     /// @brief 将文本行格式化为带行号的输出
     /// @details 每行格式：`右对齐行号→内容`，行号与内容间使用
     ///          Unicode 箭头 → (U+2192, UTF-8: \xe2\x86\x92)。
@@ -91,10 +84,8 @@ private:
     /// @param lines 文本行列表
     /// @param start_line 起始行号（1-based）
     /// @return 格式化后的字符串；空列表返回空字符串
-    static std::string format_with_line_numbers(
-        const std::vector<std::string>& lines,
-        int start_line
-    );
+    static std::string format_with_line_numbers(const std::vector<std::string>& lines,
+                                                int start_line);
 
     /// @brief 列举目录内容
     /// @details 使用 directory_iterator 配合 skip_permission_denied 选项遍历，
@@ -105,4 +96,4 @@ private:
     static ToolResult read_directory(const std::filesystem::path& dir_path);
 };
 
-} // namespace agent::tool
+}  // namespace agent::tool

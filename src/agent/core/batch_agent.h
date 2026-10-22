@@ -23,7 +23,7 @@ namespace agent {
 
 /// @brief 同构批处理 Agent（无需 LLM）
 class WORKX_API BatchAgent {
-public:
+   public:
     explicit BatchAgent(GoalAgentDeps deps);
     BatchAgent(const BatchAgent&) = delete;
     BatchAgent& operator=(const BatchAgent&) = delete;
@@ -34,11 +34,10 @@ public:
     /// @param messages  会话历史（追加以汇总的 assistant 消息便于持久化）
     /// @param observer  观察者（透传，可空）
     ReActResult run(const AgentGoal& goal, const std::string& goal_spec,
-                    std::vector<ChatMessage>& messages,
-                    IReActObserver* observer);
+                    std::vector<ChatMessage>& messages, IReActObserver* observer);
 
-private:
+   private:
     GoalAgentDeps m_deps;
 };
 
-} // namespace agent
+}  // namespace agent

@@ -11,9 +11,9 @@
 #include "agent/hook/hook_match.h"
 #include "agent/hook/hook_manager.h"
 #include "agent/skill/inclaude/frontmatter.h"  // frontmatter 对象式 hooks 解析
-#include "core/events/agent_events.h"  // HookProgressEvent（M-2）
-#include "helpers/mock_config_manager.h"  // MockConfigManager（agent 类型子循环装配）
-#include "helpers/mock_event_bus.h"    // MockEventBus（M-2 订阅断言）
+#include "core/events/agent_events.h"          // HookProgressEvent（M-2）
+#include "helpers/mock_config_manager.h"       // MockConfigManager（agent 类型子循环装配）
+#include "helpers/mock_event_bus.h"            // MockEventBus（M-2 订阅断言）
 #include "helpers/mock_provider.h"
 
 using namespace agent::hook;
@@ -29,7 +29,7 @@ TEST_CASE("hook event name round-trip", "[hook][event]") {
     REQUIRE(std::string(to_string(HookEvent::SessionStart)) == "SessionStart");
 
     REQUIRE(parse_event("PreToolUse") == HookEvent::PreToolUse);
-    REQUIRE(parse_event("pretooluse") == HookEvent::PreToolUse);   // 不敏感
+    REQUIRE(parse_event("pretooluse") == HookEvent::PreToolUse);  // 不敏感
     REQUIRE(parse_event("stop") == HookEvent::Stop);
     REQUIRE(parse_event("Nope") == std::nullopt);
 }
@@ -83,8 +83,7 @@ TEST_CASE("hook matcher OR clauses", "[hook][match]") {
 // command 类型 hook 执行（跨平台 shell）
 // ============================================================
 
-TEST_CASE("hook manager dispatch command succeeds on cross-platform echo",
-          "[hook][command]") {
+TEST_CASE("hook manager dispatch command succeeds on cross-platform echo", "[hook][command]") {
     HookManager mgr;
     HookDefinition def;
     def.event = HookEvent::Stop;
@@ -125,9 +124,9 @@ TEST_CASE("hook manager respects once flag", "[hook][once]") {
     def.type = HookType::Command;
     def.once = true;
 #if defined(_WIN32)
-    def.command = "cd .";   // 成功退出码
+    def.command = "cd .";  // 成功退出码
 #else
-    def.command = ":";      // 成功，无副作用
+    def.command = ":";  // 成功，无副作用
 #endif
     mgr.register_hook(def);
 
@@ -146,12 +145,9 @@ TEST_CASE("hook manager respects once flag", "[hook][once]") {
 
 TEST_CASE("hook definition from json", "[hook][json]") {
     nlohmann::json obj = {
-        {"event", "PreToolUse"},
-        {"type", "http"},
-        {"match", "Bash(git *)"},
-        {"url", "http://localhost:9999/hook"},
-        {"timeout_ms", 5000},
-        {"once", true},
+        {"event", "PreToolUse"},  {"type", "http"},
+        {"match", "Bash(git *)"}, {"url", "http://localhost:9999/hook"},
+        {"timeout_ms", 5000},     {"once", true},
     };
     auto def = HookDefinition::from_json(obj);
     REQUIRE(def.event == HookEvent::PreToolUse);
@@ -168,7 +164,7 @@ TEST_CASE("hook definition from json defaults", "[hook][json]") {
     auto def = HookDefinition::from_json(obj);
     REQUIRE(def.event == HookEvent::Stop);
     REQUIRE(def.type == HookType::Command);
-    REQUIRE(def.timeout_ms == 30000);   // 默认
+    REQUIRE(def.timeout_ms == 30000);  // 默认
     REQUIRE_FALSE(def.once);
     REQUIRE(def.match.empty());
 }
@@ -285,8 +281,8 @@ TEST_CASE("hook agent empty prompt skipped", "[hook][agent]") {
 
 TEST_CASE("hook agent JSON verdict blocks tool", "[hook][agent]") {
     using agent::test::MockCompletionProvider;
-    using agent::test::MockStreamReader;
     using agent::test::MockConfigManager;
+    using agent::test::MockStreamReader;
 
     MockCompletionProvider provider;
     // 无白名单 registry 注入 → 子循环空工具集，verifier 直接给出最终 JSON 判定
@@ -322,7 +318,7 @@ TEST_CASE("hook agent JSON verdict blocks tool", "[hook][agent]") {
 TEST_CASE("hook dispatch publishes HookProgressEvent (M-2)", "[hook][progress]") {
     using agent::test::MockEventBus;
     MockEventBus bus;
-    bus.set_dispatch_enabled(true);   // 让订阅回调在 publish_raw 时被同步调用
+    bus.set_dispatch_enabled(true);  // 让订阅回调在 publish_raw 时被同步调用
 
     HookManager mgr;
     mgr.set_event_bus(&bus);
@@ -330,9 +326,9 @@ TEST_CASE("hook dispatch publishes HookProgressEvent (M-2)", "[hook][progress]")
     def.event = HookEvent::Stop;
     def.type = HookType::Command;
 #if defined(_WIN32)
-    def.command = "cd .";      // 成功退出码
+    def.command = "cd .";  // 成功退出码
 #else
-    def.command = ":";         // 成功，无副作用
+    def.command = ":";  // 成功，无副作用
 #endif
     mgr.register_hook(def);
 
@@ -342,18 +338,17 @@ TEST_CASE("hook dispatch publishes HookProgressEvent (M-2)", "[hook][progress]")
     std::string last_hook_label;
     uint64_t start_hook_id = 0;
     uint64_t done_hook_id = 0;
-    bus.subscribe<agent::HookProgressEvent>(
-        [&](const agent::HookProgressEvent& ev) {
-            last_hook_type = ev.hook_type;
-            last_hook_label = ev.hook_label;
-            if (ev.phase == "start") {
-                ++start_count;
-                start_hook_id = ev.hook_id;
-            } else if (ev.phase == "done") {
-                ++done_count;
-                done_hook_id = ev.hook_id;
-            }
-        });
+    bus.subscribe<agent::HookProgressEvent>([&](const agent::HookProgressEvent& ev) {
+        last_hook_type = ev.hook_type;
+        last_hook_label = ev.hook_label;
+        if (ev.phase == "start") {
+            ++start_count;
+            start_hook_id = ev.hook_id;
+        } else if (ev.phase == "done") {
+            ++done_count;
+            done_hook_id = ev.hook_id;
+        }
+    });
 
     HookContext ctx;
     ctx.session_id = "s1";
@@ -363,12 +358,12 @@ TEST_CASE("hook dispatch publishes HookProgressEvent (M-2)", "[hook][progress]")
     REQUIRE(r.message.find("[hook:command] ok") == 0);
 
     bus.drain_async_events(8);
-    REQUIRE(start_count == 1);   // 每次 hook 执行发布 1 次 start
-    REQUIRE(done_count == 1);    // ……并发布 1 次 done
+    REQUIRE(start_count == 1);  // 每次 hook 执行发布 1 次 start
+    REQUIRE(done_count == 1);   // ……并发布 1 次 done
     REQUIRE(last_hook_type == "command");
-    REQUIRE(last_hook_label.find("[c] ") == 0);      // command 标签以 [c] 前缀
-    REQUIRE(start_hook_id != 0);                     // bus 注入了 hook_id
-    REQUIRE(done_hook_id == start_hook_id);          // start/done 关联同一条执行
+    REQUIRE(last_hook_label.find("[c] ") == 0);  // command 标签以 [c] 前缀
+    REQUIRE(start_hook_id != 0);                 // bus 注入了 hook_id
+    REQUIRE(done_hook_id == start_hook_id);      // start/done 关联同一条执行
 }
 
 // ============================================================
@@ -401,10 +396,10 @@ Skill body
 
     REQUIRE(json[0]["event"] == "PreToolUse");
     REQUIRE(json[0]["type"] == "command");
-    REQUIRE(json[0]["match"] == "Bash(rm *)");       // 括号保留
+    REQUIRE(json[0]["match"] == "Bash(rm *)");  // 括号保留
     REQUIRE(json[0]["command"] == "echo not allowed");
     REQUIRE(json[0]["blockingError"] == "禁止执行 rm");
-    REQUIRE(json[0]["timeout"] == 5000);             // 整数推断
+    REQUIRE(json[0]["timeout"] == 5000);  // 整数推断
 
     REQUIRE(json[1]["event"] == "PostToolUse");
     REQUIRE(json[1]["type"] == "prompt");

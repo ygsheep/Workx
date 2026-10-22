@@ -23,16 +23,16 @@ namespace island {
 /// @brief 单个模型单价（USD / 1M tokens）
 struct ModelPricing {
     std::string model;
-    double input_per_1m       = 0.0;   ///< 普通输入（cache miss）
-    double output_per_1m      = 0.0;   ///< 输出
-    double cache_read_per_1m  = 0.0;   ///< 缓存命中读
-    double cache_write_per_1m = 0.0;   ///< 缓存写入（DeepSeek 同输入单价）
-    int context_window        = 0;     ///< 上下文窗口（token）
+    double input_per_1m = 0.0;        ///< 普通输入（cache miss）
+    double output_per_1m = 0.0;       ///< 输出
+    double cache_read_per_1m = 0.0;   ///< 缓存命中读
+    double cache_write_per_1m = 0.0;  ///< 缓存写入（DeepSeek 同输入单价）
+    int context_window = 0;           ///< 上下文窗口（token）
 };
 
 /// @brief 单价表
 class PricingTable {
-public:
+   public:
     /// @brief 构建 DeepSeek 官方定价 fallback 表
     static PricingTable deepseek_default();
 
@@ -52,8 +52,8 @@ public:
     /// @brief 序列化为 JSON 数组（get_model_pricing 响应）
     [[nodiscard]] nlohmann::json to_json() const;
 
-private:
+   private:
     std::vector<ModelPricing> m_models;
 };
 
-} // namespace island
+}  // namespace island

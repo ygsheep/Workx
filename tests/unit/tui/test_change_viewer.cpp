@@ -26,8 +26,8 @@ namespace {
 
 /// @brief 把元素渲染到固定尺寸 Screen 并返回文本
 std::string render_elem(const ftxui::Element& e, int cols = 30, int rows = 24) {
-    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(cols),
-                                        ftxui::Dimension::Fixed(rows));
+    auto screen =
+        ftxui::Screen::Create(ftxui::Dimension::Fixed(cols), ftxui::Dimension::Fixed(rows));
     ftxui::Render(screen, e);
     std::string out;
     for (int y = 0; y < rows; ++y) {
@@ -38,28 +38,27 @@ std::string render_elem(const ftxui::Element& e, int cols = 30, int rows = 24) {
 }
 
 /// @brief 构造一次文件修改（Edit：old→new）
-FileChange make_change(std::string path, std::string purpose,
-                       std::string old_str, std::string new_str,
-                       std::string reasoning = "") {
+FileChange make_change(std::string path, std::string purpose, std::string old_str,
+                       std::string new_str, std::string reasoning = "") {
     FileChange ch;
     ch.file_path = std::move(path);
     ch.purpose = std::move(purpose);
     ch.reasoning = std::move(reasoning);
     ch.old_string = std::move(old_str);
     ch.new_string = std::move(new_str);
-    ch.diff = agent::line_diff(agent::split_lines(ch.old_string),
-                               agent::split_lines(ch.new_string), 1);
+    ch.diff =
+        agent::line_diff(agent::split_lines(ch.old_string), agent::split_lines(ch.new_string), 1);
     return ch;
 }
 
 ChangeViewState make_state() {
     ChangeViewState cv;
-    cv.changes.push_back(make_change("src/main.cpp", "改用 bar() 计算 y",
-                                     "auto y = foo();\n", "auto y = bar();\n"));
-    cv.changes.push_back(make_change("src/main.cpp", "提取常量 kMaxRetry",
-                                     "const int n = 3;\n", "const int kMaxRetry = 3;\n"));
-    cv.changes.push_back(make_change("src/util.h", "修复空指针判断",
-                                     "if (p) {}\n", "if (p != nullptr) {}\n"));
+    cv.changes.push_back(
+        make_change("src/main.cpp", "改用 bar() 计算 y", "auto y = foo();\n", "auto y = bar();\n"));
+    cv.changes.push_back(make_change("src/main.cpp", "提取常量 kMaxRetry", "const int n = 3;\n",
+                                     "const int kMaxRetry = 3;\n"));
+    cv.changes.push_back(
+        make_change("src/util.h", "修复空指针判断", "if (p) {}\n", "if (p != nullptr) {}\n"));
     cv.selected = 0;
     return cv;
 }
@@ -103,7 +102,7 @@ TEST_CASE("change viewer shows purpose and hunk for selected change", "[change_v
     REQUIRE(text.find("目的：") != std::string::npos);
     REQUIRE(text.find("auto y = bar();") != std::string::npos);  // hunk 新内容
     // 未选中项不展开 hunk
-    REQUIRE(text.find("kMaxRetry") != std::string::npos);        // 目的仍在列表
+    REQUIRE(text.find("kMaxRetry") != std::string::npos);  // 目的仍在列表
 }
 
 TEST_CASE("change viewer expands full reasoning on e", "[change_viewer][render]") {

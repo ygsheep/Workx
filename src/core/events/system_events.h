@@ -43,4 +43,4 @@ struct TerminalResizeEvent {
     int new_height = 0;
 };
 
-} // namespace agent
+}  // namespace agent

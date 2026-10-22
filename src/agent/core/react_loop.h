@@ -4,13 +4,48 @@
  * @details 实现 Thought/Action/Observation 三阶段显式分离的 agent 循环，
  *          替代 ChatSession 中的扁平 while 循环。
  *          使用原生 function calling（Anthropic/OpenAI），不依赖文本解析。
- * @version 1.2.0
+ * @version 1.12.0
  * @date 2026-07
+ *
+ * @par 版本沿革
+ * - 1.12.0（Issue #166 方案 C / #137 建议 3）：剩余墙钟不足时主动收敛。
+ *   新增 `Config::wall_clock_reserve_sec`，主循环在剩余墙钟进入阈值后注入
+ *   `prompt::format_wall_clock_hint` 的 system 提示（Warn=收尾+验证 / Critical=立即交卷）。
+ *   此前只有 #83 的**轮次**档位与 shell 工具的单命令超时封顶：模型始终不知道
+ *   自己有 wall-clock deadline，一路做到被外层硬超时杀掉（trial 记 AgentTimeoutError，
+ *   成果全丢）。实测 20 题里 3 题如此收场（adaptive-rejection-sampler / caffe-cifar-10 /
+ *   feal-linear-cryptanalysis）。默认 90s；未配置墙钟预算时整体关闭，交互式场景不变。
+ * - 1.11.0（Issue #166 方案 B）：run_in_background 后台命令结果自动回传。
+ *   新增 BackgroundTaskTracker（经 ToolContext 注入工具），工具轮边界 drain 已完成结果
+ *   注入对话；模型想收尾但仍有未完成后台任务时先阻塞等待（可取消），
+ *   使"非阻塞 + 结果必达"闭环（此前后台结果只通知 UI、不回传模型）。
+ * - 1.9.0（Issue #157）：新增 set_query_chain() 调用链注入（chain_id/chain_depth），
+ *   run() 开始时空链 id 自动生成链根，工具轮 ToolContext 注入链路字段。
+ * - 1.6.0（Issue #147 回归修正）：`reasoning_budget_chars` 默认值 64000 → 0（关闭熔断）。
+ *   完整 20 题实测（job 2026-10-05__11-50-58）显示熔断净效应为负：
+ *   触发熔断的 6 道题 **0/6 通过**（其中 3 道基线是 PASS），未触发的 14 道 4/14。
+ *   根因是中断会丢弃整个 turn，而重试无法让模型收敛（三次都一样跑到 64000+），
+ *   最后以空 final_answer 收尾。故默认关闭，保留配置项供按需开启与调参。
+ * - 1.5.0（Issue #147）：思维链失控与空答复不再让整轮白跑。
+ *   新增 `Config::reasoning_budget_chars`（单次 Thought 的推理字符预算，流式超限即中断）
+ *   与 `Config::empty_answer_max_retries`（无 tool_use 且 content 为空时的重试上限）。
+ *   实测（Terminal-Bench 20 题）模型会生成 1.5 万~6.5 万 token 思维链而 content 为空，
+ *   吃掉全部思考时间的 49%，且旧逻辑把"空 content + 无 tool_use"当成 LLM 主动结束，
+ *   直接提交一个空 final_answer 结束任务。
+ *   预算默认 64000 字符（分桶实测的健康/失控分界，详见字段注释）。
+ * - 1.4.0（Issue #144）：Thought 阶段的 LLM 请求失败不再立刻终止整轮。
+ *   新增 `Config::thought_max_retries` / `thought_base_delay_ms`，按错误类型
+ *   区分：可重试错误（网络/超时/429/5xx）指数退避后重试，且**不消耗迭代预算**；
+ *   不可重试错误（401/400 等 4xx）保持原行为快速失败。
+ * - 1.3.0（Issue #133）：评审器失效不再终止任务。
+ *   `ReviewerDecision::valid` 区分"明确裁决"与"评审器不可信"，后者一律 fail-open；
+ *   新增 `Config::review_max_tokens`（原硬编码 200），`review_stall_window` 默认 4→8。
  */
 
 #pragma once
 
 #include <string>
+#include <string_view>
 #include <vector>
 #include <memory>
 #include <functional>
@@ -34,10 +69,18 @@ class IReActObserver;
 class IConfigManager;  // D-5：前向声明，避免头文件强依赖
 class ITaskManager;    // BashTool 后台任务 DI（agent 命名空间下）
 class IEventBus;       // AskUserTool 事件发布 DI
-namespace skill { class TouchCollector; }  // conditional skills touch 收集器
-namespace hook { class HookManager; }      // Issue #50：通用 Hook 事件系统
-namespace command { class CommandRegistry; }   // #56 方案 C：技能/命令注册表
-namespace mcp { class McpClientManager; }      // #56 方案 D：MCP 连接管理器
+namespace skill {
+class TouchCollector;
+}  // namespace skill
+namespace hook {
+class HookManager;
+}  // namespace hook
+namespace command {
+class CommandRegistry;
+}  // namespace command
+namespace mcp {
+class McpClientManager;
+}  // namespace mcp
 
 // ============================================================
 // ReAct 步骤类型
@@ -45,10 +88,10 @@ namespace mcp { class McpClientManager; }      // #56 方案 D：MCP 连接管�
 
 /// @brief ReAct 步骤类型
 enum class ReActStepType {
-    Thought,        ///< LLM 推理（流式输出文本 + 工具调用决策）
-    Action,         ///< 工具调用执行
-    Observation,    ///< 工具结果回传
-    FinalAnswer     ///< 最终回复（终止循环）
+    Thought,      ///< LLM 推理（流式输出文本 + 工具调用决策）
+    Action,       ///< 工具调用执行
+    Observation,  ///< 工具结果回传
+    FinalAnswer   ///< 最终回复（终止循环）
 };
 
 // ============================================================
@@ -64,21 +107,21 @@ struct ReActStep {
     int step_number = 0;                          ///< 全局步骤序号（从 1 开始）
 
     // --- Thought 阶段字段 ---
-    std::string thought_text;                     ///< LLM 文本输出
-    std::string reasoning;                        ///< LLM 推理内容（thinking）
-    std::vector<ToolUse> tool_uses;               ///< LLM 决定调用的工具列表
+    std::string thought_text;        ///< LLM 文本输出
+    std::string reasoning;           ///< LLM 推理内容（thinking）
+    std::vector<ToolUse> tool_uses;  ///< LLM 决定调用的工具列表
 
     // --- Action 阶段字段 ---
-    std::string tool_name;                        ///< 当前执行的工具名
-    std::string tool_use_id;                      ///< 工具调用唯一 ID（与 tool_uses[].id 对应）
-    nlohmann::json tool_input;                    ///< 工具输入参数
+    std::string tool_name;      ///< 当前执行的工具名
+    std::string tool_use_id;    ///< 工具调用唯一 ID（与 tool_uses[].id 对应）
+    nlohmann::json tool_input;  ///< 工具输入参数
 
     // --- Observation 阶段字段 ---
-    std::string observation;                      ///< 工具结果文本
-    bool is_error = false;                        ///< 工具执行是否出错
+    std::string observation;  ///< 工具结果文本
+    bool is_error = false;    ///< 工具执行是否出错
 
     // --- 元信息 ---
-    double duration_ms = 0.0;                     ///< 本步骤耗时（毫秒）
+    double duration_ms = 0.0;  ///< 本步骤耗时（毫秒）
 };
 
 // ============================================================
@@ -91,16 +134,16 @@ struct ReActStep {
 /// ChatSession 根据结果状态决定是否重试、发布完成事件等。
 struct ReActResult {
     // --- 步骤历史 ---
-    std::vector<ReActStep> steps;                 ///< 所有步骤记录
+    std::vector<ReActStep> steps;  ///< 所有步骤记录
 
     // --- 最终输出 ---
-    std::string final_answer;                     ///< LLM 最终回复文本
-    std::string final_reasoning;                  ///< LLM 最终回复的推理内容
+    std::string final_answer;     ///< LLM 最终回复文本
+    std::string final_reasoning;  ///< LLM 最终回复的推理内容
 
     // --- 统计信息 ---
-    int total_iterations = 0;                     ///< 总迭代轮数（每轮含 Thought+Action+Observation）
-    int total_tool_calls = 0;                     ///< 总工具调用次数
-    double total_duration_ms = 0.0;               ///< 总耗时（毫秒）
+    int total_iterations = 0;        ///< 总迭代轮数（每轮含 Thought+Action+Observation）
+    int total_tool_calls = 0;        ///< 总工具调用次数
+    double total_duration_ms = 0.0;  ///< 总耗时（毫秒）
 
     // --- token 统计（最后一次 LLM 响应）---
     int32_t prompt_tokens = 0;
@@ -120,16 +163,20 @@ struct ReActResult {
     double reasoning_ms = 0.0;  ///< 思考阶段实际耗时（本 turn 所有 Thought 阶段之和，毫秒）
 
     // --- 状态 ---
-    bool was_interrupted = false;                 ///< 用户中断
-    bool was_error = false;                       ///< 发生错误（流式错误/提交失败/超迭代数）
-    std::string error_message;                    ///< 错误信息（was_error=true 时有效）
+    bool was_interrupted = false;  ///< 用户中断
+    bool was_error = false;        ///< 发生错误（流式错误/提交失败/超迭代数）
+    std::string error_message;     ///< 错误信息（was_error=true 时有效）
+    /// @brief #89：错误对应的 HTTP 状态码（0 = 非 HTTP 错误）
+    /// @details 供 compute_retry 判定可重试性，以及后续 fallback 判定是否值得换模型。
+    ///          无 HTTP 响应时保持 0（语义与 HttpRetryPolicy 的 http_status=0 一致）。
+    int http_status = 0;
 
     // --- 0.6.x：#31 目标验证状态（普通对话恒为 Unknown）---
     GoalStatus goal_status = GoalStatus::Unknown;
 
     // --- 部分输出（中断/错误时可能有部分内容）---
-    std::string partial_content;                  ///< 中断时的部分文本
-    std::string partial_reasoning;                ///< 中断时的部分推理
+    std::string partial_content;    ///< 中断时的部分文本
+    std::string partial_reasoning;  ///< 中断时的部分推理
 };
 
 // ============================================================
@@ -169,7 +216,7 @@ struct ReActResult {
 /// - ReActLoop：负责循环逻辑、工具执行、步骤记录
 /// - ChatSession：负责会话管理、重试、持久化、状态标志
 class WORKX_API ReActLoop {
-public:
+   public:
     // ============================================================
     // 配置与回调类型
     // ============================================================
@@ -181,19 +228,92 @@ public:
         int max_iterations = 40;
         /// 停滞/超限评审开关（内部一次性评审器，不暴露为工具 schema）
         bool review_enabled = true;
-        /// 停滞判定窗口：同一 (工具名+规范化输入) 签名在最近 N 次调用内再次出现即视为循环
-        int review_stall_window = 4;
+        /// @brief 停滞判定窗口：同一 (工具名+规范化输入) 签名在最近 N 次调用内再次出现即视为循环
+        /// @details #133：由 4 提到 8。窗口 4 太窄——"Read 同一文件 → Edit → 再 Read 确认"
+        ///          这类正常节奏会被误判成循环，而评审器一失效就把任务杀掉，
+        ///          两个缺陷叠加才造成 3 题在 26~34 轮上被误杀。
+        int review_stall_window = 8;
         /// 评审"继续"时追加的额外迭代预算（块大小）
         int review_extra_budget = 8;
         /// @brief 达上限评审的"继续"允许次数上限（硬性总预算 = max_iterations + extra*grants）
-    int review_max_grants = 2;
-    CacheAwareCompactor::Config compactor_cfg; ///< DS_CACHE: 缓存感知压缩配置
+        /// @details #133：同时用作评审器连续失效的熔断阈值——连续失败达此值后不再调用评审器，
+        ///          直接按 fail-open 处理，避免每个停滞点都白烧一次 LLM 调用。
+        int review_max_grants = 2;
+        /// @brief #133：评审器请求的 max_tokens（原硬编码 200）
+        /// @details 200 太小：reasoning 模型会把预算全花在思维链上，content 空返回。
+        ///          评审器只需输出一行 JSON，但要给推理链留出余量，故默认 512。
+        int review_max_tokens = 512;
+        /// @brief #137：本次 run 可用的总墙钟预算（秒）；0 = 不限（默认，行为不变）
+        /// @details 用于把「剩余墙钟」注入 ToolContext，让 shell 工具按剩余预算封顶
+        ///          单次命令超时。无人值守/评测场景下由宿主（如 WORKX_AGENT_TIMEOUT_SEC）
+        ///          注入；不注入则完全关闭，避免影响交互式场景。
+        int wall_clock_budget_sec = 0;
+        /// @brief #166 方案 C：剩余墙钟收敛阈值（秒）；<= 0 = 关闭
+        /// @details 仅当 `wall_clock_budget_sec > 0` 时生效。剩余墙钟 <= 该值时向对话注入
+        ///          一条 system 提示，把模型从「继续探索」推向「收尾 + 验证」；
+        ///          剩余 <= 阈值/3 时升级为「立即交卷」，避免被外层硬超时杀掉后
+        ///          trial 记 `AgentTimeoutError`、已完成成果全部作废（#137 的真实瓶颈）。
+        ///          默认 90s（足够跑一次验证并组织答复）。env：WORKX_WALL_CLOCK_RESERVE_SEC。
+        int wall_clock_reserve_sec = 90;
+        /// @brief #144：Thought 阶段 LLM 请求失败后的最大重试次数（0 = 保持旧行为立即终止）
+        /// @details 失败发生在 Tool 执行之前，**没有任何状态被改变**，重试只是重发同一个请求，
+        ///          因此重试不消耗 `max_iterations` / budget。
+        ///          是否重试由错误类型决定（见 `agent::HttpRetryPolicy::is_retryable`）：
+        ///          - 可重试：`http_status == 0` 的网络错误与超时、429、5xx
+        ///          - 不可重试：401/400 等其余 4xx —— 重试无益，保持快速失败
+        ///          实测价值：Terminal-Bench `adaptive-rejection-sampler` 因一次
+        ///          `Total request timeout exceeded` 在第 5 轮就终止，核心产物没写出来，
+        ///          verifier 判 0/9，而分数被记在 agent 头上。
+        int thought_max_retries = 2;
+        /// @brief #144：Thought 重试的初始退避延迟（毫秒），按 `base * 2^attempt` 指数增长
+        /// @details 上限由 `agent::HttpRetryPolicy::max_delay_ms`（60s）兜住。
+        ///          退避等待期间会响应取消信号，不会把 Ctrl-C 卡住。
+        int thought_base_delay_ms = 1000;
+        /// @brief #147：单次 Thought 的推理（reasoning）字符预算；0 = 不限（旧行为）
+        /// @details 流式累积超过该值时**主动中断本次请求**，避免思维链失控吃光整轮预算。
+        ///          默认 64000 字符（≈18k token），取自 Terminal-Bench 20 题 1055 次 Thought
+        ///          实测分桶——**分桶比简单分位数更能定位"失控分界线"**：
+        ///          [48000,64000) 区间 7 次、空答复 0%、平均 71s（仍健康，不能截断）；
+        ///          [64000,∞) 区间 15 次、空答复率跳升到 20%、平均 158.9s（真失控区）。
+        ///          ⚠️ 曾用 32000（P95 附近）实测：**误伤了本来能成功的请求**
+        ///          （feal-linear 基线通过时 reasoning_len=49602、adaptive-rejection-sampler
+        ///          达 80745），模型被截断后永远得不出结论，反而从"慢但能过"变成"必败"。
+        ///          🔴 但**默认 0 = 关闭熔断**（1.6.0 起）。完整 20 题实测证明：
+        ///          一旦触发中断，本轮产出即为 0（content 空），而重试并不能让模型收敛——
+        ///          三次重试全部重蹈覆辙跑到 64000+，最终以空 final_answer 收尾。
+        ///          结果是「慢但可能做对」被强制变成「必然失败」：触发熔断的 6 题 0/6 通过，
+        ///          而同样这批题在关闭熔断的基线里是 3/5 通过。
+        ///          → 熔断的代价是丢弃整个 turn，期望值为负，故默认关闭。
+        ///          想开启时设一个远大于 64000 的值，并务必先验证「触发组成功率是否高于不触发组」。
+        int reasoning_budget_chars = 0;
+        /// @brief #147：无效答复（无 tool_use 且 content 为空 / 思维链超限）的重试上限
+        /// @details 旧逻辑把"空 content + 无 tool_use"当作 LLM 主动结束，直接提交一个
+        ///          空 final_answer —— 实测 `cancel-async-tasks` 就是这样交白卷结束的。
+        ///          重试不消耗迭代预算（与 #144 同理：失败发生在任何工具执行之前）。
+        ///          0 = 恢复旧行为（空答复直接收尾）。
+        int empty_answer_max_retries = 2;
+        CacheAwareCompactor::Config compactor_cfg;  ///< DS_CACHE: 缓存感知压缩配置
 
-    /// @brief Issue #50：通用 Hook 事件系统（可空；空则全部跳过，零开销）
-    /// @details ReActLoop 在 PreToolUse / PostToolUse / Stop 三处调用，
-    ///          blockingError/preventContinuation 语义作用于当前 turn。
-    std::shared_ptr<hook::HookManager> hooks;
-};
+        /// @brief Issue #50：通用 Hook 事件系统（可空；空则全部跳过，零开销）
+        /// @details ReActLoop 在 PreToolUse / PostToolUse / Stop 三处调用，
+        ///          blockingError/preventContinuation 语义作用于当前 turn。
+        std::shared_ptr<hook::HookManager> hooks;
+
+        // ---- #78：FinalAnswer 前强制验证闭环（PreCompletion 门禁）----
+        /// 验证目标（None = 不启用门禁）。由 apply_verification_gate() 统一装配。
+        AgentGoal goal;
+        /// 门禁总开关。默认 false —— MVP 不改变任何既有行为；
+        /// 仅当 goal.has_goal() 且该类型有验证器时才可能执行验证命令。
+        bool verify_before_finish = false;
+        /// 验证失败回灌重试上限。刻意远小于 AgentGoal::max_attempts(50)：
+        /// 后者是外层包壳的轮预算，套进单循环会把成本放大一个量级。
+        int verify_max_attempts = 3;
+
+        /// @brief #155：运行期守护 —— 直接构造 Config 的入口必须调用 apply_react_knobs()
+        ///          （或显式豁免）。run() 检测到 false 时打一次性 WARN，让「漏接旋钮」
+        ///          在日志里暴露而不是靠审查 grep 兜底。
+        bool knobs_configured = false;
+    };
 
     /// @brief 步骤回调（每完成一个步骤时调用）
     ///
@@ -205,8 +325,8 @@ public:
     ///
     /// 用于发布 StreamTokenEvent。仅在 LLM 流式输出 content/reasoning delta 时触发。
     /// 工具调用/结果反馈通过 StepCallback（Action/Observation 步骤）发布。
-    using TokenCallback = std::function<void(const std::string& content_delta,
-                                             const std::string& reasoning_delta)>;
+    using TokenCallback =
+        std::function<void(const std::string& content_delta, const std::string& reasoning_delta)>;
 
     // ============================================================
     // 构造与析构
@@ -227,17 +347,11 @@ public:
     ///                                无宿主时为 nullptr）
     /// @param queue_inject_cb 消息队列冲刷回调（可选，模型忙碌时前端入队的用户消息，
     ///                        在工具轮边界合并为单条 user 消息注入 messages；空 = 无队列）
-    ReActLoop(ICompletionProvider* provider,
-              std::shared_ptr<tool::ToolRegistry> registry,
-              Config config,
-              IConfigManager* config_manager,
-              ITaskManager* task_manager = nullptr,
-              std::string cwd = "",
-              CacheAwareCompactor* external_compactor = nullptr,
-              IEventBus* event_bus = nullptr,
-              skill::TouchCollector* touch_collector = nullptr,
-              std::function<void()> file_index_invalidator = nullptr,
-              std::string session_id = "",
+    ReActLoop(ICompletionProvider* provider, std::shared_ptr<tool::ToolRegistry> registry,
+              Config config, IConfigManager* config_manager, ITaskManager* task_manager = nullptr,
+              std::string cwd = "", CacheAwareCompactor* external_compactor = nullptr,
+              IEventBus* event_bus = nullptr, skill::TouchCollector* touch_collector = nullptr,
+              std::function<void()> file_index_invalidator = nullptr, std::string session_id = "",
               std::function<void(std::vector<ChatMessage>&)> queue_inject_cb = {});
 
     /// @brief 构造（使用默认配置）
@@ -246,14 +360,11 @@ public:
     /// @param event_bus 事件总线（可选，用于 AskUserTool 等需要发布事件的工具）
     /// @param session_id 会话 ID（#30：注入到 ToolContext.session_id，供审计日志关联，
     ///                    空则使用默认值 "default"）
-    ReActLoop(ICompletionProvider* provider,
-              std::shared_ptr<tool::ToolRegistry> registry,
-              IConfigManager* config_manager,
-              ITaskManager* task_manager = nullptr,
-              std::string cwd = "",
-              IEventBus* event_bus = nullptr,
-              std::string session_id = "")
-        : ReActLoop(provider, std::move(registry), Config{}, config_manager, task_manager, std::move(cwd), nullptr, event_bus, nullptr, nullptr, std::move(session_id)) {}
+    ReActLoop(ICompletionProvider* provider, std::shared_ptr<tool::ToolRegistry> registry,
+              IConfigManager* config_manager, ITaskManager* task_manager = nullptr,
+              std::string cwd = "", IEventBus* event_bus = nullptr, std::string session_id = "")
+        : ReActLoop(provider, std::move(registry), Config{}, config_manager, task_manager,
+                    std::move(cwd), nullptr, event_bus, nullptr, nullptr, std::move(session_id)) {}
 
     ~ReActLoop() = default;
 
@@ -276,14 +387,9 @@ public:
     /// @param on_step 步骤回调（可选，默认 nullptr）
     /// @param on_token 流式 token 回调（可选，默认 nullptr）
     /// @return 循环执行结果
-    ReActResult run(
-        std::vector<ChatMessage>& messages,
-        const std::string& system_prompt,
-        const nlohmann::json& tools_schema,
-        const std::atomic<bool>& should_cancel,
-        StepCallback on_step = nullptr,
-        TokenCallback on_token = nullptr
-    );
+    ReActResult run(std::vector<ChatMessage>& messages, const std::string& system_prompt,
+                    const nlohmann::json& tools_schema, const std::atomic<bool>& should_cancel,
+                    StepCallback on_step = nullptr, TokenCallback on_token = nullptr);
 
     /// @brief 执行 ReAct 循环（观察者版本，3.2）
     ///
@@ -291,13 +397,9 @@ public:
     ///          替代 StepCallback + TokenCallback 两个 std::function。
     ///          新代码应优先使用此版本；旧版本保留向后兼容。
     /// @param observer 观察者指针（nullptr 表示无观察者）
-    ReActResult run(
-        std::vector<ChatMessage>& messages,
-        const std::string& system_prompt,
-        const nlohmann::json& tools_schema,
-        const std::atomic<bool>& should_cancel,
-        IReActObserver* observer
-    );
+    ReActResult run(std::vector<ChatMessage>& messages, const std::string& system_prompt,
+                    const nlohmann::json& tools_schema, const std::atomic<bool>& should_cancel,
+                    IReActObserver* observer);
 
     /// @brief DS_CACHE H-3：注入压缩器暂停回调（卡死守卫触发/恢复时通知 ChatSession）
     /// @details ChatSession 据此发布 CompactionPausedEvent 到 EventBus
@@ -317,6 +419,24 @@ public:
     void set_permission_mode(tool::PermissionMode mode) { m_permission_mode = mode; }
     tool::PermissionMode permission_mode() const { return m_permission_mode; }
 
+    /// @brief #157：注入调用链（子 Agent 由 AgentTool 在 run() 前调用）
+    /// @details chain_id 为空时 run() 开始会生成链根（'q'+8 随机）；子 Agent
+    ///          由 AgentTool 透传父链 id 并把 depth+1，保证同链共享、跨轮独立。
+    void set_query_chain(std::string chain_id, int chain_depth) {
+        m_chain_id = std::move(chain_id);
+        m_chain_depth = chain_depth;
+    }
+    const std::string& chain_id() const { return m_chain_id; }
+    int chain_depth() const { return m_chain_depth; }
+
+    /// @brief #158：设置消息队列冲刷回调（构造后注入）
+    /// @details 主会话回调由构造参数注入（ChatSession 用户消息队列）；
+    ///          子 Agent 的回调由 AgentTool 在 run() 前设置——drain 该任务
+    ///          的 pending_messages（父 Agent 经 SendMessage 投递的补充指令）。
+    void set_queue_inject_cb(std::function<void(std::vector<ChatMessage>&)> cb) {
+        m_queue_inject_cb = std::move(cb);
+    }
+
     /// @brief #45：注入初始权限状态（跨 turn 恢复会话级三态模式）
     /// @details ChatSession 每次新建 ReActLoop 时调用（ReActLoop 为 run_completion
     ///          局部变量，每轮重建），同步恢复 m_permission_mode、
@@ -325,8 +445,7 @@ public:
     /// @param mode 当前权限模式（Default/Plan/BypassPermissions）
     /// @param before_plan 进入 Plan 前的原模式（Plan 退出恢复用）
     /// @param in_plan 是否处于 Plan 模式（mode==Plan 时恒为 true）
-    void apply_permission_state(tool::PermissionMode mode,
-                                tool::PermissionMode before_plan,
+    void apply_permission_state(tool::PermissionMode mode, tool::PermissionMode before_plan,
                                 bool in_plan) {
         m_permission_mode = mode;
         m_permission_mode_before_plan = before_plan;
@@ -360,23 +479,21 @@ public:
     /// @param before_plan 进入 Plan 前的原模式（Plan 退出恢复用）
     /// @param in_plan 是否处于 Plan 模式
     using PermissionStateChangedCallback = std::function<void(
-        tool::PermissionMode mode,
-        tool::PermissionMode before_plan,
-        bool in_plan)>;
+        tool::PermissionMode mode, tool::PermissionMode before_plan, bool in_plan)>;
     void set_permission_state_changed_callback(PermissionStateChangedCallback cb) {
         m_perm_state_changed_cb = std::move(cb);
     }
 
-private:
+   private:
     // ============================================================
     // 内部类型
     // ============================================================
 
     /// @brief Thought 阶段执行结果
     struct ThoughtResult {
-        std::string content;                      ///< LLM 文本输出
-        std::string reasoning;                    ///< LLM 推理内容
-        std::vector<ToolUse> tool_uses;           ///< LLM 决定调用的工具
+        std::string content;             ///< LLM 文本输出
+        std::string reasoning;           ///< LLM 推理内容
+        std::vector<ToolUse> tool_uses;  ///< LLM 决定调用的工具
         int32_t prompt_tokens = 0;
         int32_t generated_tokens = 0;
         int32_t cache_creation_input_tokens = 0;  ///< Anthropic cache_creation_input_tokens
@@ -388,19 +505,41 @@ private:
 
         /// @brief Thought 状态
         enum Status {
-            Completed,                            ///< 流式正常完成
-            Error,                                ///< 流式错误
-            Cancelled                             ///< 用户取消
+            Completed,  ///< 流式正常完成
+            Error,      ///< 流式错误
+            Cancelled   ///< 用户取消
         } status = Completed;
+
+        /// @brief #89：错误时的 HTTP 状态码（0 = 无 HTTP 响应，如网络错误 / 提交失败）
+        /// @details 此前状态码在流层被丢弃，上层只能拿到固定串描述，无法区分
+        ///          429（可重试、可降级）与 401（重试无益）。
+        int http_status = 0;
+        std::string error_message;  ///< 错误详情（status == Error 时有效）
+
+        /// @brief #147：本次请求是否因思维链超出 `reasoning_budget_chars` 被主动中断
+        /// @details 中断发生在工具执行之前，未产生任何状态变更；此时 content 通常为空
+        ///          （推理预算被思维链占满），调用方应回灌提示后重试而非直接收尾。
+        bool reasoning_budget_exceeded = false;
     };
 
     /// @brief 内部评审器决定（停滞检测 / 达上限时判断"是否继续"）
     /// @details 只喂关键信息（目标、工具序列、最近 observation、预算），
     ///          返回 continue（注入纠偏指令、追加预算）或 wrap_up（优雅收尾）。
+    ///
+    /// @par Issue #133：评审器会"静默失效"
+    /// 实测（Terminal-Bench 首轮 20 题）评审器 9 次被调用、9 次拿不到可解析的 JSON
+    /// ——DeepSeek reasoner 把 200 token 全花在 reasoning 上，content 为空，
+    /// old code 于是按"默认 wrap_up"把还在正常推进的任务直接杀掉（20 题里 9 题）。
+    /// 判"能否停"的组件失效时，正确取向是 fail-open（继续），让 max_iterations /
+    /// 预算去兜底终止，而不是让一个失效的裁判来终止。
     struct ReviewerDecision {
-        bool continue_loop = false;   ///< true=注入纠偏继续; false=收尾
-        std::string correction;       ///< continue 时注入到 messages 的纠偏指令
-        std::string wrap_summary;     ///< wrap_up 时的收尾摘要（为空回退部分进展）
+        bool continue_loop = false;  ///< true=注入纠偏继续; false=收尾
+        /// @brief #133：本次裁决是否可信（评审器真的给出了 continue/wrap_up）
+        /// @details false 表示评审器失效（提交失败 / 无 JSON / 解析失败 / 未知 action），
+        ///          此时 continue_loop 无意义，调用方必须按 fail-open 处理。
+        bool valid = false;
+        std::string correction;    ///< continue 时注入到 messages 的纠偏指令
+        std::string wrap_summary;  ///< wrap_up 时的收尾摘要（为空回退部分进展）
     };
 
     /// @brief 工具调用签名（停滞检测窗口元素）
@@ -416,12 +555,33 @@ private:
     // 内部方法
     // ============================================================
 
-    /// @brief 构建 CompletionRequest
-    CompletionRequest build_request(
-        const std::vector<ChatMessage>& messages,
-        const std::string& system_prompt,
-        const nlohmann::json& tools_schema
-    ) const;
+    /// @brief Issue #78：FinalAnswer 前验证门禁的裁决
+    enum class GateResult {
+        Pass,     ///< 验证通过 —— 正常采纳模型的最终答复
+        Degrade,  ///< 达重试上限仍未通过 —— 附加"未完成验证"警告后放行
+        Retry,    ///< 验证未通过 —— 驳回本轮答复，回灌错误原因后继续迭代
+    };
+
+    /// @brief Issue #78：在采纳 FinalAnswer 之前执行验证门禁
+    /// @details 仅在「开关开启 + goal 非空 + 该类型有验证器」时真正执行 check_goal()，
+    ///          其余情形一律 Pass（不执行任何命令）。这是 PreCompletion 语义的核心：
+    ///          Retry 时本轮**不产生** final_answer 也不记录 FinalAnswer 步骤，
+    ///          被驳回的答复不会泄漏为输出。
+    /// @param answer_text 模型本轮给出的最终答复（Degrade 时附警告后保留）
+    /// @param reasoning 模型的推理内容
+    /// @param result 循环结果（写入 goal_status；Degrade 时写入 final_answer）
+    /// @param messages 会话历史（Retry 时回灌一条 user 消息）
+    /// @param iteration 当前迭代序号（Retry 时必须手动推进，见实现注释）
+    /// @param budget 剩余预算（Retry 时必须手动递减，否则回灌不消耗预算 → 无限循环）
+    /// @param verify_attempts 本 run 已发生的验证失败次数（跨迭代累计）
+    GateResult run_verification_gate(const std::string& answer_text, const std::string& reasoning,
+                                     ReActResult& result, std::vector<ChatMessage>& messages,
+                                     int& iteration, int& budget, int& verify_attempts);
+
+    /// @brief 构造 CompletionRequest
+    CompletionRequest build_request(const std::vector<ChatMessage>& messages,
+                                    const std::string& system_prompt,
+                                    const nlohmann::json& tools_schema) const;
 
     /// @brief 执行 Thought 阶段（流式读取 LLM 响应）
     ///
@@ -432,11 +592,8 @@ private:
     /// @param should_cancel 取消信号
     /// @param on_token token 回调
     /// @return Thought 结果
-    ThoughtResult execute_thought(
-        const CompletionRequest& request,
-        const std::atomic<bool>& should_cancel,
-        TokenCallback on_token
-    );
+    ThoughtResult execute_thought(const CompletionRequest& request,
+                                  const std::atomic<bool>& should_cancel, TokenCallback on_token);
 
     /// @brief Fallback：从 content 文本中扫描内嵌的 JSON 工具调用
     /// @details 当本地推理后端未走标准 delta.tool_calls 协议时，模型可能在
@@ -455,16 +612,18 @@ private:
 
     /// @brief 内部评审器：一次性 completion 判断"是否继续"
     /// @details 只喂关键信息（用户目标、最近工具执行序列与观察、当前预算），
-    ///          返回 ReviewerDecision。失败/解析异常时默认 wrap_up（不冒险继续）。
+    ///          返回 ReviewerDecision。
+    /// @note Issue #133：失败/解析异常时返回 valid=false（**不再**默认 wrap_up）。
+    ///       评审器是"能否停"的裁判，裁判失效时应 fail-open 交由预算兜底，
+    ///       而不是让失效的裁判终止一个正在正常推进的任务。
     /// @param user_request 用户原始请求摘要（截断）
     /// @param tool_history 最近工具执行日志（tool_name: 首行观察）
     /// @param iteration 当前迭代
     /// @param remaining_budget 剩余基础预算（<=0 表示已耗尽/超限）
     /// @param at_limit 是否为达上限评审（true 时追加预算逻辑由调用方处理）
     ReviewerDecision run_reviewer(const std::string& user_request,
-                                  const std::vector<std::string>& tool_history,
-                                  int iteration, int remaining_budget,
-                                  bool at_limit) const;
+                                  const std::vector<std::string>& tool_history, int iteration,
+                                  int remaining_budget, bool at_limit) const;
 
     /// @brief H-1（PR #46 评审）：权限状态变更通知宿主（ChatSession 回写持久状态）
     /// @details 工具路径回调（on_permission_mode_changed / on_enter_plan_mode /
@@ -472,8 +631,7 @@ private:
     ///          此处不持锁调用，避免与宿主持锁上下文嵌套死锁。
     void notify_permission_state() const {
         if (m_perm_state_changed_cb) {
-            m_perm_state_changed_cb(m_permission_mode,
-                                    m_permission_mode_before_plan,
+            m_perm_state_changed_cb(m_permission_mode, m_permission_mode_before_plan,
                                     m_in_plan_mode);
         }
     }
@@ -489,31 +647,52 @@ private:
         }
     }
 
+    /// @brief #166 方案 B：取回已完成的后台任务结果，注入对话（工具轮边界调用）
+    /// @details 从 m_background_tracker drain 已完成结果，合并为一条 user 消息
+    ///          （下一轮 Thought 一并发送）。无已完成结果时为空操作。
+    /// @param messages 会话历史（可能被追加一条 user 消息）
+    void inject_background_results(std::vector<ChatMessage>& messages);
+
     // ============================================================
     // 成员
     // ============================================================
 
-    ICompletionProvider* m_provider = nullptr;    ///< 推理提供者（非拥有，外部对象须长于 ReActLoop）
-    std::shared_ptr<tool::ToolRegistry> m_registry; ///< 工具注册表
-    std::unique_ptr<tool::ToolExecutor> m_executor; ///< 工具执行器
-    Config m_config;                              ///< 循环配置
-    std::unique_ptr<CacheAwareCompactor> m_owned_compactor;  ///< 内部拥有的压缩器（未注入外部时创建）
-    CacheAwareCompactor& m_compactor;             ///< DS_CACHE: 压缩器引用（外部注入 or 内部拥有）
-    IConfigManager* m_config_manager = nullptr;   ///< H-5：配置管理器（非拥有，注入到 ToolContext，必须非空）
-    ITaskManager* m_task_manager = nullptr;       ///< BashTool 后台任务 DI（可选，注入到 ToolContext）
-    IEventBus* m_event_bus = nullptr;             ///< AskUserTool 事件发布 DI（可选，注入到 ToolContext）
-    std::string m_cwd;                            ///< 工作目录（会话启动时捕获，注入到 ToolContext.cwd）
-    std::string m_session_id;                     ///< #30：会话 ID（注入到 ToolContext.session_id，审计日志关联）
-    skill::TouchCollector* m_touch_collector = nullptr;  ///< conditional skills touch 收集器（可选）
-    std::function<void()> m_file_index_invalidator;     ///< 宿主文件索引失效回调（可选，注入到 ToolContext）
+    ICompletionProvider* m_provider = nullptr;  ///< 推理提供者（非拥有，外部对象须长于 ReActLoop）
+    std::shared_ptr<tool::ToolRegistry> m_registry;  ///< 工具注册表
+    std::unique_ptr<tool::ToolExecutor> m_executor;  ///< 工具执行器
+    Config m_config;                                 ///< 循环配置
+    std::unique_ptr<CacheAwareCompactor>
+        m_owned_compactor;             ///< 内部拥有的压缩器（未注入外部时创建）
+    CacheAwareCompactor& m_compactor;  ///< DS_CACHE: 压缩器引用（外部注入 or 内部拥有）
+    IConfigManager* m_config_manager =
+        nullptr;  ///< H-5：配置管理器（非拥有，注入到 ToolContext，必须非空）
+    ITaskManager* m_task_manager = nullptr;  ///< BashTool 后台任务 DI（可选，注入到 ToolContext）
+    IEventBus* m_event_bus = nullptr;  ///< AskUserTool 事件发布 DI（可选，注入到 ToolContext）
+    std::string m_cwd;  ///< 工作目录（会话启动时捕获，注入到 ToolContext.cwd）
+    std::string m_session_id;  ///< #30：会话 ID（注入到 ToolContext.session_id，审计日志关联）
+    skill::TouchCollector* m_touch_collector =
+        nullptr;  ///< conditional skills touch 收集器（可选）
+    std::function<void()>
+        m_file_index_invalidator;  ///< 宿主文件索引失效回调（可选，注入到 ToolContext）
     tool::PermissionMode m_permission_mode{tool::PermissionMode::Default};  ///< #28：会话级权限模式
-    tool::PermissionMode m_permission_mode_before_plan{tool::PermissionMode::Default};  ///< #28 评审 #1：进入计划模式前保存的原模式，退出时恢复
+    tool::PermissionMode m_permission_mode_before_plan{
+        tool::PermissionMode::Default};  ///< #28 评审 #1：进入计划模式前保存的原模式，退出时恢复
     bool m_in_plan_mode{false};  ///< #28 评审 #1/#3：是否处于计划模式（幂等进入判定）
-    tool::SessionMode m_session_mode{tool::SessionMode::Standard};  ///< 会话工作模式（标准/计划/极简）
+    tool::SessionMode m_session_mode{
+        tool::SessionMode::Standard};  ///< 会话工作模式（标准/计划/极简）
     /// @brief H-1（PR #46 评审）：权限状态变更通知回调（宿主 ChatSession 注入，回写持久状态）
     PermissionStateChangedCallback m_perm_state_changed_cb;
     /// @brief 消息队列冲刷回调（可选；工具轮边界把排队用户消息注入 messages）
     std::function<void(std::vector<ChatMessage>&)> m_queue_inject_cb;
+
+    /// @brief #166 方案 B：后台任务结果回传追踪器（run() 开始时创建，注入 ToolContext）
+    /// @details shell 工具 run_in_background=true 时经此登记/回传结果；run() 内使用，
+    ///          成员保持所有权，使工具 lambda 持有的副本在 run() 结束后仍可安全写入。
+    std::shared_ptr<tool::BackgroundTaskTracker> m_background_tracker;
+
+    /// @brief #157：调用链（m_chain_id 空 = 未生成，run() 开始时生成链根）
+    std::string m_chain_id;
+    int m_chain_depth = 0;
 
     /// @brief #56 方案 C：命令注册表（bundled + 磁盘技能；注入 ToolContext.command_registry_ptr）
     std::shared_ptr<command::CommandRegistry> m_command_registry;
@@ -521,4 +700,43 @@ private:
     std::shared_ptr<agent::mcp::McpClientManager> m_mcp_manager;
 };
 
-} // namespace agent
+/// @brief Issue #78：按配置装配 ReActLoop 的验证门禁（FinalAnswer 前验证）
+/// @details **所有直接构造 ReActLoop 的入口都必须调用本函数**。
+///          原因在 `docs/design-issue-78-verification-loop.md` §1.2 约束 2：
+///          GoalGuardedAgent 是 opt-in 的外层包壳，而 headless 等入口是自己 new
+///          ReActLoop 的，绕过了它 —— 漏调用即该入口永远零验证。集中到本函数，
+///          是为了让"新增入口忘记接线"这类回归只能发生在一处（VF-04 守护）。
+/// @param cfg [out] 被填入 goal / verify_before_finish / verify_max_attempts
+/// @param config_manager 配置源
+/// @param enabled_by_default 未显式配置时的开关默认值。#78 P3 起两个入口都传
+///           true（headless 是评测入口，交互式是真实用户路径，都需闭环）。
+/// @param cwd 用于未声明 agent.goal 时推断默认目标（P3），留空取当前目录。
+/// @note 默认开启之所以安全：目标由 `detect_default_goal()` 按项目线索推断，
+///       推断不出可跑命令时 goal 为 None，门禁直接放行 —— 不会在无测试
+///       项目上凭空制造失败。
+void apply_verification_gate(ReActLoop::Config& cfg, const IConfigManager& config_manager,
+                             bool enabled_by_default = false, std::string_view cwd = {});
+
+/// @brief #137 后续：按配置装配 ReActLoop 的运行旋钮（墙钟预算 / 重试 / 思维链预算）
+/// @details **所有直接构造 ReActLoop 的入口都必须调用本函数**（与 apply_verification_gate
+///          同一约束、同一理由）。headless 曾绕过 query_engine 的 make_react_config()
+///          手工构造 Config，只接了 max_iterations + 验证门禁，导致评测路径上
+///          wall_clock_budget_sec / thought_max_retries / reasoning_budget_chars /
+///          empty_answer_max_retries 恒为结构体默认值 —— env（WORKX_AGENT_TIMEOUT_SEC）
+///          与 config.json 都改不动，PR #141 的单命令墙钟封顶在评测路径上是死代码。
+///          集中到本函数后，「新增入口忘记接线」只能发生在一处。
+/// @param cfg [out] 被填入四个旋钮（并置 knobs_configured = true）
+/// @param config_manager 配置源（WORKX_* 环境变量已由 ConfigManager::load_from_env()
+///           统一覆盖进键值；wall_clock_budget_sec 额外保留 WORKX_AGENT_TIMEOUT_SEC
+///           env 兜底，兼容未在 schema 里绑定的旧注入方式）
+/// @param include_wall_clock 是否装配墙钟预算（#155）。**主 run 循环一律 true（默认）**；
+///           唯一例外是「主 run 内部的子循环」（如 hook 的 agentic verifier）：
+///           wall_clock_budget_sec 是 run 级概念——从循环起点计算剩余预算来封顶
+///           单次命令超时，子循环若继承会拿到**满额墙钟**（主循环只剩 5 分钟时
+///           verifier 又获得完整 1 小时），语义不成立，故必须 false。
+///           per-request 旋钮（#144 重试 / #147 思维链预算）子循环**应继承**：
+///           verifier 同样暴露在思维链失控与空答复风险下。
+void apply_react_knobs(ReActLoop::Config& cfg, const IConfigManager& config_manager,
+                       bool include_wall_clock = true);
+
+}  // namespace agent

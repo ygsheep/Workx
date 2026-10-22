@@ -29,7 +29,7 @@ bool validate_question(const nlohmann::json& q_j) {
     return true;
 }
 
-} // namespace
+}  // namespace
 
 bool validate_ask_user_json(const nlohmann::json& input) {
     try {
@@ -47,4 +47,4 @@ bool validate_ask_user_json(const nlohmann::json& input) {
     }
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

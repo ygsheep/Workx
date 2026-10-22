@@ -37,7 +37,7 @@ std::string sanitize_name(const std::string& raw) {
     return out;
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 McpClientManager::McpClientManager(IEventBus* event_bus) : m_event_bus(event_bus) {}
 
@@ -72,9 +72,8 @@ void McpClientManager::load_and_connect(const std::filesystem::path& user_config
     // 后台连接：不阻塞 TUI 启动（npx 下载/HTTP 握手可能耗时数秒~数十秒）
     if (m_worker.joinable()) m_worker.join();  // 上次连接未结束则等待
     m_stop = false;
-    m_worker = std::thread([this, configs = std::move(configs.value())]() mutable {
-        connect_all_async(configs);
-    });
+    m_worker = std::thread(
+        [this, configs = std::move(configs.value())]() mutable { connect_all_async(configs); });
 }
 
 void McpClientManager::connect_all_async(const std::vector<McpServerConfig>& configs) {
@@ -113,8 +112,7 @@ void McpClientManager::connect_all_async(const std::vector<McpServerConfig>& con
             st.state = McpServerState::Connected;
             st.error.clear();
         }
-        LOG_INFO("[mcp] MCP server '{}' 已连接（协议 {}）",
-                 cfg.name, client->protocol_version());
+        LOG_INFO("[mcp] MCP server '{}' 已连接（协议 {}）", cfg.name, client->protocol_version());
         publish_status();
     }
 }
@@ -129,9 +127,8 @@ void McpClientManager::publish_status() {
             auto it = m_status.find(name);
             if (it == m_status.end()) continue;
             const auto& st = it->second;
-            lite.push_back(agent::McpServerStatusLite{
-                st.name, st.protocol, st.tool_count,
-                static_cast<int>(st.state), st.error});
+            lite.push_back(agent::McpServerStatusLite{st.name, st.protocol, st.tool_count,
+                                                      static_cast<int>(st.state), st.error});
         }
     }
     m_event_bus->publish_async(agent::McpStatusChangedEvent{std::move(lite)});
@@ -158,8 +155,7 @@ void McpClientManager::dispose(const std::shared_ptr<McpClient>& client) {
     if (client) client->disconnect();
 }
 
-void McpClientManager::register_client(const std::string& name,
-                                       std::shared_ptr<McpClient> client) {
+void McpClientManager::register_client(const std::string& name, std::shared_ptr<McpClient> client) {
     if (!client || name.empty()) return;
     // 预取工具名单（失败静默置空，不阻断注册）
     std::vector<std::string> tool_names;
@@ -231,8 +227,7 @@ std::string McpClientManager::describe_servers() const {
     return out;
 }
 
-bool McpClientManager::has_tool(const std::string& server,
-                                const std::string& tool) const {
+bool McpClientManager::has_tool(const std::string& server, const std::string& tool) const {
     std::lock_guard<std::mutex> lock(m_mutex);
     auto it = m_tool_names.find(server);
     if (it == m_tool_names.end()) return false;
@@ -245,4 +240,4 @@ bool McpClientManager::empty() const {
     return m_clients.empty();
 }
 
-} // namespace agent::mcp
+}  // namespace agent::mcp

@@ -18,7 +18,7 @@ namespace agent::tool {
 
 /// @brief ReadMcpResourceTool — 读取 MCP 资源
 class ReadMcpResourceTool : public ITool {
-public:
+   public:
     explicit ReadMcpResourceTool(std::shared_ptr<mcp::McpClientManager> manager);
 
     const std::string& name() const override;
@@ -27,19 +27,14 @@ public:
     nlohmann::json input_schema() const override;
     bool is_read_only() const override { return true; }
 
-    ResultV2<ToolResult> call(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    ResultV2<ToolResult> call(const nlohmann::json& input, const ToolContext& ctx) const override;
 
     /// @brief 读取外部 MCP 资源需用户确认（P2-7：Default 模式不静默读取）
-    PermissionResult check_permissions(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    PermissionResult check_permissions(const nlohmann::json& input,
+                                       const ToolContext& ctx) const override;
 
-private:
+   private:
     std::shared_ptr<mcp::McpClientManager> m_manager;
 };
 
-} // namespace agent::tool
+}  // namespace agent::tool

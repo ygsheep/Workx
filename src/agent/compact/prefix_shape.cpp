@@ -46,8 +46,7 @@ nlohmann::json normalize_tools_schema(const nlohmann::json& tools_schema) {
     return result;
 }
 
-PrefixShape capture_shape(const std::string& system_prompt,
-                          const nlohmann::json& tools_schema,
+PrefixShape capture_shape(const std::string& system_prompt, const nlohmann::json& tools_schema,
                           int rewrite_version) {
     // L-4：使用 sha256 替代 std::hash
     // - 跨编译器/跨进程确定（std::hash 实现定义，MSVC/GCC 结果不同）
@@ -63,9 +62,7 @@ PrefixShape capture_shape(const std::string& system_prompt,
     return shape;
 }
 
-PrefixChangeDiagnosis compare_shape(const PrefixShape& prev,
-                                    const PrefixShape& cur,
-                                    int hit_tokens,
+PrefixChangeDiagnosis compare_shape(const PrefixShape& prev, const PrefixShape& cur, int hit_tokens,
                                     int miss_tokens) {
     PrefixChangeDiagnosis diag;
     diag.prefix_hash = cur.prefix_hash;
@@ -94,4 +91,4 @@ PrefixChangeDiagnosis compare_shape(const PrefixShape& prev,
     return diag;
 }
 
-} // namespace agent
+}  // namespace agent

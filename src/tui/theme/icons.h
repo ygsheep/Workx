@@ -89,13 +89,13 @@ inline std::string_view icon_file_html() { return icon("\uF121", ""); }
 
 /// @brief 按扩展名（小写、无点）取文件类型图标；未知返回通用文件图标
 inline std::string_view icon_file_by_ext(const std::string& ext) {
-    if (ext == "c" || ext == "cc" || ext == "cpp" || ext == "cxx" || ext == "h" ||
-        ext == "hpp" || ext == "hh" || ext == "cs" || ext == "java" || ext == "py" ||
-        ext == "js" || ext == "jsx" || ext == "ts" || ext == "tsx" || ext == "go" ||
-        ext == "rs" || ext == "swift" || ext == "kt" || ext == "m" || ext == "mm" ||
-        ext == "scala" || ext == "php" || ext == "lua" || ext == "rb" || ext == "vue" ||
-        ext == "sh" || ext == "bash" || ext == "zsh" || ext == "ps1" || ext == "bat" ||
-        ext == "cmd" || ext == "css" || ext == "scss" || ext == "less" || ext == "sass")
+    if (ext == "c" || ext == "cc" || ext == "cpp" || ext == "cxx" || ext == "h" || ext == "hpp" ||
+        ext == "hh" || ext == "cs" || ext == "java" || ext == "py" || ext == "js" || ext == "jsx" ||
+        ext == "ts" || ext == "tsx" || ext == "go" || ext == "rs" || ext == "swift" ||
+        ext == "kt" || ext == "m" || ext == "mm" || ext == "scala" || ext == "php" ||
+        ext == "lua" || ext == "rb" || ext == "vue" || ext == "sh" || ext == "bash" ||
+        ext == "zsh" || ext == "ps1" || ext == "bat" || ext == "cmd" || ext == "css" ||
+        ext == "scss" || ext == "less" || ext == "sass")
         return icon_file_code();
     if (ext == "html" || ext == "htm") return icon_file_html();
     if (ext == "md" || ext == "markdown" || ext == "rst") return icon_file_text();
@@ -106,8 +106,8 @@ inline std::string_view icon_file_by_ext(const std::string& ext) {
     if (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "gif" || ext == "svg" ||
         ext == "webp" || ext == "ico" || ext == "bmp")
         return icon_file_image();
-    if (ext == "zip" || ext == "tar" || ext == "gz" || ext == "tgz" || ext == "rar" ||
-        ext == "7z") return icon_file_archive();
+    if (ext == "zip" || ext == "tar" || ext == "gz" || ext == "tgz" || ext == "rar" || ext == "7z")
+        return icon_file_archive();
     if (ext == "mp3" || ext == "wav" || ext == "ogg" || ext == "flac" || ext == "m4a")
         return icon_file_audio();
     if (ext == "mp4" || ext == "mkv" || ext == "avi" || ext == "mov" || ext == "webm")

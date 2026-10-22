@@ -27,8 +27,8 @@ ftxui::Element highlight_code_line(std::string_view line, std::string_view lang)
 /// @param lang 代码块标注语言
 /// @return 与 lines 等长的 Element 列表；tree-sitter 不可用或语言不支持时
 ///         逐行回退到 highlight_code_line
-std::vector<ftxui::Element> highlight_code_block(
-    const std::vector<std::string>& lines, std::string_view lang);
+std::vector<ftxui::Element> highlight_code_block(const std::vector<std::string>& lines,
+                                                 std::string_view lang);
 
 /// @brief 代码段着色区间（字节偏移，相对所在逻辑行起点）
 struct HighlightSpan {
@@ -43,8 +43,8 @@ struct HighlightSpan {
 /// @return 外层向量与 lines 等长，每项为该行 span 列表（字节偏移相对行首）；
 ///         tree-sitter 不可用或语言无 grammar 时返回空（调用方回退到
 ///         highlight_code_line 逐段处理）
-std::vector<std::vector<HighlightSpan>> highlight_block_spans(
-    const std::vector<std::string>& lines, std::string_view lang);
+std::vector<std::vector<HighlightSpan>> highlight_block_spans(const std::vector<std::string>& lines,
+                                                              std::string_view lang);
 
 /// @brief 渲染 text[byte_from, byte_to) 子串，并按 spans 对该子串着色
 /// @param text 整行文本（与 spans 同基准）
@@ -52,8 +52,7 @@ std::vector<std::vector<HighlightSpan>> highlight_block_spans(
 /// @param byte_to 子串在该行的字节终点（不含）
 /// @param spans 该行的 span 列表（字节偏移相对行首）
 /// @return 折行后某段的着色 Element
-ftxui::Element render_spans_range(std::string_view text,
-                                  uint32_t byte_from, uint32_t byte_to,
+ftxui::Element render_spans_range(std::string_view text, uint32_t byte_from, uint32_t byte_to,
                                   const std::vector<HighlightSpan>& spans);
 
 }  // namespace ftxtui

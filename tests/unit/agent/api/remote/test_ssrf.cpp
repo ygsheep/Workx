@@ -18,33 +18,33 @@ using namespace agent;
 
 TEST_CASE("is_private_ipv4 拦截内网/回环/链路本地", "[ssrf][ipv4]") {
     // 10/8
-    REQUIRE(is_private_ipv4(0x0A000001u));   // 10.0.0.1
-    REQUIRE(is_private_ipv4(0x0AFFFFFFu));   // 10.255.255.255
+    REQUIRE(is_private_ipv4(0x0A000001u));  // 10.0.0.1
+    REQUIRE(is_private_ipv4(0x0AFFFFFFu));  // 10.255.255.255
     // 172.16/12
-    REQUIRE(is_private_ipv4(0xAC100001u));   // 172.16.0.1
-    REQUIRE(is_private_ipv4(0xAC1FFFFFu));   // 172.31.255.255
+    REQUIRE(is_private_ipv4(0xAC100001u));  // 172.16.0.1
+    REQUIRE(is_private_ipv4(0xAC1FFFFFu));  // 172.31.255.255
     // 192.168/16
-    REQUIRE(is_private_ipv4(0xC0A80001u));   // 192.168.0.1
+    REQUIRE(is_private_ipv4(0xC0A80001u));  // 192.168.0.1
     // 127/8 回环
-    REQUIRE(is_private_ipv4(0x7F000001u));   // 127.0.0.1
+    REQUIRE(is_private_ipv4(0x7F000001u));  // 127.0.0.1
     // 169.254/16 链路本地
-    REQUIRE(is_private_ipv4(0xA9FE0001u));   // 169.254.0.1
+    REQUIRE(is_private_ipv4(0xA9FE0001u));  // 169.254.0.1
     // 0/8 本网络
-    REQUIRE(is_private_ipv4(0x00000000u));   // 0.0.0.0
+    REQUIRE(is_private_ipv4(0x00000000u));  // 0.0.0.0
     // 100.64/10 CGNAT
-    REQUIRE(is_private_ipv4(0x64400001u));   // 100.64.0.1
+    REQUIRE(is_private_ipv4(0x64400001u));  // 100.64.0.1
     // 组播 224/4
-    REQUIRE(is_private_ipv4(0xE0000001u));   // 224.0.0.1
+    REQUIRE(is_private_ipv4(0xE0000001u));  // 224.0.0.1
     // 保留 240/4
-    REQUIRE(is_private_ipv4(0xF0000001u));   // 240.0.0.1
+    REQUIRE(is_private_ipv4(0xF0000001u));  // 240.0.0.1
 }
 
 TEST_CASE("is_private_ipv4 放行公网地址", "[ssrf][ipv4]") {
-    REQUIRE_FALSE(is_private_ipv4(0x08080808u));   // 8.8.8.8
-    REQUIRE_FALSE(is_private_ipv4(0x01010101u));   // 1.1.1.1
-    REQUIRE_FALSE(is_private_ipv4(0x5DB8D822u));   // 93.184.216.34 (example.com)
-    REQUIRE_FALSE(is_private_ipv4(0xAC1FFFFFu + 1)); // 172.32.0.0（172.16/12 之外）
-    REQUIRE_FALSE(is_private_ipv4(0xC0A90000u));   // 192.169.0.0（192.168/16 之外）
+    REQUIRE_FALSE(is_private_ipv4(0x08080808u));      // 8.8.8.8
+    REQUIRE_FALSE(is_private_ipv4(0x01010101u));      // 1.1.1.1
+    REQUIRE_FALSE(is_private_ipv4(0x5DB8D822u));      // 93.184.216.34 (example.com)
+    REQUIRE_FALSE(is_private_ipv4(0xAC1FFFFFu + 1));  // 172.32.0.0（172.16/12 之外）
+    REQUIRE_FALSE(is_private_ipv4(0xC0A90000u));      // 192.169.0.0（192.168/16 之外）
 }
 
 // ============================================================================
@@ -53,37 +53,39 @@ TEST_CASE("is_private_ipv4 放行公网地址", "[ssrf][ipv4]") {
 
 TEST_CASE("is_private_ipv6 拦截回环/本地/组播/IPv4-mapped", "[ssrf][ipv6]") {
     // ::1 回环
-    const uint8_t loopback[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1};
+    const uint8_t loopback[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
     REQUIRE(is_private_ipv6(loopback));
     // :: 未指定
-    const uint8_t unspecified[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    const uint8_t unspecified[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     REQUIRE(is_private_ipv6(unspecified));
     // fc00::/7 唯一本地
-    const uint8_t ula[16] = {0xfd,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1};
+    const uint8_t ula[16] = {0xfd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
     REQUIRE(is_private_ipv6(ula));
     // fe80::/10 链路本地
-    const uint8_t linklocal[16] = {0xfe,0x80,0,0,0,0,0,0,0,0,0,0,0,0,0,1};
+    const uint8_t linklocal[16] = {0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
     REQUIRE(is_private_ipv6(linklocal));
     // ff00::/8 组播
-    const uint8_t multicast[16] = {0xff,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1};
+    const uint8_t multicast[16] = {0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
     REQUIRE(is_private_ipv6(multicast));
     // ::ffff:127.0.0.1 IPv4-mapped 回环
-    const uint8_t mapped_loopback[16] = {0,0,0,0,0,0,0,0,0,0,0xff,0xff,127,0,0,1};
+    const uint8_t mapped_loopback[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 127, 0, 0, 1};
     REQUIRE(is_private_ipv6(mapped_loopback));
     // ::ffff:10.0.0.1 IPv4-mapped 内网
-    const uint8_t mapped_private[16] = {0,0,0,0,0,0,0,0,0,0,0xff,0xff,10,0,0,1};
+    const uint8_t mapped_private[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 10, 0, 0, 1};
     REQUIRE(is_private_ipv6(mapped_private));
     // 2001:db8::/32 文档
-    const uint8_t doc[16] = {0x20,0x01,0x0d,0xb8,0,0,0,0,0,0,0,0,0,0,0,1};
+    const uint8_t doc[16] = {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
     REQUIRE(is_private_ipv6(doc));
 }
 
 TEST_CASE("is_private_ipv6 放行公网地址", "[ssrf][ipv6]") {
     // 2001:4860:4860::8888 (Google DNS)
-    const uint8_t pub[16] = {0x20,0x01,0x48,0x60,0x48,0x60,0,0,0,0,0,0,0,0,0x88,0x88};
+    const uint8_t pub[16] = {0x20, 0x01, 0x48, 0x60, 0x48, 0x60, 0,    0,
+                             0,    0,    0,    0,    0,    0,    0x88, 0x88};
     REQUIRE_FALSE(is_private_ipv6(pub));
     // 2606:4700:4700::1111 (Cloudflare DNS)
-    const uint8_t pub2[16] = {0x26,0x06,0x47,0x00,0x47,0x00,0,0,0,0,0,0,0,0,0x11,0x11};
+    const uint8_t pub2[16] = {0x26, 0x06, 0x47, 0x00, 0x47, 0x00, 0,    0,
+                              0,    0,    0,    0,    0,    0,    0x11, 0x11};
     REQUIRE_FALSE(is_private_ipv6(pub2));
 }
 

@@ -31,7 +31,7 @@ namespace agent::test {
 /// @details 线程安全（内部互斥锁）。create/launch 返回真实 Task 对象但不执行
 ///          任务函数；调用 launch 时若 set_execute_enabled(true) 则同步执行。
 class MockTaskManager final : public ITaskManager {
-public:
+   public:
     MockTaskManager() = default;
     ~MockTaskManager() override = default;
 
@@ -40,12 +40,10 @@ public:
 
     // === ITaskManager 实现 ===
 
-    std::shared_ptr<Task> create(
-        const std::string& name,
-        Task::TaskFunc func,
-        TaskType type = TaskType::Normal) override {
-        auto task = std::make_shared<Task>(
-            name, std::move(func), EventBus::instance(), nullptr, 100.0f);
+    std::shared_ptr<Task> create(const std::string& name, Task::TaskFunc func,
+                                 TaskType type = TaskType::Normal) override {
+        auto task =
+            std::make_shared<Task>(name, std::move(func), EventBus::instance(), nullptr, 100.0f);
         task->setType(type);
         std::lock_guard<std::mutex> lock(m_mutex);
         m_tasks.push_back(task);
@@ -53,10 +51,8 @@ public:
         return task;
     }
 
-    std::shared_ptr<Task> launch(
-        const std::string& name,
-        Task::TaskFunc func,
-        TaskType type = TaskType::Normal) override {
+    std::shared_ptr<Task> launch(const std::string& name, Task::TaskFunc func,
+                                 TaskType type = TaskType::Normal) override {
         auto task = create(name, std::move(func), type);
         start(task);
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -97,14 +93,13 @@ public:
         return running;
     }
 
-    [[nodiscard]] size_t getRunningTaskCount() const override {
-        return getRunningTasks().size();
-    }
+    [[nodiscard]] size_t getRunningTaskCount() const override { return getRunningTasks().size(); }
 
     [[nodiscard]] std::shared_ptr<Task> find_task(const std::string& name) const override {
         std::lock_guard<std::mutex> lock(m_mutex);
-        const auto it = std::find_if(m_tasks.begin(), m_tasks.end(),
-            [&name](const std::shared_ptr<Task>& t) { return t->getName() == name; });
+        const auto it =
+            std::find_if(m_tasks.begin(), m_tasks.end(),
+                         [&name](const std::shared_ptr<Task>& t) { return t->getName() == name; });
         return it == m_tasks.end() ? nullptr : *it;
     }
 
@@ -206,7 +201,7 @@ public:
         m_wait_tasks_count = 0;
     }
 
-private:
+   private:
     mutable std::mutex m_mutex;
     std::vector<std::shared_ptr<Task>> m_tasks;
     size_t m_create_count = 0;
@@ -220,4 +215,4 @@ private:
     size_t m_wait_tasks_count = 0;
 };
 
-} // namespace agent::test
+}  // namespace agent::test

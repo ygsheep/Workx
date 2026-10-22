@@ -11,11 +11,15 @@
 #include <set>
 #include <mutex>
 #include <functional>
+#include <thread>
+#include <atomic>
+#include <chrono>
+#include <memory>
 
 #include "agent/api/remote/remote_backend.h"
 #include "agent/api/backend_factory.h"
 #include "agent/api/backend_types.h"
-#include "agent/message/types.h"  // BackendStatusEvent
+#include "agent/message/types.h"    // BackendStatusEvent
 #include "core/events/event_bus.h"  // H-A：验证未污染全局单例
 #include "helpers/mock_event_bus.h"
 
@@ -40,37 +44,51 @@ BackendConfig make_remote_config() {
 /// @details 不发起真实网络请求；记录每个 reader 的 on_complete 回调，
 ///          测试可手动触发 complete() 模拟请求结束，验证多 reader 并发仲裁路径。
 class FakeHttpClient : public IHttpClient {
-public:
-    ResultV2<HttpResponse> get(
-        const std::string&,
-        const std::vector<std::pair<std::string, std::string>>&,
-        int) override {
+   public:
+    ResultV2<HttpResponse> get(const std::string&,
+                               const std::vector<std::pair<std::string, std::string>>&,
+                               int) override {
         return ResultV2<HttpResponse>::ok(HttpResponse{});
     }
 
-    ResultV2<HttpResponse> post(
-        const std::string&,
-        const std::vector<std::pair<std::string, std::string>>&,
-        const std::string&,
-        int) override {
+    ResultV2<HttpResponse> post(const std::string&,
+                                const std::vector<std::pair<std::string, std::string>>&,
+                                const std::string&, int) override {
         return ResultV2<HttpResponse>::ok(HttpResponse{});
     }
 
-    void async_post_stream(
-        const std::string&,
-        const std::vector<std::pair<std::string, std::string>>&,
-        const std::string&,
-        std::shared_ptr<SSEStreamReader> reader,
-        std::function<void()> on_complete,
-        int) const override {
+    void async_post_stream(const std::string&,
+                           const std::vector<std::pair<std::string, std::string>>&,
+                           const std::string&, std::shared_ptr<SSEStreamReader> reader,
+                           std::function<void()> on_complete, int) const override {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_on_complete[reader.get()] = std::move(on_complete);
     }
 
     void cancel_stream(SSEStreamReader* reader) override {
+        std::function<void()> cb;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            ++m_cancel_count;
+            m_cancelled.insert(reader);
+            // #139：真实 HttpClient::cancel_stream() 会同步走到 on_transfer_done →
+            // finish → on_complete。默认关闭以保持既有用例的"纯计数"语义，
+            // 由复现死锁的用例显式打开。
+            if (m_fire_on_complete_on_cancel) {
+                auto it = m_on_complete.find(reader);
+                if (it != m_on_complete.end()) {
+                    cb = std::move(it->second);
+                    m_on_complete.erase(it);
+                }
+            }
+        }
+        if (cb) cb();  // 必须在 Fake 自身锁外触发，与真实实现一致
+    }
+
+    /// @brief 打开后 cancel_stream 会同步触发 on_complete（复现 #139 自锁所需）
+    void set_fire_on_complete_on_cancel(bool on) {
         std::lock_guard<std::mutex> lock(m_mutex);
-        ++m_cancel_count;
-        m_cancelled.insert(reader);
+        m_fire_on_complete_on_cancel = on;
     }
 
     void shutdown() override {}
@@ -98,20 +116,22 @@ public:
         return m_cancelled.count(reader) > 0;
     }
 
-private:
+   private:
     mutable std::mutex m_mutex;
     mutable std::map<IStreamReader*, std::function<void()>> m_on_complete;
     mutable std::set<IStreamReader*> m_cancelled;
     mutable size_t m_cancel_count = 0;
+    bool m_fire_on_complete_on_cancel = false;  // #139：cancel 时同步触发 on_complete
 };
 
-} // namespace
+}  // namespace
 
 // ============================================================================
 // H-1：RemoteBackend 构造接收 IEventBus*，不再调用单例
 // ============================================================================
 
-TEST_CASE("RemoteBackend initialize publishes Connected via injected bus", "[backend][remote][h-1]") {
+TEST_CASE("RemoteBackend initialize publishes Connected via injected bus",
+          "[backend][remote][h-1]") {
     MockEventBus bus;
     RemoteBackend backend(&bus);
 
@@ -145,7 +165,7 @@ TEST_CASE("RemoteBackend initialize publishes Connected via injected bus", "[bac
             RemoteBackend b(&bus);
             b.initialize(make_remote_config());
             bus.process_async_events();
-        } // 析构调用 shutdown
+        }  // 析构调用 shutdown
         bus.process_async_events();
         // 初始化 1 次 Connected + 析构 1 次 Disconnected
         REQUIRE(bus.published_count<BackendStatusEvent>() == 2);
@@ -187,7 +207,8 @@ TEST_CASE("RemoteBackend event content correctness", "[backend][remote][h-1]") {
     }
 }
 
-TEST_CASE("RemoteBackend nullptr event_bus skips publishing - backward compat", "[backend][remote][h-1]") {
+TEST_CASE("RemoteBackend nullptr event_bus skips publishing - backward compat",
+          "[backend][remote][h-1]") {
     // H-1：event_bus=nullptr 时不发布，保持向后兼容
     // H-A：扩展验证未污染全局单例（Closed AI Loop 防护）
     EventBus::instance().clear();
@@ -273,7 +294,8 @@ TEST_CASE("BackendFactory propagates event_bus to RemoteBackend", "[backend][fac
 // Shutdown 为终态，幂等。非 Ready 态拒绝 submit_completion / list_models。
 // ============================================================================
 
-TEST_CASE("RemoteBackend state machine: initial state is Idle", "[backend][remote][m7][state_machine]") {
+TEST_CASE("RemoteBackend state machine: initial state is Idle",
+          "[backend][remote][m7][state_machine]") {
     // M-7：构造后未 initialize 前，状态为 Idle（不是 Ready / Generating / Shutdown）
     MockEventBus bus;
     RemoteBackend backend(&bus);
@@ -283,7 +305,8 @@ TEST_CASE("RemoteBackend state machine: initial state is Idle", "[backend][remot
     REQUIRE_FALSE(backend.is_generating());
 }
 
-TEST_CASE("RemoteBackend state machine: Idle -> Ready via initialize", "[backend][remote][m7][state_machine]") {
+TEST_CASE("RemoteBackend state machine: Idle -> Ready via initialize",
+          "[backend][remote][m7][state_machine]") {
     MockEventBus bus;
     RemoteBackend backend(&bus);
 
@@ -299,7 +322,8 @@ TEST_CASE("RemoteBackend state machine: Idle -> Ready via initialize", "[backend
     REQUIRE(bus.published_count<BackendStatusEvent>() == 1);
 }
 
-TEST_CASE("RemoteBackend state machine: Ready -> Shutdown via shutdown", "[backend][remote][m7][state_machine]") {
+TEST_CASE("RemoteBackend state machine: Ready -> Shutdown via shutdown",
+          "[backend][remote][m7][state_machine]") {
     MockEventBus bus;
     RemoteBackend backend(&bus);
     backend.initialize(make_remote_config());
@@ -318,7 +342,8 @@ TEST_CASE("RemoteBackend state machine: Ready -> Shutdown via shutdown", "[backe
     REQUIRE(bus.published_count<BackendStatusEvent>() == 2);
 }
 
-TEST_CASE("RemoteBackend state machine: shutdown is idempotent", "[backend][remote][m7][state_machine]") {
+TEST_CASE("RemoteBackend state machine: shutdown is idempotent",
+          "[backend][remote][m7][state_machine]") {
     // M-7：Shutdown 是终态，重复 shutdown 应为 no-op（幂等）
     MockEventBus bus;
     RemoteBackend backend(&bus);
@@ -341,7 +366,8 @@ TEST_CASE("RemoteBackend state machine: shutdown is idempotent", "[backend][remo
     REQUIRE(bus.published_count<BackendStatusEvent>() == 2);
 }
 
-TEST_CASE("RemoteBackend state machine: shutdown on Idle is no-op", "[backend][remote][m7][state_machine]") {
+TEST_CASE("RemoteBackend state machine: shutdown on Idle is no-op",
+          "[backend][remote][m7][state_machine]") {
     // M-7：Idle 态（未 initialize）shutdown 应为 no-op，不发布事件
     MockEventBus bus;
     RemoteBackend backend(&bus);
@@ -356,7 +382,8 @@ TEST_CASE("RemoteBackend state machine: shutdown on Idle is no-op", "[backend][r
     REQUIRE(bus.async_queue_size() == 0);
 }
 
-TEST_CASE("RemoteBackend state machine: non-Ready rejects submit_completion", "[backend][remote][m7][state_machine]") {
+TEST_CASE("RemoteBackend state machine: non-Ready rejects submit_completion",
+          "[backend][remote][m7][state_machine]") {
     // M-7：非 Ready 态（Idle / Shutdown）拒绝 submit_completion
     MockEventBus bus;
     RemoteBackend backend(&bus);
@@ -383,7 +410,8 @@ TEST_CASE("RemoteBackend state machine: non-Ready rejects submit_completion", "[
     }
 }
 
-TEST_CASE("RemoteBackend state machine: non-Ready rejects list_models", "[backend][remote][m7][state_machine]") {
+TEST_CASE("RemoteBackend state machine: non-Ready rejects list_models",
+          "[backend][remote][m7][state_machine]") {
     // M-7：非 Ready 态（Idle / Shutdown）拒绝 list_models
     MockEventBus bus;
     RemoteBackend backend(&bus);
@@ -407,7 +435,8 @@ TEST_CASE("RemoteBackend state machine: non-Ready rejects list_models", "[backen
     }
 }
 
-TEST_CASE("RemoteBackend state machine: single enum eliminates illegal combinations", "[backend][remote][m7][state_machine]") {
+TEST_CASE("RemoteBackend state machine: single enum eliminates illegal combinations",
+          "[backend][remote][m7][state_machine]") {
     // M-7：验证单一 atomic<BackendState> 消除非法组合
     // 原实现用两个 atomic<bool> m_ready/m_generating，可能出现：
     //   - m_ready=false 但 m_generating=true（非法）
@@ -447,7 +476,8 @@ TEST_CASE("RemoteBackend state machine: single enum eliminates illegal combinati
 // 不覆盖状态。
 // ============================================================================
 
-TEST_CASE("RemoteBackend interrupt on Shutdown keeps Shutdown (M-N1 CAS contract)", "[backend][remote][m-n1]") {
+TEST_CASE("RemoteBackend interrupt on Shutdown keeps Shutdown (M-N1 CAS contract)",
+          "[backend][remote][m-n1]") {
     // M-N1：验证 CAS `Generating→Ready` 在 Shutdown 态下失败，不覆盖终态
     // on_complete 回调与 interrupt_locked() 使用相同 CAS 模式：
     //   BackendState expected = Generating;
@@ -468,7 +498,8 @@ TEST_CASE("RemoteBackend interrupt on Shutdown keeps Shutdown (M-N1 CAS contract
     REQUIRE_FALSE(backend.is_generating());
 }
 
-TEST_CASE("RemoteBackend interrupt on Idle keeps Idle (M-N1 CAS contract)", "[backend][remote][m-n1]") {
+TEST_CASE("RemoteBackend interrupt on Idle keeps Idle (M-N1 CAS contract)",
+          "[backend][remote][m-n1]") {
     // M-N1：验证 CAS `Generating→Ready` 在 Idle 态下也失败，不覆盖状态
     MockEventBus bus;
     RemoteBackend backend(&bus);
@@ -487,7 +518,8 @@ TEST_CASE("RemoteBackend interrupt on Idle keeps Idle (M-N1 CAS contract)", "[ba
 // 覆盖 v1.2.0 最复杂、风险最高的改动：集合增删清 + 并发状态仲裁。
 // ============================================================================
 
-TEST_CASE("RemoteBackend concurrent submits both return readers and return to Ready", "[backend][remote][concurrency]") {
+TEST_CASE("RemoteBackend concurrent submits both return readers and return to Ready",
+          "[backend][remote][concurrency]") {
     // M-1：两个并发 submit 均返回 reader（不再拒绝第二个），各自 on_complete 后状态回 Ready
     MockEventBus bus;
     RemoteBackend backend(&bus);
@@ -544,7 +576,8 @@ TEST_CASE("RemoteBackend interrupt cancels all active readers", "[backend][remot
     REQUIRE(backend.is_ready());
 }
 
-TEST_CASE("RemoteBackend shutdown cancels active readers and rejects new submits", "[backend][remote][concurrency]") {
+TEST_CASE("RemoteBackend shutdown cancels active readers and rejects new submits",
+          "[backend][remote][concurrency]") {
     // M-1：shutdown 持锁 CAS Generating→Shutdown 并清理全部 reader，Shutdown 后新请求被拒
     MockEventBus bus;
     RemoteBackend backend(&bus);
@@ -572,7 +605,8 @@ TEST_CASE("RemoteBackend shutdown cancels active readers and rejects new submits
     REQUIRE(backend.state() == BackendState::Shutdown);
 }
 
-TEST_CASE("RemoteBackend late on_complete after shutdown keeps Shutdown (M-N1)", "[backend][remote][concurrency]") {
+TEST_CASE("RemoteBackend late on_complete after shutdown keeps Shutdown (M-N1)",
+          "[backend][remote][concurrency]") {
     // M-1 + M-N1：shutdown 清理后，被取消请求的 on_complete 迟到触发，
     // CAS Generating→Ready 失败，不覆盖 Shutdown 终态
     MockEventBus bus;
@@ -593,4 +627,80 @@ TEST_CASE("RemoteBackend late on_complete after shutdown keeps Shutdown (M-N1)",
     fake_ptr->complete(r1.get());
     REQUIRE(backend.state() == BackendState::Shutdown);
     REQUIRE_FALSE(backend.is_ready());
+}
+
+// ============================================================================
+// #139：Generating 态下 shutdown / interrupt 不得自锁
+// ============================================================================
+
+namespace {
+
+/// @brief 后台线程执行 fn，超时未返回即判定为自锁
+/// @note 必须 detach + 轮询：死锁时 join / future 析构会跟着一起挂住，
+///       把"用例失败"升级成"整个测试进程挂死"。
+[[nodiscard]] bool returns_within(std::function<void()> fn, std::chrono::milliseconds budget) {
+    std::atomic<bool> done{false};
+    std::thread t([f = std::move(fn), &done] {
+        f();
+        done.store(true, std::memory_order_release);
+    });
+    t.detach();
+    const auto deadline = std::chrono::steady_clock::now() + budget;
+    while (!done.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return done.load(std::memory_order_acquire);
+}
+
+/// @brief 构造一个「已在飞一个请求」的 backend（#139 用例共用）
+/// @note 返回裸指针且不接管所有权：一旦复现自锁，析构会再次走 shutdown 自锁，
+///       那会把"用例失败"变成"CI 挂死"，故由用例自行决定是否 delete。
+[[nodiscard]] RemoteBackend* make_generating_backend(FakeHttpClient*& fake_out) {
+    auto* backend = new RemoteBackend(nullptr);
+    auto fake = std::make_unique<FakeHttpClient>();
+    fake_out = fake.get();
+    fake_out->set_fire_on_complete_on_cancel(true);  // 还原真实 HttpClient 的同步回调
+    backend->set_http_client_for_testing(std::move(fake));
+    backend->initialize(make_remote_config());
+    CompletionRequest req;
+    backend->submit_completion(req);
+    return backend;
+}
+
+}  // namespace
+
+TEST_CASE("RemoteBackend shutdown while generating does not self-deadlock (#139)",
+          "[backend][remote][issue139]") {
+    // #139 复现：shutdown() 曾全程持有 m_active_mutex 并在锁内调 interrupt_locked() →
+    // cancel_stream() → on_complete 回调 → 回调再次 lock(m_active_mutex)，
+    // 同线程二次加锁非递归 mutex = 永久阻塞。
+    // 线上表现：跑分里任务 293s 就做完（verifier 11/11），进程却挂到 1800s 被判超时。
+    FakeHttpClient* fake_ptr = nullptr;
+    auto* backend = make_generating_backend(fake_ptr);
+    REQUIRE(backend->is_generating());
+
+    const bool returned =
+        returns_within([backend] { backend->shutdown(); }, std::chrono::seconds(3));
+
+    REQUIRE(returned);  // 自锁时这里失败（而不是挂死整个测试进程）
+    REQUIRE(backend->state() == BackendState::Shutdown);
+    REQUIRE(fake_ptr->cancel_count() == 1);
+    delete backend;  // 仅在确认未死锁后才析构
+}
+
+TEST_CASE("RemoteBackend interrupt while generating does not self-deadlock (#139)",
+          "[backend][remote][issue139]") {
+    // #139：interrupt()（Ctrl+C 中断路径）走的是同一条 interrupt_locked()，
+    // 修复前同样会在持锁状态下触发 on_complete 回调而自锁。
+    FakeHttpClient* fake_ptr = nullptr;
+    auto* backend = make_generating_backend(fake_ptr);
+    REQUIRE(backend->is_generating());
+
+    const bool returned =
+        returns_within([backend] { backend->interrupt(); }, std::chrono::seconds(3));
+
+    REQUIRE(returned);
+    REQUIRE(backend->is_ready());  // interrupt 后回到 Ready（非终态）
+    REQUIRE(fake_ptr->cancel_count() == 1);
+    delete backend;
 }

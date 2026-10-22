@@ -4,6 +4,8 @@
  */
 
 #include "core/config/config_manager.h"
+#include "core/utils/file_permissions.h"
+#include "liblogger/logger.h"
 
 #include <format>
 #include <nlohmann/json.hpp>
@@ -12,6 +14,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <filesystem>
+#include <system_error>
 
 namespace agent {
 
@@ -70,7 +73,7 @@ void flatten_json(const nlohmann::json& j, const std::string& prefix,
     }
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 bool ConfigManager::has(const std::string& key) const {
     std::lock_guard<std::mutex> lock(m_mutex);
@@ -96,10 +99,8 @@ ResultV2<ConfigMeta> ConfigManager::get_meta(const std::string& key) const {
     std::lock_guard<std::mutex> lock(m_mutex);
     auto it = m_metas.find(key);
     if (it == m_metas.end()) {
-        return ResultV2<ConfigMeta>::err(
-            Error::Code::ConfigMissing,
-            std::format("Config meta '{}' not found", key),
-            key);
+        return ResultV2<ConfigMeta>::err(Error::Code::ConfigMissing,
+                                         std::format("Config meta '{}' not found", key), key);
     }
     return ResultV2<ConfigMeta>::ok(it->second);
 }
@@ -116,10 +117,8 @@ ResultV2<ConfigValue> ConfigManager::get_value(const std::string& key) const {
         if (meta_it != m_metas.end()) {
             return ResultV2<ConfigValue>::ok(meta_it->second.default_value);
         }
-        return ResultV2<ConfigValue>::err(
-            Error::Code::ConfigMissing,
-            std::format("Config key '{}' not found", key),
-            key);
+        return ResultV2<ConfigValue>::err(Error::Code::ConfigMissing,
+                                          std::format("Config key '{}' not found", key), key);
     }
     return ResultV2<ConfigValue>::ok(it->second);
 }
@@ -132,11 +131,10 @@ ResultV2<void> ConfigManager::set_value(const std::string& key, ConfigValue conf
         if (schema_it != m_schemas.end()) {
             auto result = schema_it->second.validate_value(config_value);
             if (result.is_err()) {
-                return ResultV2<void>::err(
-                    Error::Code::ConfigInvalid,
-                    std::format("Schema validation failed for '{}': {}",
-                                key, result.error().message),
-                    key);
+                return ResultV2<void>::err(Error::Code::ConfigInvalid,
+                                           std::format("Schema validation failed for '{}': {}", key,
+                                                       result.error().message),
+                                           key);
             }
         }
     }
@@ -154,8 +152,7 @@ ResultV2<void> ConfigManager::set_value(const std::string& key, ConfigValue conf
             if (result.is_err()) {
                 return ResultV2<void>::err(
                     Error::Code::ConfigInvalid,
-                    std::format("Validation failed for '{}': {}",
-                                key, result.error().message),
+                    std::format("Validation failed for '{}': {}", key, result.error().message),
                     key);
             }
         }
@@ -188,26 +185,39 @@ ResultV2<void> ConfigManager::set_value(const std::string& key, ConfigValue conf
         }
     }
 
-    for (const auto& cb : pending_callbacks) { cb(); }
-    if (has_change_callback) { change_callback(config_value); }
+    for (const auto& cb : pending_callbacks) {
+        cb();
+    }
+    if (has_change_callback) {
+        change_callback(config_value);
+    }
 
     return ResultV2<void>::ok();
 }
 
 ResultV2<void> ConfigManager::load_from_file(const std::filesystem::path& path) {
-    if (!std::filesystem::exists(path)) {
+    // 无 ec 的重载在权限不足时会抛 filesystem_error（#177）—— 本函数在启动路径上被调用，
+    // 异常会一路冒到 main。这里把「不存在」与「不可访问」分流：后者是权限问题，
+    // 必须走可诊断的错误路径，而不是让整个进程静默猝死。
+    std::error_code ec;
+    const bool exists = std::filesystem::exists(path, ec);
+    if (ec) {
         return ResultV2<void>::err(
-            Error::Code::ResourceNotFound,
-            std::format("Config file not found: {}", path.string()),
+            Error::Code::PermissionDenied,
+            std::format("Config file not accessible: {} ({})", path.string(), ec.message()),
             path.string());
+    }
+    if (!exists) {
+        return ResultV2<void>::err(Error::Code::ResourceNotFound,
+                                   std::format("Config file not found: {}", path.string()),
+                                   path.string());
     }
 
     std::ifstream file(path);
     if (!file.is_open()) {
-        return ResultV2<void>::err(
-            Error::Code::ResourceNotFound,
-            std::format("Failed to open config file: {}", path.string()),
-            path.string());
+        return ResultV2<void>::err(Error::Code::ResourceNotFound,
+                                   std::format("Failed to open config file: {}", path.string()),
+                                   path.string());
     }
 
     // 空文件视为有效配置（无内容），优雅降级
@@ -230,15 +240,34 @@ ResultV2<void> ConfigManager::load_from_file(const std::filesystem::path& path) 
     } catch (const nlohmann::json::parse_error& e) {
         return ResultV2<void>::err(
             Error::Code::ConfigParseFailed,
-            std::format("JSON parse error in {}: {}", path.string(), e.what()),
-            path.string());
+            std::format("JSON parse error in {}: {}", path.string(), e.what()), path.string());
     } catch (const std::exception& e) {
-        return ResultV2<void>::err(
-            Error::Code::ConfigParseFailed,
-            std::format("Error reading {}: {}", path.string(), e.what()),
-            path.string());
+        return ResultV2<void>::err(Error::Code::ConfigParseFailed,
+                                   std::format("Error reading {}: {}", path.string(), e.what()),
+                                   path.string());
     }
 }
+
+namespace {
+
+/// 权限加固失败不阻断保存（可用性优先于加固），但必须留痕，便于用户排查为何权限未收紧。
+void harden_file_or_warn(const std::filesystem::path& path) {
+    auto result = harden_private_file(path);
+    if (result.is_err()) {
+        LOG_WARN("[config] 文件权限加固失败（配置已正常写入）path={} err={}", path.string(),
+                 result.error().to_string());
+    }
+}
+
+void harden_dir_or_warn(const std::filesystem::path& path) {
+    auto result = harden_private_dir(path);
+    if (result.is_err()) {
+        LOG_WARN("[config] 目录权限加固失败 path={} err={}", path.string(),
+                 result.error().to_string());
+    }
+}
+
+}  // namespace
 
 ResultV2<void> ConfigManager::save_to_file(const std::filesystem::path& path) {
     nlohmann::json j;
@@ -252,27 +281,30 @@ ResultV2<void> ConfigManager::save_to_file(const std::filesystem::path& path) {
     }
 
     try {
-        // 确保父目录存在
+        // 确保父目录存在，并收紧为「仅属主可访问」——配置内容含 API Key 等敏感项
         if (path.has_parent_path()) {
             std::filesystem::create_directories(path.parent_path());
+            harden_dir_or_warn(path.parent_path());
         }
 
         std::ofstream file(path);
         if (!file.is_open()) {
             return ResultV2<void>::err(
                 Error::Code::ConfigParseFailed,
-                std::format("Failed to create config file: {}", path.string()),
-                path.string());
+                std::format("Failed to create config file: {}", path.string()), path.string());
         }
         file << j.dump(4);
         file.close();
+
+        // ofstream 直写（trunc）保留已存在文件的权限位，老用户的 0644 会一直留着，
+        // 因此必须在 close() 之后显式收紧，而不能只在创建路径上设一次。
+        harden_file_or_warn(path);
         return ResultV2<void>::ok();
 
     } catch (const std::exception& e) {
-        return ResultV2<void>::err(
-            Error::Code::ConfigParseFailed,
-            std::format("Error writing {}: {}", path.string(), e.what()),
-            path.string());
+        return ResultV2<void>::err(Error::Code::ConfigParseFailed,
+                                   std::format("Error writing {}: {}", path.string(), e.what()),
+                                   path.string());
     }
 }
 
@@ -315,53 +347,51 @@ ResultV2<void> ConfigSchema::validate_value(const ConfigValue& value) const {
             if (!std::holds_alternative<bool>(value)) {
                 return ResultV2<void>::err(
                     Error::Code::ConfigInvalid,
-                    std::format("Expected bool, got {}", value.index() == 0 ? "bool" :
-                                value.index() == 1 ? "int" : value.index() == 2 ? "double" : "string"),
+                    std::format("Expected bool, got {}", value.index() == 0   ? "bool"
+                                                         : value.index() == 1 ? "int"
+                                                         : value.index() == 2 ? "double"
+                                                                              : "string"),
                     key);
             }
             break;
         case Type::Int:
             if (!std::holds_alternative<int>(value)) {
-                return ResultV2<void>::err(
-                    Error::Code::ConfigInvalid, "Expected int", key);
+                return ResultV2<void>::err(Error::Code::ConfigInvalid, "Expected int", key);
             }
             if (int_range) {
                 int v = std::get<int>(value);
                 if (v < int_range->first || v > int_range->second) {
-                    return ResultV2<void>::err(
-                        Error::Code::ConfigInvalid,
-                        std::format("Value {} out of range [{}, {}]",
-                                    v, int_range->first, int_range->second),
-                        key);
+                    return ResultV2<void>::err(Error::Code::ConfigInvalid,
+                                               std::format("Value {} out of range [{}, {}]", v,
+                                                           int_range->first, int_range->second),
+                                               key);
                 }
             }
             break;
         case Type::Double:
             if (!std::holds_alternative<double>(value)) {
-                return ResultV2<void>::err(
-                    Error::Code::ConfigInvalid, "Expected double", key);
+                return ResultV2<void>::err(Error::Code::ConfigInvalid, "Expected double", key);
             }
             if (double_range) {
                 double v = std::get<double>(value);
                 if (v < double_range->first || v > double_range->second) {
                     return ResultV2<void>::err(
                         Error::Code::ConfigInvalid,
-                        std::format("Value {} out of range [{}, {}]",
-                                    v, double_range->first, double_range->second),
+                        std::format("Value {} out of range [{}, {}]", v, double_range->first,
+                                    double_range->second),
                         key);
                 }
             }
             break;
         case Type::String:
             if (!std::holds_alternative<std::string>(value)) {
-                return ResultV2<void>::err(
-                    Error::Code::ConfigInvalid, "Expected string", key);
+                return ResultV2<void>::err(Error::Code::ConfigInvalid, "Expected string", key);
             }
             break;
         case Type::Enum:
             if (!std::holds_alternative<std::string>(value)) {
-                return ResultV2<void>::err(
-                    Error::Code::ConfigInvalid, "Expected string for enum", key);
+                return ResultV2<void>::err(Error::Code::ConfigInvalid, "Expected string for enum",
+                                           key);
             }
             {
                 const auto& s = std::get<std::string>(value);
@@ -373,8 +403,7 @@ ResultV2<void> ConfigSchema::validate_value(const ConfigValue& value) const {
                     }
                     return ResultV2<void>::err(
                         Error::Code::ConfigInvalid,
-                        std::format("Value '{}' not in enum [{}]", s, allowed),
-                        key);
+                        std::format("Value '{}' not in enum [{}]", s, allowed), key);
                 }
             }
             break;
@@ -400,10 +429,8 @@ ResultV2<ConfigSchema> ConfigManager::get_schema(const std::string& key) const {
     std::lock_guard<std::mutex> lock(m_mutex);
     auto it = m_schemas.find(key);
     if (it == m_schemas.end()) {
-        return ResultV2<ConfigSchema>::err(
-            Error::Code::ConfigMissing,
-            std::format("Config schema '{}' not found", key),
-            key);
+        return ResultV2<ConfigSchema>::err(Error::Code::ConfigMissing,
+                                           std::format("Config schema '{}' not found", key), key);
     }
     return ResultV2<ConfigSchema>::ok(it->second);
 }
@@ -465,12 +492,8 @@ void ConfigManager::load_from_env() {
     }
 }
 
-ConfigScope::ConfigScope(const std::string& prefix,
-                         IConfigReader& reader,
-                         IConfigWriter& writer)
-    : m_prefix(prefix)
-    , m_reader(reader)
-    , m_writer(writer) {
+ConfigScope::ConfigScope(const std::string& prefix, IConfigReader& reader, IConfigWriter& writer)
+    : m_prefix(prefix), m_reader(reader), m_writer(writer) {
     if (!m_prefix.empty() && m_prefix.back() != '.') {
         m_prefix += '.';
     }
@@ -478,8 +501,6 @@ ConfigScope::ConfigScope(const std::string& prefix,
 
 ConfigScope::~ConfigScope() = default;
 
-std::string ConfigScope::make_key(const std::string& key) const {
-    return m_prefix + key;
-}
+std::string ConfigScope::make_key(const std::string& key) const { return m_prefix + key; }
 
-} // namespace agent
+}  // namespace agent

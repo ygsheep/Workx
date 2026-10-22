@@ -19,8 +19,8 @@ namespace agent::tool {
 
 /// @brief 密钥匹配结果
 struct SecretMatch {
-    std::string rule_id;    ///< 规则 ID，如 "github-pat"
-    std::string label;      ///< 人类可读标签，如 "GitHub PAT"
+    std::string rule_id;  ///< 规则 ID，如 "github-pat"
+    std::string label;    ///< 人类可读标签，如 "GitHub PAT"
 };
 
 /// @brief 扫描文本中的密钥
@@ -47,4 +47,4 @@ std::string scan_for_secret_error(const std::string& content);
 /// @return 脱敏后文本
 std::string redact_secrets(const std::string& content);
 
-} // namespace agent::tool
+}  // namespace agent::tool

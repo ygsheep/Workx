@@ -28,12 +28,12 @@ namespace agent {
 /// @details 持有 ReActLoop 实例（由 QueryEngine 按 Celia deps 构造），
 ///          包装其 run() 为 IAgentLoop::run()。agent_type = ReAct。
 class WORKX_API ReActLoopAdapter final : public IAgentLoop {
-public:
+   public:
     explicit ReActLoopAdapter(std::unique_ptr<ReActLoop> loop);
     AgentRunResult run(AgentRunContext ctx) override;
     AgentType type() const noexcept override { return AgentType::ReAct; }
 
-private:
+   private:
     std::unique_ptr<ReActLoop> m_loop;
 };
 
@@ -41,12 +41,12 @@ private:
 /// @details agent_type = GoalGuarded；仅当 ctx.goal 非空时才进入目标环，
 ///          否则退化为单轮 ReAct（由 GoalGuardedAgent 自身处理）。
 class WORKX_API GoalGuardedLoopAdapter final : public IAgentLoop {
-public:
+   public:
     explicit GoalGuardedLoopAdapter(GoalAgentDeps deps);
     AgentRunResult run(AgentRunContext ctx) override;
     AgentType type() const noexcept override { return AgentType::GoalGuarded; }
 
-private:
+   private:
     GoalAgentDeps m_deps;
 };
 
@@ -54,34 +54,34 @@ private:
 /// @details agent_type = Script；要求 ctx.goal.type==Script，否则 ScriptAgent
 ///          返回错误结果（won't crash）。
 class WORKX_API ScriptLoopAdapter final : public IAgentLoop {
-public:
+   public:
     explicit ScriptLoopAdapter(GoalAgentDeps deps);
     AgentRunResult run(AgentRunContext ctx) override;
     AgentType type() const noexcept override { return AgentType::Script; }
 
-private:
+   private:
     GoalAgentDeps m_deps;
 };
 
 /// @brief BatchAgent 的 IAgentLoop 适配（#32 同构并行）
 class WORKX_API BatchLoopAdapter final : public IAgentLoop {
-public:
+   public:
     explicit BatchLoopAdapter(GoalAgentDeps deps);
     AgentRunResult run(AgentRunContext ctx) override;
     AgentType type() const noexcept override { return AgentType::Batch; }
 
-private:
+   private:
     GoalAgentDeps m_deps;
 };
 
 /// @brief WatchAgent 的 IAgentLoop 适配（#32 文件/事件监控）
 class WORKX_API WatchLoopAdapter final : public IAgentLoop {
-public:
+   public:
     explicit WatchLoopAdapter(GoalAgentDeps deps);
     AgentRunResult run(AgentRunContext ctx) override;
     AgentType type() const noexcept override { return AgentType::Watch; }
 
-private:
+   private:
     GoalAgentDeps m_deps;
 };
 
@@ -89,12 +89,12 @@ private:
 /// @details 构造时由 QueryEngine 指定具体的 AgentType，RoleAgent 据此加载对应
 ///          RoleProfile（角色指令 + 工具过滤策略）。
 class WORKX_API RoleLoopAdapter final : public IAgentLoop {
-public:
+   public:
     RoleLoopAdapter(GoalAgentDeps deps, AgentType type);
     AgentRunResult run(AgentRunContext ctx) override;
     AgentType type() const noexcept override { return m_type; }
 
-private:
+   private:
     GoalAgentDeps m_deps;
     AgentType m_type;
 };
@@ -107,7 +107,7 @@ private:
 ///          未变，任务在独立消息缓冲中运行）。
 /// @note 单一实例只分发一次（m_used 单次使用守卫，防并发 run() 对 m_task_id 竞争）。
 class WORKX_API BackgroundLoopAdapter final : public IAgentLoop {
-public:
+   public:
     explicit BackgroundLoopAdapter(const GoalAgentDeps& deps);
     AgentRunResult run(AgentRunContext ctx) override;
     AgentType type() const noexcept override { return AgentType::Background; }
@@ -117,10 +117,10 @@ public:
     /// 定向取消本实例分发的后台任务（task_manager->cancel；未分发/已结束为空操作）
     void cancel() const noexcept;
 
-private:
+   private:
     GoalAgentDeps m_deps;
     std::atomic<bool> m_used{false};  ///< 单次使用守卫（PR R3-1 P1-2）
-    std::string m_task_id;            ///< 最近一次分发的后台任务 id（写入受 m_used 保护）
+    std::string m_task_id;  ///< 最近一次分发的后台任务 id（写入受 m_used 保护）
 };
 
-} // namespace agent
+}  // namespace agent

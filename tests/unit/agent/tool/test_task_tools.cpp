@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "agent/tool/AgentTool/agent_tool.h"
+#include "agent/tool/Task/send_message_tool.h"
 #include "agent/tool/Task/task_output_tool.h"
 #include "agent/tool/Task/task_stop_tool.h"
 #include "agent/tool/registry.h"
@@ -60,10 +61,19 @@ void fill_ctx(ToolContext& ctx, MockEventBus& bus, ITaskManager& tm, IConfigMana
 
 /// @brief Stub 只读工具（模拟 Read，is_read_only() = true）
 class StubReadOnlyTool : public ITool {
-public:
-    const std::string& name() const override { static const std::string n{"Read"}; return n; }
-    const std::string& description() const override { static const std::string d{"read"}; return d; }
-    const std::string& prompt() const override { static const std::string p; return p; }
+   public:
+    const std::string& name() const override {
+        static const std::string n{"Read"};
+        return n;
+    }
+    const std::string& description() const override {
+        static const std::string d{"read"};
+        return d;
+    }
+    const std::string& prompt() const override {
+        static const std::string p;
+        return p;
+    }
     nlohmann::json input_schema() const override { return {{"type", "object"}}; }
     bool is_read_only() const override { return true; }
     ResultV2<ToolResult> call(const nlohmann::json&, const ToolContext&) const override {
@@ -73,10 +83,19 @@ public:
 
 /// @brief Stub 可写工具（模拟 Bash，is_read_only() = false）
 class StubWriteTool : public ITool {
-public:
-    const std::string& name() const override { static const std::string n{"Bash"}; return n; }
-    const std::string& description() const override { static const std::string d{"write"}; return d; }
-    const std::string& prompt() const override { static const std::string p; return p; }
+   public:
+    const std::string& name() const override {
+        static const std::string n{"Bash"};
+        return n;
+    }
+    const std::string& description() const override {
+        static const std::string d{"write"};
+        return d;
+    }
+    const std::string& prompt() const override {
+        static const std::string p;
+        return p;
+    }
     nlohmann::json input_schema() const override { return {{"type", "object"}}; }
     ResultV2<ToolResult> call(const nlohmann::json&, const ToolContext&) const override {
         return ResultV2<ToolResult>::ok(ToolResult::ok(std::string("write-ok")));
@@ -85,17 +104,86 @@ public:
 
 /// @brief Stub Agent 工具（模拟 AgentTool 本体，name = "Agent"），供防递归测试
 class StubAgentTool : public ITool {
-public:
-    const std::string& name() const override { static const std::string n{"Agent"}; return n; }
-    const std::string& description() const override { static const std::string d{"agent"}; return d; }
-    const std::string& prompt() const override { static const std::string p; return p; }
+   public:
+    const std::string& name() const override {
+        static const std::string n{"Agent"};
+        return n;
+    }
+    const std::string& description() const override {
+        static const std::string d{"agent"};
+        return d;
+    }
+    const std::string& prompt() const override {
+        static const std::string p;
+        return p;
+    }
     nlohmann::json input_schema() const override { return {{"type", "object"}}; }
     ResultV2<ToolResult> call(const nlohmann::json&, const ToolContext&) const override {
         return ResultV2<ToolResult>::ok(ToolResult::ok(std::string("agent-ok")));
     }
 };
 
-} // namespace
+/// @brief #157：链路探针工具（捕获工具执行时看到的调用链字段）
+class ChainProbeTool : public ITool {
+   public:
+    const std::string& name() const override {
+        static const std::string n{"ChainProbe"};
+        return n;
+    }
+    const std::string& description() const override {
+        static const std::string d{"probe"};
+        return d;
+    }
+    const std::string& prompt() const override {
+        static const std::string p;
+        return p;
+    }
+    nlohmann::json input_schema() const override { return {{"type", "object"}}; }
+    bool is_read_only() const override { return true; }
+    ResultV2<ToolResult> call(const nlohmann::json&, const ToolContext& ctx) const override {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        seen_chain_id = ctx.chain_id;
+        seen_depth = ctx.chain_depth;
+        return ResultV2<ToolResult>::ok(ToolResult::ok(std::string("probe-ok")));
+    }
+    mutable std::mutex m_mutex;
+    mutable std::string seen_chain_id;
+    mutable int seen_depth = -1;
+};
+
+/// @brief #158 探针：子 Agent 执行时向自身任务投递一条补充指令（模拟父 Agent SendMessage）
+/// @details 消除竞态：probe 在子循环内运行，push 必然发生在第 1 轮工具执行后、
+///          边界 drain 前——断言第 2 轮请求消息里出现注入标记即可锁定 drain 时机。
+class MessageProbeTool : public ITool {
+   public:
+    const std::string& name() const override {
+        static const std::string n{"MessageProbe"};
+        return n;
+    }
+    const std::string& description() const override {
+        static const std::string d{"probe"};
+        return d;
+    }
+    const std::string& prompt() const override {
+        static const std::string p;
+        return p;
+    }
+    nlohmann::json input_schema() const override { return {{"type", "object"}}; }
+    bool is_read_only() const override { return true; }
+    ResultV2<ToolResult> call(const nlohmann::json&, const ToolContext& ctx) const override {
+        // TaskManager 单例跨用例累积任务（夹具只 cancel 不清册），
+        // 以「运行中且名首为 'a'」定位本子 Agent（探针执行时它必然在跑）
+        for (const auto& t : ctx.task_manager_ptr->getRunningTasks()) {
+            if (!t->getName().empty() && t->getName()[0] == 'a') {
+                t->push_pending_message("secret follow-up");
+                break;
+            }
+        }
+        return ResultV2<ToolResult>::ok(ToolResult::ok(std::string("probe-ok")));
+    }
+};
+
+}  // namespace
 
 // ============================================================
 // Task 输出缓冲 + TaskOutputEvent
@@ -106,9 +194,7 @@ TEST_CASE("Task append_output accumulates output and publishes TaskOutputEvent",
     bus.set_dispatch_enabled(true);
 
     std::vector<std::string> lines;
-    bus.subscribe<TaskOutputEvent>([&lines](const TaskOutputEvent& e) {
-        lines.push_back(e.line);
-    });
+    bus.subscribe<TaskOutputEvent>([&lines](const TaskOutputEvent& e) { lines.push_back(e.line); });
 
     auto task = std::make_shared<Task>("t1", [](const std::atomic<bool>&) {}, bus);
     task->append_output("hello");
@@ -151,7 +237,8 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool requires provider", "[agent_tool]"
     REQUIRE(r.is_err());
 }
 
-TEST_CASE_METHOD(TaskToolsFixture, "AgentTool launches sub-agent in background and writes output", "[agent_tool]") {
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool launches sub-agent in background and writes output",
+                 "[agent_tool]") {
     MockEventBus bus;
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -181,14 +268,15 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool launches sub-agent in background a
     REQUIRE(task->output().find("done result") != std::string::npos);
 }
 
-TEST_CASE_METHOD(TaskToolsFixture, "AgentTool background completion publishes SubAgentCompletedEvent", "[agent_tool][review]") {
+TEST_CASE_METHOD(TaskToolsFixture,
+                 "AgentTool background completion publishes SubAgentCompletedEvent",
+                 "[agent_tool][review]") {
     MockEventBus bus;
     bus.set_dispatch_enabled(true);  // 同步派发，便于断言
 
     std::vector<SubAgentCompletedEvent> completions;
-    bus.subscribe<SubAgentCompletedEvent>([&completions](const SubAgentCompletedEvent& e) {
-        completions.push_back(e);
-    });
+    bus.subscribe<SubAgentCompletedEvent>(
+        [&completions](const SubAgentCompletedEvent& e) { completions.push_back(e); });
 
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -199,6 +287,9 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool background completion publishes Su
     reader->add_content_chunk("auto feedback result");
     provider->set_next_reader(reader);
     fill_ctx(ctx, bus, tm, cfg, provider.get());
+    // #157：父 ctx 携带链路（顶层 run 由 ReActLoop 注入，这里模拟已注入状态）
+    ctx.chain_id = "qchain01";
+    ctx.chain_depth = 0;
 
     AgentTool tool;
     auto r = tool.call(nlohmann::json{{"prompt", "background task"}}, ctx);
@@ -215,16 +306,295 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool background completion publishes Su
     REQUIRE(completions[0].task_id == tasks[0]->getName());
     REQUIRE(completions[0].final_answer.find("Final: auto feedback result") != std::string::npos);
     REQUIRE_FALSE(completions[0].was_error);
+    // #157：完成事件携带调用链（继承父链 id，深度 +1）
+    REQUIRE(completions[0].chain_id == "qchain01");
+    REQUIRE(completions[0].chain_depth == 1);
 }
 
-TEST_CASE_METHOD(TaskToolsFixture, "AgentTool streams sub-agent progress events incrementally", "[agent_tool][review]") {
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool generates chain root when parent has no chain",
+                 "[agent_tool][chain157]") {
+    MockEventBus bus;
+    bus.set_dispatch_enabled(true);
+
+    std::vector<SubAgentCompletedEvent> completions;
+    bus.subscribe<SubAgentCompletedEvent>(
+        [&completions](const SubAgentCompletedEvent& e) { completions.push_back(e); });
+
+    auto& tm = TaskManager::instance();
+    MockConfigManager cfg;
+    ToolContext ctx;
+
+    auto provider = std::make_shared<MockCompletionProvider>();
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->add_content_chunk("root gen result");
+    provider->set_next_reader(reader);
+    fill_ctx(ctx, bus, tm, cfg, provider.get());
+    // 父 ctx 无链路（如未走 ReActLoop 的测试路径）→ AgentTool 生成链根
+
+    AgentTool tool;
+    auto r = tool.call(nlohmann::json{{"prompt", "root gen task"}}, ctx);
+    REQUIRE(r.is_ok());
+
+    auto tasks = tm.getTasks();
+    REQUIRE(tasks.size() == 1);
+    tm.wait(tasks[0]);
+    bus.drain_async_events();
+
+    REQUIRE(completions.size() == 1);
+    // 链根格式：'q' + 8 随机字符；子 Agent 深度 = 0 + 1
+    REQUIRE(completions[0].chain_id.size() == 9);
+    REQUIRE(completions[0].chain_id[0] == 'q');
+    REQUIRE(completions[0].chain_depth == 1);
+}
+
+TEST_CASE_METHOD(TaskToolsFixture,
+                 "AgentTool propagates query chain to sub-agent tool context",
+                 "[agent_tool][chain157]") {
+    MockEventBus bus;
+    auto& tm = TaskManager::instance();
+    MockConfigManager cfg;
+    ToolContext ctx;
+
+    // 探针工具作为子 Agent 唯一工具，捕获子循环注入的 ToolContext 链路字段
+    auto probe = std::make_shared<ChainProbeTool>();
+    auto registry = std::make_shared<ToolRegistry>();
+    registry->register_tool(probe);
+
+    // 脚本：子 Agent 第一步调 ChainProbe，第二步给最终答案
+    auto provider = std::make_shared<MockCompletionProvider>();
+    auto reader1 = std::make_shared<MockStreamReader>();
+    reader1->add_tool_use_start("tu_1", "ChainProbe");
+    reader1->add_tool_use_delta("tu_1", R"({})");
+    auto reader2 = std::make_shared<MockStreamReader>();
+    reader2->add_content_chunk("chain done");
+    provider->set_next_reader(reader1);
+    provider->set_next_reader(reader2);
+
+    fill_ctx(ctx, bus, tm, cfg, provider.get());
+    ctx.tool_registry = registry;
+    ctx.chain_id = "qchain02";
+    ctx.chain_depth = 0;
+
+    AgentTool tool;
+    auto r = tool.call(
+        nlohmann::json{{"prompt", "probe chain"}, {"run_in_background", false}}, ctx);
+    REQUIRE(r.is_ok());
+
+    // 子 Agent 工具执行时看到的链路：继承父链 id、深度 +1（react_loop ctx 注入）
+    REQUIRE(probe->seen_chain_id == "qchain02");
+    REQUIRE(probe->seen_depth == 1);
+}
+
+TEST_CASE("Task pending message queue: FIFO push/drain, re-drain empty", "[send_message]") {
+    auto& tm = TaskManager::instance();
+    auto task =
+        tm.launch("pending-queue-task", [](const std::atomic<bool>&) {});
+    tm.wait(task);
+
+    task->push_pending_message("first");
+    task->push_pending_message("second");
+    task->push_pending_message("third");
+
+    auto drained = task->drain_pending_messages();
+    REQUIRE(drained.size() == 3);
+    REQUIRE(drained[0] == "first");
+    REQUIRE(drained[1] == "second");
+    REQUIRE(drained[2] == "third");
+
+    // 取后即清：再次 drain 为空
+    REQUIRE(task->drain_pending_messages().empty());
+}
+
+TEST_CASE_METHOD(TaskToolsFixture, "SendMessageTool classification follows TaskStop conventions",
+                 "[send_message]") {
+    MockEventBus bus;
+    auto& tm = TaskManager::instance();
+    MockConfigManager cfg;
+    ToolContext ctx;
+    fill_ctx(ctx, bus, tm, cfg);
+    SendMessageTool tool;
+
+    // 未知任务 → not_found
+    auto r1 = tool.call(nlohmann::json{{"task_id", "nope"}, {"message", "hi"}}, ctx);
+    REQUIRE(r1.is_err());
+    REQUIRE(r1.error().code == Error::Code::ResourceNotFound);
+    REQUIRE(r1.error().message.find("[not_found]") != std::string::npos);
+
+    // Critical 系统任务 → unsupported_type
+    auto crit = tm.launch("crit-task", [](const std::atomic<bool>&) {}, TaskType::Critical);
+    tm.wait(crit);
+    auto r2 = tool.call(nlohmann::json{{"task_id", "crit-task"}, {"message", "hi"}}, ctx);
+    REQUIRE(r2.is_err());
+    REQUIRE(r2.error().code == Error::Code::UnsupportedTaskType);
+    REQUIRE(r2.error().message.find("[unsupported_type]") != std::string::npos);
+
+    // 已结束任务 → not_running
+    auto done = tm.launch("done-task", [](const std::atomic<bool>&) {});
+    tm.wait(done);
+    auto r3 = tool.call(nlohmann::json{{"task_id", "done-task"}, {"message", "hi"}}, ctx);
+    REQUIRE(r3.is_err());
+    REQUIRE(r3.error().code == Error::Code::InvalidTaskState);
+    REQUIRE(r3.error().message.find("[not_running]") != std::string::npos);
+
+    // 运行中任务 → ok 且消息入队（TaskStop 的 not_running 分支先于类型检查的顺序
+    // 在 TaskStopTool 已锁定；此处 Critical 已结束时同样返回 unsupported_type）
+    auto running = tm.launch(
+        "running-task", [](const std::atomic<bool>& cancel) {
+            while (!cancel.load(std::memory_order_acquire)) std::this_thread::sleep_for(
+                std::chrono::milliseconds(5));
+        });
+    auto r4 = tool.call(nlohmann::json{{"task_id", "running-task"}, {"message", "do X"}}, ctx);
+    REQUIRE(r4.is_ok());
+    auto drained = running->drain_pending_messages();
+    REQUIRE(drained.size() == 1);
+    REQUIRE(drained[0] == "do X");
+    running->cancel();
+    tm.wait(running);
+}
+
+TEST_CASE_METHOD(TaskToolsFixture, "SendMessage drain injects follow-up at sub-agent tool boundary",
+                 "[send_message][agent_tool]") {
+    MockEventBus bus;
+    auto& tm = TaskManager::instance();
+    MockConfigManager cfg;
+    ToolContext ctx;
+
+    // 脚本：子 Agent 第 1 轮调 MessageProbe（probe 执行时向自身任务 push 补充指令），
+    // 第 2 轮给最终答案。probe 的 push 消除竞态：必然发生在边界 drain 前。
+    auto probe = std::make_shared<MessageProbeTool>();
+    auto registry = std::make_shared<ToolRegistry>();
+    registry->register_tool(probe);
+
+    auto provider = std::make_shared<MockCompletionProvider>();
+    auto reader1 = std::make_shared<MockStreamReader>();
+    reader1->add_tool_use_start("tu_1", "MessageProbe");
+    reader1->add_tool_use_delta("tu_1", R"({})");
+    auto reader2 = std::make_shared<MockStreamReader>();
+    reader2->add_content_chunk("follow-up done");
+    provider->set_next_reader(reader1);
+    provider->set_next_reader(reader2);
+
+    fill_ctx(ctx, bus, tm, cfg, provider.get());
+    ctx.tool_registry = registry;
+
+    AgentTool tool;
+    auto r = tool.call(
+        nlohmann::json{{"prompt", "drain probe"}, {"run_in_background", false}}, ctx);
+    REQUIRE(r.is_ok());
+
+    // 第 2 轮请求（provider 记录最后一次请求）中应出现边界注入的合并 user 消息
+    bool injected = false;
+    for (const auto& m : provider->last_messages) {
+        if (m.role == ChatMessage::Role::User &&
+            m.content.find("[Parent follow-up instruction]") != std::string::npos &&
+            m.content.find("secret follow-up") != std::string::npos) {
+            injected = true;
+        }
+    }
+    REQUIRE(injected);
+
+    // probe 投递的消息已被 drain 取走（不残留）：按 probe 记录的任务名复查
+    auto tasks = tm.getTasks();
+    REQUIRE_FALSE(tasks.empty());
+    bool all_drained = true;
+    for (const auto& t : tasks) {
+        if (!t->getName().empty() && t->getName()[0] == 'a') {
+            if (!t->drain_pending_messages().empty()) all_drained = false;
+        }
+    }
+    REQUIRE(all_drained);
+}
+
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool fork reuses parent system prompt bytes and prefix",
+                 "[fork159]") {
+    MockEventBus bus;
+    auto& tm = TaskManager::instance();
+    MockConfigManager cfg;
+    ToolContext ctx;
+
+    const std::string parent_sys = "PARENT RENDERED SYSTEM PROMPT v1";
+    std::vector<ChatMessage> prefix;
+    prefix.push_back(ChatMessage::user("earlier user context"));
+    prefix.push_back(ChatMessage::assistant("earlier assistant reply"));
+
+    // 模拟 ReActLoop 注入（生产路径 react_loop.cpp 的 ctx 构建点）
+    ctx.system_prompt_ptr = &parent_sys;
+    ctx.fork_context_provider = [&parent_sys, &prefix]() {
+        return ForkContextSnapshot{parent_sys, prefix};
+    };
+
+    auto provider = std::make_shared<MockCompletionProvider>();
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->add_content_chunk("fork done");
+    provider->set_next_reader(reader);
+    fill_ctx(ctx, bus, tm, cfg, provider.get());
+
+    AgentTool tool;
+    auto r = tool.call(
+        nlohmann::json{{"prompt", "fork task"}, {"fork", true}, {"run_in_background", false}},
+        ctx);
+    REQUIRE(r.is_ok());
+
+    // 请求消息：[0] = system（字节一致复用父渲染 prompt）→ cache 前缀命中的前提
+    REQUIRE_FALSE(provider->last_messages.empty());
+    REQUIRE(provider->last_messages[0].role == ChatMessage::Role::System);
+    REQUIRE(provider->last_messages[0].content == parent_sys);
+
+    // 前缀历史完整保留 + 任务指令作为最后一条 user 消息
+    bool has_prefix_user = false, has_prefix_assistant = false, last_is_instruction = true;
+    for (const auto& m : provider->last_messages) {
+        if (m.role == ChatMessage::Role::User && m.content == "earlier user context")
+            has_prefix_user = true;
+        if (m.role == ChatMessage::Role::Assistant && m.content == "earlier assistant reply")
+            has_prefix_assistant = true;
+    }
+    const ChatMessage& last = provider->last_messages.back();
+    if (last.role != ChatMessage::Role::User || last.content != "fork task") {
+        last_is_instruction = false;
+    }
+    REQUIRE(has_prefix_user);
+    REQUIRE(has_prefix_assistant);
+    REQUIRE(last_is_instruction);
+}
+
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool fork falls back to plain mode without snapshot",
+                 "[fork159]") {
+    MockEventBus bus;
+    auto& tm = TaskManager::instance();
+    MockConfigManager cfg;
+    ToolContext ctx;
+
+    // fork 不可用路径（非 loop：无 system_prompt_ptr / 无 provider 回调）
+    auto provider = std::make_shared<MockCompletionProvider>();
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->add_content_chunk("plain done");
+    provider->set_next_reader(reader);
+    fill_ctx(ctx, bus, tm, cfg, provider.get());
+
+    AgentTool tool;
+    auto r = tool.call(
+        nlohmann::json{{"prompt", "plain prompt text"}, {"fork", true},
+                       {"run_in_background", false}},
+        ctx);
+    REQUIRE(r.is_ok());
+
+    // 回退普通模式：system = prompt 原文，无前缀（fork 不改变功能承诺）
+    REQUIRE_FALSE(provider->last_messages.empty());
+    REQUIRE(provider->last_messages[0].role == ChatMessage::Role::System);
+    REQUIRE(provider->last_messages[0].content == "plain prompt text");
+    for (const auto& m : provider->last_messages) {
+        REQUIRE(m.content.find("earlier user context") == std::string::npos);
+    }
+}
+
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool streams sub-agent progress events incrementally",
+                 "[agent_tool][review]") {
     MockEventBus bus;
     bus.set_dispatch_enabled(true);  // 同步派发，便于断言
 
     std::vector<SubAgentProgressEvent> progress;
-    bus.subscribe<SubAgentProgressEvent>([&progress](const SubAgentProgressEvent& e) {
-        progress.push_back(e);
-    });
+    bus.subscribe<SubAgentProgressEvent>(
+        [&progress](const SubAgentProgressEvent& e) { progress.push_back(e); });
 
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -254,14 +624,17 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool streams sub-agent progress events 
     bool saw_thought = false;
     bool saw_final = false;
     for (const auto& e : progress) {
-        if (e.step_type == "thought" && e.content.find("progress result") != std::string::npos) saw_thought = true;
-        if (e.step_type == "final" && e.content.find("Final: progress result") != std::string::npos) saw_final = true;
+        if (e.step_type == "thought" && e.content.find("progress result") != std::string::npos)
+            saw_thought = true;
+        if (e.step_type == "final" && e.content.find("Final: progress result") != std::string::npos)
+            saw_final = true;
     }
     REQUIRE(saw_thought);
     REQUIRE(saw_final);
 }
 
-TEST_CASE_METHOD(TaskToolsFixture, "AgentTool synchronous mode returns completed result", "[agent_tool]") {
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool synchronous mode returns completed result",
+                 "[agent_tool]") {
     MockEventBus bus;
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -280,7 +653,8 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool synchronous mode returns completed
     REQUIRE(r.value().text.find("sync answer") != std::string::npos);
 }
 
-TEST_CASE_METHOD(TaskToolsFixture, "AgentTool inherits parent permission mode (Plan read-only)", "[agent_tool][review]") {
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool inherits parent permission mode (Plan read-only)",
+                 "[agent_tool][review]") {
     MockEventBus bus;
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -306,7 +680,8 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool inherits parent permission mode (P
     REQUIRE(tasks[0]->isFinished());
 }
 
-TEST_CASE_METHOD(TaskToolsFixture, "AgentTool Plan mode gives sub-agent read-only tool set", "[agent_tool][review]") {
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool Plan mode gives sub-agent read-only tool set",
+                 "[agent_tool][review]") {
     MockEventBus bus;
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -359,8 +734,9 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool applies tools whitelist", "[agent_
     ctx.tool_registry = registry;
 
     AgentTool tool;
-    auto r = tool.call(nlohmann::json{
-        {"prompt", "task"}, {"tools", nlohmann::json::array({"Read", "Bash"})}}, ctx);
+    auto r = tool.call(
+        nlohmann::json{{"prompt", "task"}, {"tools", nlohmann::json::array({"Read", "Bash"})}},
+        ctx);
     REQUIRE(r.is_ok());
 
     auto tasks = tm.getTasks();
@@ -379,7 +755,8 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool applies tools whitelist", "[agent_
     REQUIRE(std::find(got.begin(), got.end(), "Bash") != got.end());
 }
 
-TEST_CASE_METHOD(TaskToolsFixture, "AgentTool excludes Agent tool to prevent recursion", "[agent_tool][review]") {
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool excludes Agent tool to prevent recursion",
+                 "[agent_tool][review]") {
     MockEventBus bus;
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -399,8 +776,9 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool excludes Agent tool to prevent rec
     ctx.tool_registry = registry;
 
     AgentTool tool;
-    auto r = tool.call(nlohmann::json{
-        {"prompt", "task"}, {"tools", nlohmann::json::array({"Agent", "Read", "Bash"})}}, ctx);
+    auto r = tool.call(nlohmann::json{{"prompt", "task"},
+                                      {"tools", nlohmann::json::array({"Agent", "Read", "Bash"})}},
+                       ctx);
     REQUIRE(r.is_ok());
 
     auto tasks = tm.getTasks();
@@ -416,7 +794,8 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool excludes Agent tool to prevent rec
     }
 }
 
-TEST_CASE_METHOD(TaskToolsFixture, "AgentTool launches batch of sub-agents in parallel", "[agent_tool][review]") {
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool launches batch of sub-agents in parallel",
+                 "[agent_tool][review]") {
     MockEventBus bus;
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -432,12 +811,11 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool launches batch of sub-agents in pa
     fill_ctx(ctx, bus, tm, cfg, provider.get());
 
     AgentTool tool;
-    auto r = tool.call(nlohmann::json{
-        {"tasks", nlohmann::json::array({
-            {{"prompt", "task A"}},
-            {{"prompt", "task B"}},
-        })}
-    }, ctx);
+    auto r = tool.call(nlohmann::json{{"tasks", nlohmann::json::array({
+                                                    {{"prompt", "task A"}},
+                                                    {{"prompt", "task B"}},
+                                                })}},
+                       ctx);
     REQUIRE(r.is_ok());
 
     // 后台模式：返回消息包含数量与全部 task_id
@@ -460,16 +838,17 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool launches batch of sub-agents in pa
     REQUIRE(all.find("result B") != std::string::npos);
 }
 
-TEST_CASE_METHOD(TaskToolsFixture, "AgentTool batch with busy provider reports failure via completion events", "[agent_tool][review]") {
+TEST_CASE_METHOD(TaskToolsFixture,
+                 "AgentTool batch with busy provider reports failure via completion events",
+                 "[agent_tool][review]") {
     // 评审 #49 H-1 回归：模拟单活跃 provider（第二个 submit 返回 nullptr）。
     // 并行子任务中失败者不得挂起，必须通过完成事件（was_error=true）收尾。
     MockEventBus bus;
     bus.set_dispatch_enabled(true);  // 同步派发，便于断言
 
     std::vector<SubAgentCompletedEvent> completions;
-    bus.subscribe<SubAgentCompletedEvent>([&completions](const SubAgentCompletedEvent& e) {
-        completions.push_back(e);
-    });
+    bus.subscribe<SubAgentCompletedEvent>(
+        [&completions](const SubAgentCompletedEvent& e) { completions.push_back(e); });
 
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -483,12 +862,11 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool batch with busy provider reports f
     fill_ctx(ctx, bus, tm, cfg, provider.get());
 
     AgentTool tool;
-    auto r = tool.call(nlohmann::json{
-        {"tasks", nlohmann::json::array({
-            {{"prompt", "task A"}},
-            {{"prompt", "task B"}},
-        })}
-    }, ctx);
+    auto r = tool.call(nlohmann::json{{"tasks", nlohmann::json::array({
+                                                    {{"prompt", "task A"}},
+                                                    {{"prompt", "task B"}},
+                                                })}},
+                       ctx);
     REQUIRE(r.is_ok());
 
     auto tasks = tm.getTasks();
@@ -502,8 +880,10 @@ TEST_CASE_METHOD(TaskToolsFixture, "AgentTool batch with busy provider reports f
     bool saw_success = false;
     bool saw_error = false;
     for (const auto& e : completions) {
-        if (e.was_error) saw_error = true;
-        else saw_success = true;
+        if (e.was_error)
+            saw_error = true;
+        else
+            saw_success = true;
     }
     REQUIRE(saw_success);
     REQUIRE(saw_error);
@@ -517,25 +897,24 @@ TEST_CASE_METHOD(TaskToolsFixture, "TaskStopTool stops a running task", "[task_s
     fill_ctx(ctx, bus, tm, cfg);
     TaskStopTool tool;
 
-    auto task = tm.launch("agent-run-1",
-        [](const std::atomic<bool>&) {
-            std::this_thread::sleep_for(std::chrono::seconds(5));
-        });
+    auto task = tm.launch("agent-run-1", [](const std::atomic<bool>&) {
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+    });
 
     // 等待任务进入运行态
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
     auto r = tool.call(nlohmann::json{{"task_id", "agent-run-1"}}, ctx);
     REQUIRE(r.is_ok());
-    REQUIRE(r.value().text.find("Successfully stopped task: agent-run-1")
-            != std::string::npos);
+    REQUIRE(r.value().text.find("Successfully stopped task: agent-run-1") != std::string::npos);
 
     // 任务最终进入 Cancelled
     tm.wait(task);
     REQUIRE(task->getStatus() == TaskStatus::Cancelled);
 }
 
-TEST_CASE_METHOD(TaskToolsFixture, "TaskStopTool rejects unknown and finished tasks", "[task_stop]") {
+TEST_CASE_METHOD(TaskToolsFixture, "TaskStopTool rejects unknown and finished tasks",
+                 "[task_stop]") {
     MockEventBus bus;
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -543,16 +922,38 @@ TEST_CASE_METHOD(TaskToolsFixture, "TaskStopTool rejects unknown and finished ta
     fill_ctx(ctx, bus, tm, cfg);
     TaskStopTool tool;
 
-    // 未知任务
+    // 未知任务 → not_found
     auto r1 = tool.call(nlohmann::json{{"task_id", "nope"}}, ctx);
     REQUIRE(r1.is_err());
     REQUIRE(r1.error().code == Error::Code::ResourceNotFound);
+    REQUIRE(r1.error().message.find("[not_found]") != std::string::npos);
 
-    // 已结束任务（立即完成的 no-op 任务）
+    // 已结束任务 → not_running（#52：原 InternalError 误用，改为 InvalidTaskState）
     auto task = tm.launch("done-task", [](const std::atomic<bool>&) {});
     tm.wait(task);
     auto r2 = tool.call(nlohmann::json{{"task_id", "done-task"}}, ctx);
     REQUIRE(r2.is_err());
+    REQUIRE(r2.error().code == Error::Code::InvalidTaskState);
+    REQUIRE(r2.error().message.find("[not_running]") != std::string::npos);
+}
+
+TEST_CASE_METHOD(TaskToolsFixture, "TaskStopTool rejects critical tasks as unsupported type",
+                 "[task_stop]") {
+    MockEventBus bus;
+    auto& tm = TaskManager::instance();
+    MockConfigManager cfg;
+    ToolContext ctx;
+    fill_ctx(ctx, bus, tm, cfg);
+    TaskStopTool tool;
+
+    // Critical 系统任务 → unsupported_type（#52：类型检查先于状态检查，
+    // 已结束的 Critical 任务同样返回 unsupported_type）
+    auto task = tm.launch("crit-task", [](const std::atomic<bool>&) {}, TaskType::Critical);
+    tm.wait(task);
+    auto r = tool.call(nlohmann::json{{"task_id", "crit-task"}}, ctx);
+    REQUIRE(r.is_err());
+    REQUIRE(r.error().code == Error::Code::UnsupportedTaskType);
+    REQUIRE(r.error().message.find("[unsupported_type]") != std::string::npos);
 }
 
 TEST_CASE_METHOD(TaskToolsFixture, "TaskStopTool rejects missing task_id", "[task_stop]") {
@@ -573,7 +974,8 @@ TEST_CASE_METHOD(TaskToolsFixture, "TaskStopTool rejects missing task_id", "[tas
 // TaskOutputTool
 // ============================================================
 
-TEST_CASE_METHOD(TaskToolsFixture, "TaskOutputTool reads output of finished task", "[task_output]") {
+TEST_CASE_METHOD(TaskToolsFixture, "TaskOutputTool reads output of finished task",
+                 "[task_output]") {
     MockEventBus bus;
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -586,7 +988,8 @@ TEST_CASE_METHOD(TaskToolsFixture, "TaskOutputTool reads output of finished task
     task->append_output("Final: answer");
     tm.wait(task);
 
-    auto r = tool.call(nlohmann::json{{"task_id", "agent-out-1"}, {"block", true}, {"timeout", 2000}}, ctx);
+    auto r = tool.call(
+        nlohmann::json{{"task_id", "agent-out-1"}, {"block", true}, {"timeout", 2000}}, ctx);
     REQUIRE(r.is_ok());
     REQUIRE(r.value().text.find("\"status\":\"completed\"") != std::string::npos);
     REQUIRE(r.value().text.find("step one") != std::string::npos);
@@ -601,12 +1004,12 @@ TEST_CASE_METHOD(TaskToolsFixture, "TaskOutputTool waits for running task", "[ta
     fill_ctx(ctx, bus, tm, cfg);
     TaskOutputTool tool;
 
-    auto task = tm.launch("agent-slow",
-        [](const std::atomic<bool>&) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        });
+    auto task = tm.launch("agent-slow", [](const std::atomic<bool>&) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    });
 
-    auto r = tool.call(nlohmann::json{{"task_id", "agent-slow"}, {"block", true}, {"timeout", 3000}}, ctx);
+    auto r = tool.call(
+        nlohmann::json{{"task_id", "agent-slow"}, {"block", true}, {"timeout", 3000}}, ctx);
     REQUIRE(r.is_ok());
     REQUIRE(r.value().text.find("\"status\":\"completed\"") != std::string::npos);
 }
@@ -619,12 +1022,12 @@ TEST_CASE_METHOD(TaskToolsFixture, "TaskOutputTool times out on long task", "[ta
     fill_ctx(ctx, bus, tm, cfg);
     TaskOutputTool tool;
 
-    auto task = tm.launch("agent-long",
-        [](const std::atomic<bool>&) {
-            std::this_thread::sleep_for(std::chrono::seconds(5));
-        });
+    auto task = tm.launch("agent-long", [](const std::atomic<bool>&) {
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+    });
 
-    auto r = tool.call(nlohmann::json{{"task_id", "agent-long"}, {"block", true}, {"timeout", 200}}, ctx);
+    auto r = tool.call(nlohmann::json{{"task_id", "agent-long"}, {"block", true}, {"timeout", 200}},
+                       ctx);
     REQUIRE(r.is_ok());
     REQUIRE(r.value().text.find("\"timed_out\":true") != std::string::npos);
 
@@ -632,7 +1035,8 @@ TEST_CASE_METHOD(TaskToolsFixture, "TaskOutputTool times out on long task", "[ta
     tm.cancel(task);
 }
 
-TEST_CASE_METHOD(TaskToolsFixture, "TaskOutputTool rejects unknown and missing task_id", "[task_output]") {
+TEST_CASE_METHOD(TaskToolsFixture, "TaskOutputTool rejects unknown and missing task_id",
+                 "[task_output]") {
     MockEventBus bus;
     auto& tm = TaskManager::instance();
     MockConfigManager cfg;
@@ -656,13 +1060,12 @@ TEST_CASE_METHOD(TaskToolsFixture, "TaskOutputTool rejects unknown and missing t
 namespace {
 
 /// @brief 构造一个来源为 Skills 的 PromptCommand（模拟加载的 skill）
-std::shared_ptr<command::PromptCommand> make_skill_cmd(
-    const std::string& name, std::vector<std::string> text_blocks) {
+std::shared_ptr<command::PromptCommand> make_skill_cmd(const std::string& name,
+                                                       std::vector<std::string> text_blocks) {
     auto cmd = command::make_prompt_command(name, "skill description");
     cmd->set_loaded_from(command::LoadSource::Skills);
     cmd->set_prompt_generator(
-        [text_blocks = std::move(text_blocks)](const std::string&,
-                                               const command::CommandContext&) {
+        [text_blocks = std::move(text_blocks)](const std::string&, const command::CommandContext&) {
             std::vector<command::PromptBlock> blocks;
             for (const auto& t : text_blocks) {
                 blocks.push_back({command::PromptBlockType::Text, t});
@@ -672,9 +1075,10 @@ std::shared_ptr<command::PromptCommand> make_skill_cmd(
     return cmd;
 }
 
-} // namespace
+}  // namespace
 
-TEST_CASE("AgentTool build_skill_preload_messages 注入初始 system 消息", "[agent_tool][skill_preload]") {
+TEST_CASE("AgentTool build_skill_preload_messages 注入初始 system 消息",
+          "[agent_tool][skill_preload]") {
     command::CommandRegistry registry;
     registry.register_command(
         make_skill_cmd("review", {"你是资深 C++ 评审员。", "关注正确性与回归风险。"}));
@@ -694,7 +1098,8 @@ TEST_CASE("AgentTool build_skill_preload_messages 注入初始 system 消息", "
     REQUIRE(first < second);
 }
 
-TEST_CASE("AgentTool build_skill_preload_messages 多 skill 按序各生成一条", "[agent_tool][skill_preload]") {
+TEST_CASE("AgentTool build_skill_preload_messages 多 skill 按序各生成一条",
+          "[agent_tool][skill_preload]") {
     command::CommandRegistry registry;
     registry.register_command(make_skill_cmd("alpha", {"alpha body"}));
     registry.register_command(make_skill_cmd("beta", {"beta body"}));
@@ -708,7 +1113,8 @@ TEST_CASE("AgentTool build_skill_preload_messages 多 skill 按序各生成一�
     REQUIRE(msgs[1].content.find("beta body") != std::string::npos);
 }
 
-TEST_CASE("AgentTool build_skill_preload_messages 忽略未知名/非技能/非 prompt", "[agent_tool][skill_preload]") {
+TEST_CASE("AgentTool build_skill_preload_messages 忽略未知名/非技能/非 prompt",
+          "[agent_tool][skill_preload]") {
     command::CommandRegistry registry;
 
     // 未知名称 → 跳过（不阻断）
@@ -731,4 +1137,100 @@ TEST_CASE("AgentTool build_skill_preload_messages 忽略未知名/非技能/非 
     // skills 为空 且 registry 为 nullptr → 均返回空
     REQUIRE(AgentTool::build_skill_preload_messages({}, &registry).empty());
     REQUIRE(AgentTool::build_skill_preload_messages({"review"}, nullptr).empty());
+}
+
+// ============================================================================
+// #79：子 Agent 派生预算（单次批量规模 + run 累计总量）
+// 防递归已由"子 Agent 不含 Agent 工具"保证，此处护栏针对规模失控。
+// ============================================================================
+
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool rejects batch larger than max_batch",
+                 "[agent_tool][budget]") {
+    MockEventBus bus;
+    auto& tm = TaskManager::instance();
+    MockConfigManager cfg;
+    ToolContext ctx;
+
+    auto provider = std::make_shared<MockCompletionProvider>();
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->add_content_chunk("unused");
+    provider->set_next_reader(reader);
+    fill_ctx(ctx, bus, tm, cfg, provider.get());
+    ctx.sub_agent_budget = std::make_shared<SubAgentBudget>(/*max_batch=*/2, /*max_total=*/100);
+
+    AgentTool tool;
+    auto r = tool.call(nlohmann::json{{"tasks", nlohmann::json::array({
+                                                    {{"prompt", "task A"}},
+                                                    {{"prompt", "task B"}},
+                                                    {{"prompt", "task C"}},
+                                                })}},
+                       ctx);
+
+    REQUIRE_FALSE(r.is_ok());
+    // 错误信息须含上限值，模型才能据此自我纠正（拆分/缩减规模）
+    REQUIRE(r.error().message.find("超过上限") != std::string::npos);
+    REQUIRE(r.error().message.find("2") != std::string::npos);
+    // 整批拒绝：不得派生任何子 Agent（避免部分执行产生不完整结果）
+    REQUIRE(tm.getTasks().empty());
+}
+
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool rejects batch exceeding cumulative max_total",
+                 "[agent_tool][budget]") {
+    MockEventBus bus;
+    auto& tm = TaskManager::instance();
+    MockConfigManager cfg;
+    ToolContext ctx;
+
+    auto provider = std::make_shared<MockCompletionProvider>();
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->add_content_chunk("unused");
+    provider->set_next_reader(reader);
+    fill_ctx(ctx, bus, tm, cfg, provider.get());
+    // 批量上限 10（不触发），但累计上限 2 < 本次 3 个 → 总量护栏生效
+    ctx.sub_agent_budget = std::make_shared<SubAgentBudget>(/*max_batch=*/10, /*max_total=*/2);
+
+    AgentTool tool;
+    auto r = tool.call(nlohmann::json{{"tasks", nlohmann::json::array({
+                                                    {{"prompt", "task A"}},
+                                                    {{"prompt", "task B"}},
+                                                    {{"prompt", "task C"}},
+                                                })}},
+                       ctx);
+
+    REQUIRE_FALSE(r.is_ok());
+    REQUIRE(r.error().message.find("累计") != std::string::npos);
+    REQUIRE(tm.getTasks().empty());
+}
+
+TEST_CASE_METHOD(TaskToolsFixture, "AgentTool launches normally within budget",
+                 "[agent_tool][budget]") {
+    MockEventBus bus;
+    auto& tm = TaskManager::instance();
+    MockConfigManager cfg;
+    ToolContext ctx;
+
+    auto provider = std::make_shared<MockCompletionProvider>();
+    auto r1 = std::make_shared<MockStreamReader>();
+    r1->add_content_chunk("result A");
+    auto r2 = std::make_shared<MockStreamReader>();
+    r2->add_content_chunk("result B");
+    provider->set_next_reader(r1);
+    provider->set_next_reader(r2);
+    fill_ctx(ctx, bus, tm, cfg, provider.get());
+    // 预算充足：不得误伤正常派生路径
+    ctx.sub_agent_budget = std::make_shared<SubAgentBudget>(/*max_batch=*/10, /*max_total=*/10);
+
+    AgentTool tool;
+    auto r = tool.call(nlohmann::json{{"tasks", nlohmann::json::array({
+                                                    {{"prompt", "task A"}},
+                                                    {{"prompt", "task B"}},
+                                                })}},
+                       ctx);
+
+    REQUIRE(r.is_ok());
+    auto tasks = tm.getTasks();
+    REQUIRE(tasks.size() == 2);
+    REQUIRE(ctx.sub_agent_budget->launched() == 2);  // 额度已扣减
+    REQUIRE(ctx.sub_agent_budget->remaining() == 8);
+    tm.waitForAll();
 }

@@ -29,7 +29,7 @@ ClientConfig make_test_config() {
     return cfg;
 }
 
-} // namespace
+}  // namespace
 
 // ============================================================================
 // C-1：enable_event_bus 与 event_bus 一致性校验

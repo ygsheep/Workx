@@ -3,7 +3,7 @@
  * @brief ToolContext — 工具执行上下文
  * @details 在工具执行过程中传递的运行时信息：会话 ID、工作目录、权限模式、取消信号、
  *          任务管理器、进度回调
- * @version 1.4.0
+ * @version 1.8.0
  * @date 2026-07
  */
 
@@ -11,10 +11,14 @@
 
 #include <string>
 #include <string_view>
+#include <algorithm>
 #include <atomic>
 #include <functional>
 #include <memory>
 #include <nlohmann/json.hpp>
+
+#include "agent/api/chat_types.h"                    // #159：ForkContextSnapshot 携带消息前缀
+#include "agent/tool/background_task_tracker.h"      // #166：后台任务结果回传追踪器
 
 namespace agent {
 
@@ -31,13 +35,21 @@ class IEventBus;
 class ICompletionProvider;
 
 // 前向声明：HookManager（#50 通用 Hook 事件系统，工具线程触发 PermissionRequest / Subagent* 事件）
-namespace hook { class HookManager; }
+namespace hook {
+class HookManager;
+}
 
-// 前向声明：McpClientManager（#56 方案 D，MCP 连接管理器；完整类型位于 agent/mcp/mcp_client_manager.h）
-namespace mcp { class McpClientManager; }
+// 前向声明：McpClientManager（#56 方案 D，MCP 连接管理器；完整类型位于
+// agent/mcp/mcp_client_manager.h）
+namespace mcp {
+class McpClientManager;
+}
 
-// 前向声明：CommandRegistry（#56 方案 C，命令注册表；完整类型位于 agent/command/inclaude/registry.h）
-namespace command { class CommandRegistry; }
+// 前向声明：CommandRegistry（#56 方案 C，命令注册表；完整类型位于
+// agent/command/inclaude/registry.h）
+namespace command {
+class CommandRegistry;
+}
 
 namespace tool {
 
@@ -50,17 +62,29 @@ class ToolRegistry;
 /// @param progress_text 进度文本
 using ProgressCallback = std::function<void(const std::string& progress_text)>;
 
+/// @brief #159：fork 子 Agent 的父上下文快照（创建时一次性捕获，不随后续父历史增长）
+/// @details system_prompt 复用父已渲染字节（prompt cache 以字节前缀判定命中）；
+///          prefix_messages 为父已完成对话前缀，fork 子 Agent 在其后追加任务指令。
+///          对齐 cc subagent-fork-in-process 语义（one-shot：快照一次性捕获）。
+struct ForkContextSnapshot {
+    std::string system_prompt;                 ///< 父已渲染 system prompt（字节一致复用）
+    std::vector<ChatMessage> prefix_messages;  ///< 父对话前缀快照（system 外的全部历史）
+};
+
 /// @brief 权限模式（#36 统一权限决策层）
 /// @details 工具 check_permissions 的决策依据，由宿主在构造 ToolContext 时注入：
 ///          - Default：常规操作放行，危险操作（敏感路径/目录逃逸/敏感命令）AskUser 确认
 ///          - AcceptEdits：接受编辑类自动放行（CC 兼容占位）
 ///          - Plan：计划/只读模式，禁止写文件与执行命令
 ///          - BypassPermissions：完全放行（用户显式授权后）
+///          - Strict：#85 严格档 —— 命令按白名单放行，未命中需确认
+///            （headless 无确认通道即拒绝）；破坏性命令直接拒绝，不询问。
 enum class PermissionMode : uint8_t {
     Default = 0,
     AcceptEdits = 1,
     Plan = 2,
     BypassPermissions = 3,
+    Strict = 4,
 };
 
 /// @brief 会话工作模式（模式列表：标准 / 计划 / 极简）
@@ -91,16 +115,84 @@ inline bool is_minimal_mode_tool(std::string_view name) {
     return false;
 }
 
-    /// @brief 工具 touch 回调类型
-    /// @details 工具执行过程中上报访问过的文件路径（绝对路径），
-    ///          由 ReActLoop 注入，用于 conditional skills 的路径匹配。
-    /// @param path 访问的文件路径（绝对路径）
-    using TouchCallback = std::function<void(const std::string& path)>;
+/// @brief 工具 touch 回调类型
+/// @details 工具执行过程中上报访问过的文件路径（绝对路径），
+///          由 ReActLoop 注入，用于 conditional skills 的路径匹配。
+/// @param path 访问的文件路径（绝对路径）
+using TouchCallback = std::function<void(const std::string& path)>;
 
-    /// @brief 文件系统变更回调类型
-    /// @details 工具写入/删除文件后调用（无参数），由宿主注入，
-    ///          用于通知宿主失效文件索引（如 TUI @ 补全索引）等缓存。
-    using FileSystemChangedCallback = std::function<void()>;
+/// @brief 文件系统变更回调类型
+/// @details 工具写入/删除文件后调用（无参数），由宿主注入，
+///          用于通知宿主失效文件索引（如 TUI @ 补全索引）等缓存。
+using FileSystemChangedCallback = std::function<void()>;
+
+/// @brief #79：子 Agent 派生被拒的原因（供调用方拼模型可读的错误文案）
+enum class SubAgentReject {
+    None,        ///< 未拒绝（预约成功）
+    BatchLimit,  ///< 单次批量数超过 max_batch
+    TotalLimit,  ///< 累计总数超过 max_total
+};
+
+/// @brief #79：单次 run 的子 Agent 派生预算（成本护栏）
+///
+/// @details 由 ReActLoop 在 run() 开始时按配置构造，经 ToolContext 注入工具；
+///          AgentTool 派生前调用 try_reserve(n) 原子预约额度，两级护栏：
+///          - n > max_batch：单次批量规模超限
+///          - 累计 + n > max_total：全程总量超限
+///
+///          拒绝时 AgentTool 返回结构化错误回灌模型（含上限与剩余额度），
+///          由模型自行拆分任务或缩减并行规模，而非静默截断——保留模型的可纠正性。
+///
+///          线程安全：Action 阶段并行执行多个 tool_use，同一轮可能有多个 AgentTool
+///          并发预约，故计数用 atomic + CAS 循环。
+///
+///          子 Agent 的工具集不含 AgentTool（防递归），预算无需向下传递。
+class SubAgentBudget {
+   public:
+    /// @param max_batch 单次批量上限（<=0 表示不限）
+    /// @param max_total 单次 run 累计上限（<=0 表示不限）
+    SubAgentBudget(int max_batch, int max_total) : max_batch_(max_batch), max_total_(max_total) {}
+
+    /// @brief 尝试预约 n 个子 Agent 额度（成功则计数已扣除）
+    /// @param n 本次拟派生数量
+    /// @param[out] reject 被拒原因（成功时为 None）
+    /// @return true 允许派生；false 拒绝（计数不变）
+    bool try_reserve(int n, SubAgentReject& reject) {
+        reject = SubAgentReject::None;
+        if (n <= 0) return true;
+        if (max_batch_ > 0 && n > max_batch_) {
+            reject = SubAgentReject::BatchLimit;
+            return false;
+        }
+        if (max_total_ <= 0) {
+            launched_.fetch_add(n);
+            return true;
+        }
+        int cur = launched_.load();
+        while (true) {
+            if (cur + n > max_total_) {
+                reject = SubAgentReject::TotalLimit;
+                return false;
+            }
+            if (launched_.compare_exchange_weak(cur, cur + n)) return true;
+        }
+    }
+
+    int max_batch() const { return max_batch_; }
+    int max_total() const { return max_total_; }
+    int launched() const { return launched_.load(); }
+
+    /// @brief 剩余可派生额度（不限时返回 -1）
+    int remaining() const {
+        if (max_total_ <= 0) return -1;
+        return std::max(0, max_total_ - launched_.load());
+    }
+
+   private:
+    int max_batch_;
+    int max_total_;
+    std::atomic<int> launched_{0};
+};
 
 /// @brief 工具执行上下文
 ///
@@ -112,18 +204,24 @@ inline bool is_minimal_mode_tool(std::string_view name) {
 /// - 任务管理器（用于后台任务）
 /// - 进度回调
 struct ToolContext {
-    std::string cwd;                        ///< 工作目录
-    std::string session_id;                 ///< 会话 ID
-    std::string request_id;                 ///< 请求 ID（每次 turn 生成，审计/缓存链路关联）
-    std::string model;                      ///< 当前模型名称（来自 provider 配置）
-    nlohmann::json options;                 ///< 额外选项
+    std::string cwd;         ///< 工作目录
+    std::string session_id;  ///< 会话 ID
+    std::string request_id;  ///< 请求 ID（每次 turn 生成，审计/缓存链路关联）
+    std::string model;       ///< 当前模型名称（来自 provider 配置）
+    nlohmann::json options;  ///< 额外选项
 
     /// @brief #30：git 环境字段（运行时注入，非会话持久化元数据）
     /// @details 由 ReActLoop 在 turn 开始时通过 git 命令探测，供工具做改前
     ///          分支/未提交改动风险提示。全部为空/默认值表示当前不在 git 仓库内。
-    std::string git_branch;               ///< 当前分支（非仓库则为空）
-    bool git_has_uncommitted = false;     ///< 是否有未提交改动
-    std::string git_repo_root;            ///< 仓库根目录（非仓库则为空）
+    std::string git_branch;            ///< 当前分支（非仓库则为空）
+    bool git_has_uncommitted = false;  ///< 是否有未提交改动
+    std::string git_repo_root;         ///< 仓库根目录（非仓库则为空）
+
+    /// @brief #137：本次 run 的剩余墙钟（毫秒），由 ReActLoop 在每轮执行工具前注入
+    /// @details 用于让 shell 工具按剩余预算封顶单次命令超时，避免一条卡住的命令
+    ///          独吞整轮预算（实测一条命令跑满 600s 吃掉 900s 题目的 2/3 时钟）。
+    ///          -1 表示未注入/不限，此时工具行为与注入前完全一致（默认不启用）。
+    int remaining_wall_clock_ms = -1;
 
     /// @brief #30：只读历史摘要（当前 turn 前用户指令/约束的文本摘要）
     /// @details 由 ReActLoop 在 turn 开始时从对话历史构建（最近若干条 user 消息，
@@ -139,6 +237,31 @@ struct ToolContext {
     /// @details 由 ReActLoop 在 turn 开始时注入。ToolExecutor 依据该模式做
     ///          第二道守卫：Minimal 下仅允许白名单工具（幻觉工具名直接拒绝）。
     SessionMode session_mode{SessionMode::Standard};
+
+    /// @brief #79：单次 run 的子 Agent 派生预算（由 ReActLoop 在 run() 开头注入）
+    /// @details 可为 nullptr（如子 Agent 自身、或未走 ReActLoop 的测试路径），
+    ///          此时 AgentTool 视为不限——但生产路径下 ReActLoop 必定注入非空实例。
+    std::shared_ptr<SubAgentBudget> sub_agent_budget;
+
+    /// @brief #157：调用链 ID（同一 query 派生链共享）
+    /// @details 由 ReActLoop 在 run() 开始时生成（'q'+8 随机，链根），经 AgentTool
+    ///          透传给子 Agent；空表示未走 ReActLoop 的路径（如手工构造的测试 ctx）。
+    std::string chain_id;
+
+    /// @brief #157：链路深度（顶层 run = 0；AgentTool 派生的子 Agent = 父 depth + 1）
+    /// @note 当前防递归机制（子 Agent 不携带 Agent 工具）使嵌套封顶一层，
+    ///       字段先行落地，为后续派生策略放开/链路审计预留。
+    int chain_depth = 0;
+
+    /// @brief #159：当前循环已渲染 system prompt 指针（AgentTool fork 模式字节一致复用）
+    /// @details 指向 run() 的 system_prompt 参数，仅在本次 run() 期间有效——
+    ///          工具调用都发生在 run() 内部，生命周期安全；可为 nullptr（测试路径）。
+    const std::string* system_prompt_ptr = nullptr;
+
+    /// @brief #159：fork 快照回调（fork=true 时 AgentTool 调用一次捕获父上下文）
+    /// @details ReActLoop 注入：捕获调用时刻的 system prompt 与消息前缀。
+    ///          空 = fork 不可用（未走 ReActLoop 的路径），AgentTool 回退普通模式。
+    std::function<ForkContextSnapshot()> fork_context_provider;
 
     /// @brief 权限模式变更回调类型（#28：EnterPlanMode/ExitPlanMode 注入路径）
     /// @details 工具通过 set_permission_mode() 请求模式切换，由宿主（ReActLoop）
@@ -198,6 +321,16 @@ struct ToolContext {
     ///          用于 BashTool 等需要启动后台任务的工具。
     ///          生命周期由调用方保证（通常为 ChatSession 引用的 TaskManager 单例）。
     ITaskManager* task_manager_ptr = nullptr;
+
+    /// @brief #166：后台任务结果回传追踪器（可选，非拥有——shared_ptr 共享）
+    /// @details 由调用方（ReActLoop）在 run() 开始时创建并注入。shell 工具以
+    ///          run_in_background=true 启动后台任务时 add_pending，任务结束
+    ///          （成功/失败/取消）时 mark_done 暂存格式化输出；ReActLoop 在工具轮
+    ///          边界 drain 结果注入对话，并在收尾前等待未完成任务，使"后台命令
+    ///          完成后结果自动回传模型"闭环（此前 run_in_background 只通知 UI）。
+    ///          nullptr 表示不启用回传（未走 ReActLoop 的路径，如单元测试）。
+    ///          后台任务 lambda 捕获其副本，保证追踪器存活至任务结束。
+    std::shared_ptr<BackgroundTaskTracker> background_tracker;
 
     /// @brief 事件总线指针（可选，非拥有）
     /// @details 由调用方（ReActLoop）显式注入，工具通过 event_bus() 访问。
@@ -305,9 +438,9 @@ struct ToolContext {
         }
     }
 
-private:
-    std::atomic<bool> cancelled_{false};    ///< 内部取消标志（fallback）
+   private:
+    std::atomic<bool> cancelled_{false};  ///< 内部取消标志（fallback）
 };
 
-} // namespace agent::tool
-} // namespace agent
+}  // namespace tool
+}  // namespace agent

@@ -40,7 +40,7 @@ namespace {
 
 /// @brief 临时目录 RAII：构造时创建，析构时清理
 class TempDir {
-public:
+   public:
     TempDir() {
         std::random_device rd;
         std::mt19937 gen(rd());
@@ -68,20 +68,22 @@ public:
         return fp;
     }
 
-private:
+   private:
     fs::path path_;
 };
 
 /// @brief 测试环境 RAII：清理 ConfigManager + FileReadStateTracker + FileHistory
 class TestEnv {
-public:
+   public:
     TestEnv() {
-        ConfigManager::instance().clear();  // L-5：原 clear_for_test() 已移除，改用语义相同的 clear()
+        ConfigManager::instance()
+            .clear();  // L-5：原 clear_for_test() 已移除，改用语义相同的 clear()
         FileReadStateTracker::instance().clear_for_test();
         FileHistory::instance().clear_for_test();
     }
     ~TestEnv() {
-        ConfigManager::instance().clear();  // L-5：原 clear_for_test() 已移除，改用语义相同的 clear()
+        ConfigManager::instance()
+            .clear();  // L-5：原 clear_for_test() 已移除，改用语义相同的 clear()
         FileReadStateTracker::instance().clear_for_test();
         FileHistory::instance().clear_for_test();
     }
@@ -97,17 +99,11 @@ public:
 };
 
 /// @brief 构造 Edit 工具输入 JSON
-nlohmann::json make_edit_input(
-    const std::string& file_path,
-    const std::string& old_string,
-    const std::string& new_string,
-    std::optional<bool> replace_all = std::nullopt
-) {
+nlohmann::json make_edit_input(const std::string& file_path, const std::string& old_string,
+                               const std::string& new_string,
+                               std::optional<bool> replace_all = std::nullopt) {
     nlohmann::json j = {
-        {"file_path", file_path},
-        {"old_string", old_string},
-        {"new_string", new_string}
-    };
+        {"file_path", file_path}, {"old_string", old_string}, {"new_string", new_string}};
     if (replace_all.has_value()) {
         j["replace_all"] = *replace_all;
     }
@@ -118,15 +114,13 @@ nlohmann::json make_edit_input(
 void record_file_read(const fs::path& path, const std::string& content) {
     std::error_code ec;
     auto mtime = fs::last_write_time(path, ec);
-    FileReadStateTracker::instance().record_read(
-        path.generic_string(),
-        content,
-        ec ? std::filesystem::file_time_type{} : mtime,
-        false  // 完整视图
+    FileReadStateTracker::instance().record_read(path.generic_string(), content,
+                                                 ec ? std::filesystem::file_time_type{} : mtime,
+                                                 false  // 完整视图
     );
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 // ============================================================
 // path_matcher 测试
@@ -158,11 +152,7 @@ TEST_CASE("path_matcher basic glob", "[path_matcher]") {
 }
 
 TEST_CASE("path_matcher matches_any_pattern", "[path_matcher]") {
-    std::vector<std::string> patterns = {
-        "/home/user/.ssh/**",
-        "**/.env",
-        "**/.git/**"
-    };
+    std::vector<std::string> patterns = {"/home/user/.ssh/**", "**/.env", "**/.git/**"};
     SECTION("hits first pattern") {
         REQUIRE(matches_any_pattern("/home/user/.ssh/id_rsa", patterns));
     }
@@ -213,8 +203,7 @@ TEST_CASE("secret_scanner detects common secrets", "[secret_scanner]") {
     }
     SECTION("Private key block") {
         auto m = scan_for_secrets(
-            "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA\n-----END RSA PRIVATE KEY-----"
-        );
+            "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA\n-----END RSA PRIVATE KEY-----");
         REQUIRE(!m.empty());
         REQUIRE(m[0].rule_id == "private-key");
     }
@@ -247,9 +236,7 @@ TEST_CASE("secret_scanner dedup by rule_id", "[secret_scanner]") {
 }
 
 TEST_CASE("secret_scanner error message", "[secret_scanner]") {
-    SECTION("no secret returns empty") {
-        REQUIRE(scan_for_secret_error("normal text").empty());
-    }
+    SECTION("no secret returns empty") { REQUIRE(scan_for_secret_error("normal text").empty()); }
     SECTION("with secret returns formatted message") {
         std::string msg = scan_for_secret_error("key = ghp_0123456789012345678901234567890123456");
         REQUIRE_THAT(msg, Catch::Matchers::ContainsSubstring("potential secrets"));
@@ -264,31 +251,23 @@ TEST_CASE("secret_scanner error message", "[secret_scanner]") {
 TEST_CASE("FileEditTool validate_input missing fields", "[file_edit_tool]") {
     TestEnv env;
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
 
     SECTION("missing file_path") {
-        auto input = nlohmann::json{
-            {"old_string", "a"},
-            {"new_string", "b"}
-        };
+        auto input = nlohmann::json{{"old_string", "a"}, {"new_string", "b"}};
         auto r = tool.validate_input(input, ctx);
         REQUIRE(r.is_err());
         REQUIRE_THAT(r.error().message, Catch::Matchers::ContainsSubstring("file_path"));
     }
     SECTION("missing old_string") {
-        auto input = nlohmann::json{
-            {"file_path", "/tmp/foo"},
-            {"new_string", "b"}
-        };
+        auto input = nlohmann::json{{"file_path", "/tmp/foo"}, {"new_string", "b"}};
         auto r = tool.validate_input(input, ctx);
         REQUIRE(r.is_err());
         REQUIRE_THAT(r.error().message, Catch::Matchers::ContainsSubstring("old_string"));
     }
     SECTION("missing new_string") {
-        auto input = nlohmann::json{
-            {"file_path", "/tmp/foo"},
-            {"old_string", "a"}
-        };
+        auto input = nlohmann::json{{"file_path", "/tmp/foo"}, {"old_string", "a"}};
         auto r = tool.validate_input(input, ctx);
         REQUIRE(r.is_err());
         REQUIRE_THAT(r.error().message, Catch::Matchers::ContainsSubstring("new_string"));
@@ -303,8 +282,10 @@ TEST_CASE("FileEditTool validate_input missing fields", "[file_edit_tool]") {
 TEST_CASE("FileEditTool validate_input error code 1 - old==new", "[file_edit_tool]") {
     TestEnv env;
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
-    // H-1: 使用 fs::temp_directory_path() 构造跨平台绝对路径，避免 POSIX 风格在 Windows 上被误判为相对路径
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
+    // H-1: 使用 fs::temp_directory_path() 构造跨平台绝对路径，避免 POSIX 风格在 Windows
+    // 上被误判为相对路径
     std::string abs_path = (fs::temp_directory_path() / "workx_test_dummy").string();
     auto r = tool.validate_input(make_edit_input(abs_path, "abc", "abc"), ctx);
     REQUIRE(r.is_err());
@@ -314,12 +295,11 @@ TEST_CASE("FileEditTool validate_input error code 1 - old==new", "[file_edit_too
 TEST_CASE("FileEditTool validate_input error code 4 - file not exist", "[file_edit_tool]") {
     TestEnv env;
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     // H-1: 跨平台绝对路径
     std::string abs_path = (fs::temp_directory_path() / "nonexistent_workx_test_path").string();
-    auto r = tool.validate_input(
-        make_edit_input(abs_path, "old", "new"), ctx
-    );
+    auto r = tool.validate_input(make_edit_input(abs_path, "old", "new"), ctx);
     REQUIRE(r.is_err());
     REQUIRE_THAT(r.error().message, Catch::Matchers::ContainsSubstring("does not exist"));
 }
@@ -327,12 +307,11 @@ TEST_CASE("FileEditTool validate_input error code 4 - file not exist", "[file_ed
 TEST_CASE("FileEditTool validate_input error code 5 - .ipynb", "[file_edit_tool]") {
     TestEnv env;
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     // H-1: 跨平台绝对路径
     std::string abs_path = (fs::temp_directory_path() / "test.ipynb").string();
-    auto r = tool.validate_input(
-        make_edit_input(abs_path, "", "new content"), ctx
-    );
+    auto r = tool.validate_input(make_edit_input(abs_path, "", "new content"), ctx);
     REQUIRE(r.is_err());
     REQUIRE_THAT(r.error().message, Catch::Matchers::ContainsSubstring("Jupyter"));
 }
@@ -347,7 +326,8 @@ TEST_CASE("FileEditTool validate_input error code 5 - .ipynb", "[file_edit_tool]
 TEST_CASE("FileEditTool validate_input expands relative path", "[file_edit_tool][issue-13]") {
     TestEnv env;
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
 
     SECTION("simple relative path is expanded and checked for existence") {
         auto r = tool.validate_input(make_edit_input("foo.txt", "a", "b"), ctx);
@@ -373,7 +353,8 @@ TEST_CASE("FileEditTool validate_input expands relative path", "[file_edit_tool]
 TEST_CASE("FileEditTool validate_input accepts absolute path", "[file_edit_tool][issue-13]") {
     TestEnv env;
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     // 跨平台绝对路径：不会触发 "absolute path" 错误，而是走到后续校验
     std::string abs_path = (fs::temp_directory_path() / "workx_abs_test.txt").string();
     auto r = tool.validate_input(make_edit_input(abs_path, "a", "b"), ctx);
@@ -383,12 +364,14 @@ TEST_CASE("FileEditTool validate_input accepts absolute path", "[file_edit_tool]
     REQUIRE_FALSE(r.error().message.find("absolute path") != std::string::npos);
 }
 
-TEST_CASE("FileEditTool validate_input error code 3 - file exists non-empty + old=empty", "[file_edit_tool]") {
+TEST_CASE("FileEditTool validate_input error code 3 - file exists non-empty + old=empty",
+          "[file_edit_tool]") {
     TestEnv env;
     TempDir tmp;
     auto fp = tmp.make_file("existing.txt", "existing content");
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     auto r = tool.validate_input(make_edit_input(fp.string(), "", "new content"), ctx);
     REQUIRE(r.is_err());
     REQUIRE_THAT(r.error().message, Catch::Matchers::ContainsSubstring("already exists"));
@@ -399,7 +382,8 @@ TEST_CASE("FileEditTool validate_input error code 6 - not pre-read", "[file_edit
     TempDir tmp;
     auto fp = tmp.make_file("unread.txt", "line1\nline2\n");
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     auto r = tool.validate_input(make_edit_input(fp.string(), "line1", "replaced"), ctx);
     REQUIRE(r.is_err());
     REQUIRE_THAT(r.error().message, Catch::Matchers::ContainsSubstring("not been read"));
@@ -412,14 +396,12 @@ TEST_CASE("FileEditTool validate_input error code 7 - staleness", "[file_edit_to
     // 记录一个旧 mtime（比当前早）
     auto current_mtime = fs::last_write_time(fp);
     auto older_mtime = current_mtime - std::chrono::hours(1);
-    FileReadStateTracker::instance().record_read(
-        fp.generic_string(),
-        "different content\n",  // 内容不同，触发 staleness
-        older_mtime,
-        false
-    );
+    FileReadStateTracker::instance().record_read(fp.generic_string(),
+                                                 "different content\n",  // 内容不同，触发 staleness
+                                                 older_mtime, false);
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     auto r = tool.validate_input(make_edit_input(fp.string(), "old content", "new"), ctx);
     REQUIRE(r.is_err());
     REQUIRE_THAT(r.error().message, Catch::Matchers::ContainsSubstring("modified since read"));
@@ -431,36 +413,38 @@ TEST_CASE("FileEditTool validate_input error code 8 - no match", "[file_edit_too
     auto fp = tmp.make_file("nomatch.txt", "hello world\n");
     record_file_read(fp, "hello world");
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
-    auto r = tool.validate_input(
-        make_edit_input(fp.string(), "nonexistent string", "replacement"), ctx
-    );
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
+    auto r =
+        tool.validate_input(make_edit_input(fp.string(), "nonexistent string", "replacement"), ctx);
     REQUIRE(r.is_err());
     REQUIRE_THAT(r.error().message, Catch::Matchers::ContainsSubstring("not found"));
 }
 
-TEST_CASE("FileEditTool validate_input error code 9 - multiple matches, no replace_all", "[file_edit_tool]") {
+TEST_CASE("FileEditTool validate_input error code 9 - multiple matches, no replace_all",
+          "[file_edit_tool]") {
     TestEnv env;
     TempDir tmp;
     auto fp = tmp.make_file("multi.txt", "foo\nfoo\nfoo\n");
     record_file_read(fp, "foo\nfoo\nfoo");
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     auto r = tool.validate_input(make_edit_input(fp.string(), "foo", "bar"), ctx);
     REQUIRE(r.is_err());
     REQUIRE_THAT(r.error().message, Catch::Matchers::ContainsSubstring("matches"));
 }
 
-TEST_CASE("FileEditTool validate_input error code 9 bypassed with replace_all", "[file_edit_tool]") {
+TEST_CASE("FileEditTool validate_input error code 9 bypassed with replace_all",
+          "[file_edit_tool]") {
     TestEnv env;
     TempDir tmp;
     auto fp = tmp.make_file("multi.txt", "foo\nfoo\nfoo\n");
     record_file_read(fp, "foo\nfoo\nfoo");
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
-    auto r = tool.validate_input(
-        make_edit_input(fp.string(), "foo", "bar", true), ctx
-    );
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
+    auto r = tool.validate_input(make_edit_input(fp.string(), "foo", "bar", true), ctx);
     REQUIRE(r.is_ok());
 }
 
@@ -470,19 +454,20 @@ TEST_CASE("FileEditTool validate_input happy path single match", "[file_edit_too
     auto fp = tmp.make_file("ok.txt", "first\nsecond\nthird\n");
     record_file_read(fp, "first\nsecond\nthird");
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
-    auto r = tool.validate_input(
-        make_edit_input(fp.string(), "second", "SECOND"), ctx
-    );
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
+    auto r = tool.validate_input(make_edit_input(fp.string(), "second", "SECOND"), ctx);
     REQUIRE(r.is_ok());
 }
 
-TEST_CASE("FileEditTool validate_input create new file - old=empty, file not exist", "[file_edit_tool]") {
+TEST_CASE("FileEditTool validate_input create new file - old=empty, file not exist",
+          "[file_edit_tool]") {
     TestEnv env;
     TempDir tmp;
     auto fp = tmp.path() / "newfile.txt";
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     auto r = tool.validate_input(make_edit_input(fp.string(), "", "new content"), ctx);
     REQUIRE(r.is_ok());
 }
@@ -491,7 +476,8 @@ TEST_CASE("FileEditTool validate_input create new file - old=empty, file not exi
 // FileEditTool validate_input 错误码 0/2 (新实现)
 // ============================================================
 
-TEST_CASE("FileEditTool validate_input error code 0 - secret scanning", "[file_edit_tool][secret]") {
+TEST_CASE("FileEditTool validate_input error code 0 - secret scanning",
+          "[file_edit_tool][secret]") {
     TestEnv env;
     TempDir tmp;
     auto fp = tmp.make_file("with_secret.txt", "placeholder\n");
@@ -501,16 +487,19 @@ TEST_CASE("FileEditTool validate_input error code 0 - secret scanning", "[file_e
     ConfigManager::instance().set(keys::EDIT_SCAN_SECRETS, true);
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
-    auto r = tool.validate_input(
-        make_edit_input(fp.string(), "placeholder", "token = ghp_0123456789012345678901234567890123456"), ctx
-    );
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
+    auto r =
+        tool.validate_input(make_edit_input(fp.string(), "placeholder",
+                                            "token = ghp_0123456789012345678901234567890123456"),
+                            ctx);
     REQUIRE(r.is_err());
     REQUIRE_THAT(r.error().message, Catch::Matchers::ContainsSubstring("secrets"));
     REQUIRE_THAT(r.error().message, Catch::Matchers::ContainsSubstring("GitHub PAT"));
 }
 
-TEST_CASE("FileEditTool validate_input secret scan disabled by default", "[file_edit_tool][secret]") {
+TEST_CASE("FileEditTool validate_input secret scan disabled by default",
+          "[file_edit_tool][secret]") {
     TestEnv env;
     TempDir tmp;
     auto fp = tmp.make_file("with_secret.txt", "placeholder\n");
@@ -518,10 +507,12 @@ TEST_CASE("FileEditTool validate_input secret scan disabled by default", "[file_
 
     // 不开启扫描，默认放行（虽然内容含密钥，但 validate_input 不会拒绝）
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
-    auto r = tool.validate_input(
-        make_edit_input(fp.string(), "placeholder", "token = ghp_0123456789012345678901234567890123456"), ctx
-    );
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
+    auto r =
+        tool.validate_input(make_edit_input(fp.string(), "placeholder",
+                                            "token = ghp_0123456789012345678901234567890123456"),
+                            ctx);
     REQUIRE(r.is_ok());
 }
 
@@ -532,16 +523,12 @@ TEST_CASE("FileEditTool validate_input error code 2 - deny rules", "[file_edit_t
     record_file_read(fp, "KEY=value");
 
     // 配置 deny 规则：所有 .env 文件
-    ConfigManager::instance().set(
-        keys::EDIT_DENY_PATTERNS,
-        std::string("**/.env")
-    );
+    ConfigManager::instance().set(keys::EDIT_DENY_PATTERNS, std::string("**/.env"));
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
-    auto r = tool.validate_input(
-        make_edit_input(fp.string(), "KEY=value", "KEY=other"), ctx
-    );
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
+    auto r = tool.validate_input(make_edit_input(fp.string(), "KEY=value", "KEY=other"), ctx);
     REQUIRE(r.is_err());
     REQUIRE_THAT(r.error().message, Catch::Matchers::ContainsSubstring("denied"));
 }
@@ -552,13 +539,11 @@ TEST_CASE("FileEditTool validate_input deny rules not matching", "[file_edit_too
     auto fp = tmp.make_file("normal.txt", "hello\n");
     record_file_read(fp, "hello");
 
-    ConfigManager::instance().set(
-        keys::EDIT_DENY_PATTERNS,
-        std::string("**/.env\n**/.ssh/**")
-    );
+    ConfigManager::instance().set(keys::EDIT_DENY_PATTERNS, std::string("**/.env\n**/.ssh/**"));
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     auto r = tool.validate_input(make_edit_input(fp.string(), "hello", "world"), ctx);
     REQUIRE(r.is_ok());
 }
@@ -571,25 +556,26 @@ TEST_CASE("FileEditTool validate_input deny rules empty config", "[file_edit_too
 
     // 空配置：deny 检查跳过
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     auto r = tool.validate_input(make_edit_input(fp.string(), "hello", "world"), ctx);
     REQUIRE(r.is_ok());
 }
 
-TEST_CASE("FileEditTool validate_input deny rules comments and whitespace", "[file_edit_tool][deny]") {
+TEST_CASE("FileEditTool validate_input deny rules comments and whitespace",
+          "[file_edit_tool][deny]") {
     TestEnv env;
     TempDir tmp;
     auto fp = tmp.make_file("normal.txt", "hello\n");
     record_file_read(fp, "hello");
 
     // 配置含注释行和空白行，应被正确跳过
-    ConfigManager::instance().set(
-        keys::EDIT_DENY_PATTERNS,
-        std::string("# comment line\n\n  \n  **/.env  \n")
-    );
+    ConfigManager::instance().set(keys::EDIT_DENY_PATTERNS,
+                                  std::string("# comment line\n\n  \n  **/.env  \n"));
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     // normal.txt 不匹配 **/.env，应通过
     auto r = tool.validate_input(make_edit_input(fp.string(), "hello", "world"), ctx);
     REQUIRE(r.is_ok());
@@ -605,7 +591,8 @@ TEST_CASE("FileEditTool call create new file", "[file_edit_tool][call]") {
     auto fp = tmp.path() / "created.txt";
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     ctx.cwd = tmp.path().string();
 
     auto r = tool.call(make_edit_input(fp.string(), "", "new content\nline 2"), ctx);
@@ -630,7 +617,8 @@ TEST_CASE("FileEditTool call update existing file", "[file_edit_tool][call]") {
     record_file_read(fp, "old line\nkeep line");
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     ctx.cwd = tmp.path().string();
 
     auto r = tool.call(make_edit_input(fp.string(), "old line", "NEW LINE"), ctx);
@@ -652,12 +640,11 @@ TEST_CASE("FileEditTool call replace_all", "[file_edit_tool][call]") {
     record_file_read(fp, "foo\nfoo\nfoo");
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     ctx.cwd = tmp.path().string();
 
-    auto r = tool.call(
-        make_edit_input(fp.string(), "foo", "bar", true), ctx
-    );
+    auto r = tool.call(make_edit_input(fp.string(), "foo", "bar", true), ctx);
     REQUIRE(r.is_ok());
 
     std::ifstream in(fp);
@@ -672,7 +659,8 @@ TEST_CASE("FileEditTool call rejects when not pre-read", "[file_edit_tool][call]
     // 不调用 record_file_read，模拟未读取
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     ctx.cwd = tmp.path().string();
 
     auto r = tool.call(make_edit_input(fp.string(), "content", "new"), ctx);
@@ -680,7 +668,8 @@ TEST_CASE("FileEditTool call rejects when not pre-read", "[file_edit_tool][call]
     REQUIRE_THAT(r.error().message, Catch::Matchers::ContainsSubstring("not been read"));
 }
 
-TEST_CASE("FileEditTool update cancelled keeps original file intact", "[file_edit_tool][call][cancel]") {
+TEST_CASE("FileEditTool update cancelled keeps original file intact",
+          "[file_edit_tool][call][cancel]") {
     // #23 P2：打断发生在备份完成后、写文件前（取消点），
     // 原文件完整、.bak 保留、无残留临时文件。
     TestEnv env;
@@ -689,7 +678,8 @@ TEST_CASE("FileEditTool update cancelled keeps original file intact", "[file_edi
     record_file_read(fp, "old line\nkeep line");
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     ctx.cwd = tmp.path().string();
     ctx.cancel();  // 置位内部取消标志
 
@@ -713,7 +703,8 @@ TEST_CASE("FileEditTool create cancelled leaves no file", "[file_edit_tool][call
     auto fp = tmp.path() / "cancel_create.txt";
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     ctx.cwd = tmp.path().string();
     ctx.cancel();
 
@@ -751,9 +742,7 @@ TEST_CASE("line_endings detect_line_ending", "[line_endings]") {
     SECTION("tie CRLF and LF → CRLF wins") {
         REQUIRE(detect_line_ending("a\r\nb\n") == LineEnding::CRLF);
     }
-    SECTION("empty content defaults to LF") {
-        REQUIRE(detect_line_ending("") == LineEnding::LF);
-    }
+    SECTION("empty content defaults to LF") { REQUIRE(detect_line_ending("") == LineEnding::LF); }
     SECTION("no line breaks defaults to LF") {
         REQUIRE(detect_line_ending("single line no break") == LineEnding::LF);
     }
@@ -775,18 +764,10 @@ TEST_CASE("line_endings apply_line_ending", "[line_endings]") {
 }
 
 TEST_CASE("line_endings normalize_to_lf", "[line_endings]") {
-    SECTION("CRLF to LF") {
-        REQUIRE(normalize_to_lf("a\r\nb\r\nc\r\n") == "a\nb\nc\n");
-    }
-    SECTION("isolated CR to LF") {
-        REQUIRE(normalize_to_lf("a\rb\rc\r") == "a\nb\nc\n");
-    }
-    SECTION("mixed to LF") {
-        REQUIRE(normalize_to_lf("a\r\nb\rc\nd") == "a\nb\nc\nd");
-    }
-    SECTION("already LF") {
-        REQUIRE(normalize_to_lf("a\nb\n") == "a\nb\n");
-    }
+    SECTION("CRLF to LF") { REQUIRE(normalize_to_lf("a\r\nb\r\nc\r\n") == "a\nb\nc\n"); }
+    SECTION("isolated CR to LF") { REQUIRE(normalize_to_lf("a\rb\rc\r") == "a\nb\nc\n"); }
+    SECTION("mixed to LF") { REQUIRE(normalize_to_lf("a\r\nb\rc\nd") == "a\nb\nc\nd"); }
+    SECTION("already LF") { REQUIRE(normalize_to_lf("a\nb\n") == "a\nb\n"); }
     SECTION("preserves trailing newline") {
         REQUIRE(normalize_to_lf("foo\r\n") == "foo\n");
         REQUIRE(normalize_to_lf("foo\n") == "foo\n");
@@ -829,10 +810,7 @@ TEST_CASE("line_endings line_ending_name", "[line_endings]") {
 /// 读取文件原始字节流（binary 模式）
 static std::string read_file_bytes(const fs::path& path) {
     std::ifstream in(path, std::ios::binary);
-    return std::string{
-        std::istreambuf_iterator<char>(in),
-        std::istreambuf_iterator<char>()
-    };
+    return std::string{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
 }
 
 TEST_CASE("FileEditTool preserves CRLF line endings", "[file_edit_tool][line_endings]") {
@@ -843,7 +821,8 @@ TEST_CASE("FileEditTool preserves CRLF line endings", "[file_edit_tool][line_end
     record_file_read(fp, "old line\nkeep line");  // state 存 LF 规范化版本
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     ctx.cwd = tmp.path().string();
 
     auto r = tool.call(make_edit_input(fp.string(), "old line", "NEW LINE"), ctx);
@@ -870,7 +849,8 @@ TEST_CASE("FileEditTool preserves LF line endings", "[file_edit_tool][line_endin
     record_file_read(fp, "old line\nkeep line");
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     ctx.cwd = tmp.path().string();
 
     auto r = tool.call(make_edit_input(fp.string(), "old line", "NEW LINE"), ctx);
@@ -889,7 +869,8 @@ TEST_CASE("FileEditTool preserves CR line endings", "[file_edit_tool][line_endin
     record_file_read(fp, "old line\nkeep line");
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     ctx.cwd = tmp.path().string();
 
     auto r = tool.call(make_edit_input(fp.string(), "old line", "NEW LINE"), ctx);
@@ -908,7 +889,8 @@ TEST_CASE("FileEditTool replace_all preserves CRLF", "[file_edit_tool][line_endi
     record_file_read(fp, "foo\nfoo\nfoo");
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     ctx.cwd = tmp.path().string();
 
     auto r = tool.call(make_edit_input(fp.string(), "foo", "bar", true), ctx);
@@ -926,7 +908,8 @@ TEST_CASE("FileEditTool no newline file preserves no-newline", "[file_edit_tool]
     record_file_read(fp, "only one line no newline");
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     ctx.cwd = tmp.path().string();
 
     auto r = tool.call(make_edit_input(fp.string(), "one line", "two lines"), ctx);
@@ -943,9 +926,9 @@ TEST_CASE("FileEditTool no newline file preserves no-newline", "[file_edit_tool]
 // ============================================================
 
 // 弯引号 UTF-8 字节常量
-static const std::string kSmartSingleLeft  = "\xE2\x80\x98";  // '
+static const std::string kSmartSingleLeft = "\xE2\x80\x98";   // '
 static const std::string kSmartSingleRight = "\xE2\x80\x99";  // '
-static const std::string kSmartDoubleLeft  = "\xE2\x80\x9C";  // "
+static const std::string kSmartDoubleLeft = "\xE2\x80\x9C";   // "
 static const std::string kSmartDoubleRight = "\xE2\x80\x9D";  // "
 
 TEST_CASE("quote_normalizer normalize_quotes", "[quote_normalizer]") {
@@ -959,9 +942,7 @@ TEST_CASE("quote_normalizer normalize_quotes", "[quote_normalizer]") {
         std::string input = kSmartDoubleLeft + "It's" + kSmartDoubleRight;
         REQUIRE(normalize_quotes(input) == "\"It's\"");
     }
-    SECTION("no quotes unchanged") {
-        REQUIRE(normalize_quotes("hello world") == "hello world");
-    }
+    SECTION("no quotes unchanged") { REQUIRE(normalize_quotes("hello world") == "hello world"); }
     SECTION("straight quotes unchanged") {
         REQUIRE(normalize_quotes("\"straight\" and 'single'") == "\"straight\" and 'single'");
     }
@@ -1008,7 +989,8 @@ TEST_CASE("quote_normalizer find_actual_string smart quote match", "[quote_norma
 }
 
 TEST_CASE("quote_normalizer find_actual_string single quotes", "[quote_normalizer]") {
-    std::string file = "it" + kSmartSingleRight + "s a " + kSmartSingleLeft + "test" + kSmartSingleRight;
+    std::string file =
+        "it" + kSmartSingleRight + "s a " + kSmartSingleLeft + "test" + kSmartSingleRight;
     SECTION("straight single matches smart single") {
         auto r = find_actual_string(file, "'test'");
         REQUIRE(r.has_value());
@@ -1022,8 +1004,8 @@ TEST_CASE("quote_normalizer count_actual_occurrences", "[quote_normalizer]") {
         REQUIRE(count_actual_occurrences(file, "foo") == 3);
     }
     SECTION("smart quote match count") {
-        std::string file = kSmartDoubleLeft + "a" + kSmartDoubleRight + " " +
-                          kSmartDoubleLeft + "a" + kSmartDoubleRight;
+        std::string file = kSmartDoubleLeft + "a" + kSmartDoubleRight + " " + kSmartDoubleLeft +
+                           "a" + kSmartDoubleRight;
         // 文件含 2 个 "a"（弯引号），LLM 搜索 "a"（直引号）
         REQUIRE(count_actual_occurrences(file, "\"a\"") == 2);
     }
@@ -1095,7 +1077,8 @@ TEST_CASE("quote_normalizer preserve_quote_style single quotes", "[quote_normali
 TEST_CASE("quote_normalizer preserve_quote_style mixed", "[quote_normalizer]") {
     // 文件同时使用弯单引号和弯双引号
     std::string old_s = "\"hello's\"";
-    std::string actual_old = kSmartDoubleLeft + "hello" + kSmartSingleRight + "s" + kSmartDoubleRight;
+    std::string actual_old =
+        kSmartDoubleLeft + "hello" + kSmartSingleRight + "s" + kSmartDoubleRight;
     std::string new_s = "\"world's\"";
 
     std::string result = preserve_quote_style(old_s, actual_old, new_s);
@@ -1111,11 +1094,12 @@ TEST_CASE("FileEditTool smart quote matching", "[file_edit_tool][quote_normalize
     TempDir tmp;
     // 文件使用弯引号
     auto fp = tmp.make_file("smart.txt",
-        "hello " + kSmartDoubleLeft + "world" + kSmartDoubleRight + "!\n");
+                            "hello " + kSmartDoubleLeft + "world" + kSmartDoubleRight + "!\n");
     record_file_read(fp, "hello " + kSmartDoubleLeft + "world" + kSmartDoubleRight + "!");
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     ctx.cwd = tmp.path().string();
 
     // LLM 提供直引号，应能匹配文件中的弯引号
@@ -1127,7 +1111,8 @@ TEST_CASE("FileEditTool smart quote matching", "[file_edit_tool][quote_normalize
     REQUIRE(content == "hello " + kSmartDoubleLeft + "C++" + kSmartDoubleRight + "!\n");
 }
 
-TEST_CASE("FileEditTool exact quote match - no normalization", "[file_edit_tool][quote_normalizer]") {
+TEST_CASE("FileEditTool exact quote match - no normalization",
+          "[file_edit_tool][quote_normalizer]") {
     TestEnv env;
     TempDir tmp;
     // 文件使用直引号
@@ -1135,7 +1120,8 @@ TEST_CASE("FileEditTool exact quote match - no normalization", "[file_edit_tool]
     record_file_read(fp, "hello \"world\"!");
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     ctx.cwd = tmp.path().string();
 
     // LLM 提供直引号，精确匹配
@@ -1147,15 +1133,17 @@ TEST_CASE("FileEditTool exact quote match - no normalization", "[file_edit_tool]
     REQUIRE(content == "hello \"C++\"!\n");
 }
 
-TEST_CASE("FileEditTool smart quote matching validate_input", "[file_edit_tool][quote_normalizer]") {
+TEST_CASE("FileEditTool smart quote matching validate_input",
+          "[file_edit_tool][quote_normalizer]") {
     TestEnv env;
     TempDir tmp;
-    auto fp = tmp.make_file("smart_val.txt",
-        "function " + kSmartDoubleLeft + "test" + kSmartDoubleRight + "() {}\n");
+    auto fp = tmp.make_file(
+        "smart_val.txt", "function " + kSmartDoubleLeft + "test" + kSmartDoubleRight + "() {}\n");
     record_file_read(fp, "function " + kSmartDoubleLeft + "test" + kSmartDoubleRight + "() {}");
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
 
     // LLM 提供直引号，validate_input 应通过（引号规范化匹配成功）
     auto r = tool.validate_input(make_edit_input(fp.string(), "\"test\"", "\"prod\""), ctx);
@@ -1166,11 +1154,12 @@ TEST_CASE("FileEditTool smart quote no match returns error", "[file_edit_tool][q
     TestEnv env;
     TempDir tmp;
     auto fp = tmp.make_file("nomatch_smart.txt",
-        "hello " + kSmartDoubleLeft + "world" + kSmartDoubleRight + "!\n");
+                            "hello " + kSmartDoubleLeft + "world" + kSmartDoubleRight + "!\n");
     record_file_read(fp, "hello " + kSmartDoubleLeft + "world" + kSmartDoubleRight + "!");
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
 
     // LLM 提供的字符串在文件中不存在（即使引号规范化后也不匹配）
     auto r = tool.validate_input(make_edit_input(fp.string(), "\"nonexistent\"", "\"x\""), ctx);
@@ -1373,7 +1362,8 @@ TEST_CASE("FileEditTool preserves UTF-16LE encoding", "[file_edit_tool][encoding
     record_file_read(fp, "hello world\nfoo bar");
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     ctx.cwd = tmp.path().string();
 
     // 编辑文件
@@ -1401,7 +1391,8 @@ TEST_CASE("FileEditTool preserves UTF-16BE encoding", "[file_edit_tool][encoding
     record_file_read(fp, "function test() {}");
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     ctx.cwd = tmp.path().string();
 
     auto r = tool.call(make_edit_input(fp.string(), "test", "prod"), ctx);
@@ -1429,7 +1420,8 @@ TEST_CASE("FileEditTool UTF-16LE with multibyte content", "[file_edit_tool][enco
     record_file_read(fp, "hello \xE4\xBD\xA0\xE5\xA5\xBD");
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     ctx.cwd = tmp.path().string();
 
     // 替换 "hello" 为 "hi"
@@ -1457,7 +1449,8 @@ TEST_CASE("FileEditTool UTF-16LE validate_input matching", "[file_edit_tool][enc
     record_file_read(fp, "hello world\nfoo bar");
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
 
     // validate_input 应能正确匹配 UTF-16LE 文件中的子串
     auto r = tool.validate_input(make_edit_input(fp.string(), "world", "C++"), ctx);
@@ -1472,7 +1465,8 @@ TEST_CASE("FileEditTool UTF-8 with BOM preserves no BOM on write", "[file_edit_t
     record_file_read(fp, "hello world");
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     ctx.cwd = tmp.path().string();
 
     auto r = tool.call(make_edit_input(fp.string(), "world", "C++"), ctx);
@@ -1481,9 +1475,9 @@ TEST_CASE("FileEditTool UTF-8 with BOM preserves no BOM on write", "[file_edit_t
     // 写回后不应有 BOM（对齐 CC 行为：UTF-8 不保留 BOM）
     std::string raw = read_file_bytes(fp);
     REQUIRE(raw.size() >= 3);
-    bool has_bom = (static_cast<unsigned char>(raw[0]) == 0xEF)
-                && (static_cast<unsigned char>(raw[1]) == 0xBB)
-                && (static_cast<unsigned char>(raw[2]) == 0xBF);
+    bool has_bom = (static_cast<unsigned char>(raw[0]) == 0xEF) &&
+                   (static_cast<unsigned char>(raw[1]) == 0xBB) &&
+                   (static_cast<unsigned char>(raw[2]) == 0xBF);
     REQUIRE_FALSE(has_bom);
     REQUIRE(raw == "hello C++\n");
 }
@@ -1620,7 +1614,8 @@ TEST_CASE("FileEditTool saves version to history before edit", "[file_edit_tool]
     record_file_read(fp, "hello world\nfoo bar");
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     ctx.cwd = tmp.path().string();
 
     // 执行编辑
@@ -1634,14 +1629,16 @@ TEST_CASE("FileEditTool saves version to history before edit", "[file_edit_tool]
     REQUIRE(versions[0].operation == "before_edit");
 }
 
-TEST_CASE("FileEditTool multiple edits create multiple versions", "[file_edit_tool][file_history]") {
+TEST_CASE("FileEditTool multiple edits create multiple versions",
+          "[file_edit_tool][file_history]") {
     TestEnv env;
     TempDir tmp;
     auto fp = tmp.make_file("multi_history.txt", "alpha\nbeta\ngamma\n");
     record_file_read(fp, "alpha\nbeta\ngamma");
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     ctx.cwd = tmp.path().string();
 
     // 第一次编辑
@@ -1665,14 +1662,16 @@ TEST_CASE("FileEditTool multiple edits create multiple versions", "[file_edit_to
     REQUIRE(versions[1].content == "alpha\nbeta\ngamma\n");
 }
 
-TEST_CASE("FileEditTool history enables undo to previous version", "[file_edit_tool][file_history]") {
+TEST_CASE("FileEditTool history enables undo to previous version",
+          "[file_edit_tool][file_history]") {
     TestEnv env;
     TempDir tmp;
     auto fp = tmp.make_file("undo_test.txt", "original content\n");
     record_file_read(fp, "original content");
 
     FileEditTool tool;
-    ToolContext ctx; TestEnv::setup_ctx(ctx);
+    ToolContext ctx;
+    TestEnv::setup_ctx(ctx);
     ctx.cwd = tmp.path().string();
 
     // 编辑文件

@@ -18,7 +18,7 @@ namespace agent::tool {
 
 /// @brief ListMcpResourcesTool — 列出 MCP server 的资源
 class ListMcpResourcesTool : public ITool {
-public:
+   public:
     explicit ListMcpResourcesTool(std::shared_ptr<mcp::McpClientManager> manager);
 
     const std::string& name() const override;
@@ -27,13 +27,10 @@ public:
     nlohmann::json input_schema() const override;
     bool is_read_only() const override { return true; }
 
-    ResultV2<ToolResult> call(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    ResultV2<ToolResult> call(const nlohmann::json& input, const ToolContext& ctx) const override;
 
-private:
+   private:
     std::shared_ptr<mcp::McpClientManager> m_manager;
 };
 
-} // namespace agent::tool
+}  // namespace agent::tool

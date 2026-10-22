@@ -49,4 +49,4 @@ struct TaskOutputEvent {
     std::string line;
 };
 
-} // namespace agent
+}  // namespace agent

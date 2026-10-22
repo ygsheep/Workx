@@ -25,7 +25,7 @@ namespace agent::tool {
 ///       registry 可在注册后注入（set_registry），以适配
 ///       CommandRegistry 晚于工具注册创建的时序。
 class SkillTool : public ITool {
-public:
+   public:
     explicit SkillTool(std::shared_ptr<command::CommandRegistry> registry);
 
     const std::string& name() const override;
@@ -40,9 +40,9 @@ public:
     /// @brief 注入命令注册表（锁内拷贝 std::function 模式，见 CommandBase setter）
     void set_registry(std::shared_ptr<command::CommandRegistry> registry);
 
-private:
+   private:
     mutable std::mutex m_mutex;
     std::shared_ptr<command::CommandRegistry> registry_;
 };
 
-} // namespace agent::tool
+}  // namespace agent::tool

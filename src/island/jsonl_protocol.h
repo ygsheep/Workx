@@ -33,25 +33,24 @@ enum class MsgKind {
 /// @brief 解码后的消息信封
 struct Envelope {
     MsgKind kind = MsgKind::Event;
-    std::string type;             ///< 事件/请求类型名
-    int64_t seq = 0;              ///< 事件序号（仅 Event 有效）
-    double ts = 0.0;              ///< Unix 时间戳（秒·毫秒）
-    std::string id;               ///< 请求 ID（仅 Request/Response 有效）
-    bool ok = true;               ///< 响应是否成功（仅 Response 有效）
-    nlohmann::json data;          ///< 载荷
+    std::string type;     ///< 事件/请求类型名
+    int64_t seq = 0;      ///< 事件序号（仅 Event 有效）
+    double ts = 0.0;      ///< Unix 时间戳（秒·毫秒）
+    std::string id;       ///< 请求 ID（仅 Request/Response 有效）
+    bool ok = true;       ///< 响应是否成功（仅 Response 有效）
+    nlohmann::json data;  ///< 载荷
 };
 
 /// @brief 序列化事件消息（含换行，供直接 write）
-std::string serialize_event(const std::string& type, const nlohmann::json& data,
-                            int64_t seq, double ts);
+std::string serialize_event(const std::string& type, const nlohmann::json& data, int64_t seq,
+                            double ts);
 
 /// @brief 序列化请求消息（含换行）
 std::string serialize_request(const std::string& type, const nlohmann::json& data,
                               const std::string& id);
 
 /// @brief 序列化响应消息（含换行）
-std::string serialize_response(const std::string& id, bool ok,
-                               const nlohmann::json& data);
+std::string serialize_response(const std::string& id, bool ok, const nlohmann::json& data);
 
 /// @brief 解析一行 JSONL；解析失败返回 nullopt（调用方丢弃该行/累计失败计数）
 std::optional<Envelope> parse_line(std::string_view line);
@@ -59,4 +58,4 @@ std::optional<Envelope> parse_line(std::string_view line);
 /// @brief 当前 Unix 时间戳（秒·毫秒）
 double now_ts();
 
-} // namespace island
+}  // namespace island

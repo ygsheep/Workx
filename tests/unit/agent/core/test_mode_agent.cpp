@@ -24,23 +24,22 @@
 #include "agent/core/script_agent.h"
 #include "agent/core/batch_agent.h"
 #include "agent/core/watch_agent.h"
-#include "agent/core/verdict.h"   // guard_command（复用白名单）
+#include "agent/core/verdict.h"  // guard_command（复用白名单）
 
 namespace fs = std::filesystem;
 
 namespace {
 
 inline std::string tmp_dir() {
-    return (fs::temp_directory_path() / ("workx_mode_test_" +
-        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())))
+    return (fs::temp_directory_path() /
+            ("workx_mode_test_" +
+             std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())))
         .string();
 }
 
-void write(const std::string& path, const std::string& content) {
-    std::ofstream(path) << content;
-}
+void write(const std::string& path, const std::string& content) { std::ofstream(path) << content; }
 
-} // namespace
+}  // namespace
 
 // ============================================================
 // materialize_cmd
@@ -75,7 +74,7 @@ TEST_CASE("guard: 拒绝 || / ; / | / 重定向 / 反引号 / 命令替换", "[a
     REQUIRE(agent::guard_command("cat < /etc/passwd").empty());
     REQUIRE(agent::guard_command("echo `whoami`").empty());
     REQUIRE(agent::guard_command("echo $(rm -rf /)").empty());
-    REQUIRE(agent::guard_command("true\nrm -rf /").empty());   // 换行续命令
+    REQUIRE(agent::guard_command("true\nrm -rf /").empty());  // 换行续命令
 }
 
 TEST_CASE("guard: 合法白名单命令仍放行", "[agent][mode][security]") {
@@ -117,7 +116,7 @@ TEST_CASE("mode: expand_glob_cwd 递归匹配与升序", "[agent][mode]") {
 
     const auto all = agent::expand_glob_cwd(dir, "**/*.cpp", &err);
     REQUIRE(all.size() == 2);
-    REQUIRE(all[0] == "src/b.cpp");    // 升序
+    REQUIRE(all[0] == "src/b.cpp");  // 升序
     REQUIRE(all[1] == "tests/t.cpp");
 
     const auto empty = agent::expand_glob_cwd(dir, "src/**/*.md", &err);

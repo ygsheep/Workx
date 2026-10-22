@@ -20,14 +20,14 @@ namespace agent {
 /// @brief Provider 预设
 /// @details 一个预设包含名称、协议类型、默认 URL 和默认模型
 struct ProviderPreset {
-    std::string name;               ///< 内部名称，如 "deepseek"
-    std::string display_name;       ///< 显示名，如 "DeepSeek"
-    ProviderType type;              ///< 协议类型
-    std::string default_url;        ///< 默认 API 基础 URL
-    std::string default_model;      ///< 默认模型名
-    std::string api_path;           ///< API 路径，如 "/v1/chat/completions"
-    int timeout_ms = 0;             ///< 预设超时（毫秒），0 表示使用全局默认
-    int retry_delay_ms = 0;         ///< 预设重试延迟（毫秒），0 表示使用全局默认
+    std::string name;           ///< 内部名称，如 "deepseek"
+    std::string display_name;   ///< 显示名，如 "DeepSeek"
+    ProviderType type;          ///< 协议类型
+    std::string default_url;    ///< 默认 API 基础 URL
+    std::string default_model;  ///< 默认模型名
+    std::string api_path;       ///< API 路径，如 "/v1/chat/completions"
+    int timeout_ms = 0;         ///< 预设超时（毫秒），0 表示使用全局默认
+    int retry_delay_ms = 0;     ///< 预设重试延迟（毫秒），0 表示使用全局默认
     int32_t default_context_length = 0;  ///< 默认模型上下文窗口（token），0 表示未知
 };
 
@@ -48,4 +48,4 @@ const ProviderPreset* find_preset(std::string_view name);
 ///       仅在未重新加载预设表时安全；预设表当前为静态常量，可视为永久有效。
 std::vector<std::string_view> list_preset_names();
 
-} // namespace agent
+}  // namespace agent

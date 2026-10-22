@@ -82,11 +82,14 @@ std::string normalize_to_lf(std::string_view raw) {
 
 const char* line_ending_name(LineEnding ending) {
     switch (ending) {
-        case LineEnding::LF:   return "LF";
-        case LineEnding::CRLF: return "CRLF";
-        case LineEnding::CR:   return "CR";
+        case LineEnding::LF:
+            return "LF";
+        case LineEnding::CRLF:
+            return "CRLF";
+        case LineEnding::CR:
+            return "CR";
     }
     return "LF";
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

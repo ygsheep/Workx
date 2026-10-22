@@ -34,8 +34,7 @@ TEST_CASE("capture_shape basic", "[compact][prefix_shape][ds_cache]") {
     SECTION("same inputs produce same hash (deterministic)") {
         json tools = {
             {{"type", "function"}, {"function", {{"name", "Read"}, {"description", "d"}}}},
-            {{"type", "function"}, {"function", {{"name", "Bash"}, {"description", "d"}}}}
-        };
+            {{"type", "function"}, {"function", {{"name", "Bash"}, {"description", "d"}}}}};
         PrefixShape s1 = capture_shape("sys", tools, 0);
         PrefixShape s2 = capture_shape("sys", tools, 0);
         REQUIRE(s1.prefix_hash == s2.prefix_hash);
@@ -56,8 +55,7 @@ TEST_CASE("normalize_tools_schema sort determinism", "[compact][prefix_shape][ds
         json tools_unsorted = {
             {{"type", "function"}, {"function", {{"name", "Zebra"}, {"description", "d"}}}},
             {{"type", "function"}, {"function", {{"name", "Alpha"}, {"description", "d"}}}},
-            {{"type", "function"}, {"function", {{"name", "Middle"}, {"description", "d"}}}}
-        };
+            {{"type", "function"}, {"function", {{"name", "Middle"}, {"description", "d"}}}}};
         json normalized = normalize_tools_schema(tools_unsorted);
         REQUIRE(normalized.size() == 3);
         REQUIRE(normalized[0]["function"]["name"] == "Alpha");
@@ -68,26 +66,20 @@ TEST_CASE("normalize_tools_schema sort determinism", "[compact][prefix_shape][ds
     SECTION("different registration order produces same normalized result") {
         json order_a = {
             {{"type", "function"}, {"function", {{"name", "Read"}, {"description", "d"}}}},
-            {{"type", "function"}, {"function", {{"name", "Bash"}, {"description", "d"}}}}
-        };
+            {{"type", "function"}, {"function", {{"name", "Bash"}, {"description", "d"}}}}};
         json order_b = {
             {{"type", "function"}, {"function", {{"name", "Bash"}, {"description", "d"}}}},
-            {{"type", "function"}, {"function", {{"name", "Read"}, {"description", "d"}}}}
-        };
+            {{"type", "function"}, {"function", {{"name", "Read"}, {"description", "d"}}}}};
         auto norm_a = normalize_tools_schema(order_a);
         auto norm_b = normalize_tools_schema(order_b);
         REQUIRE(norm_a.dump() == norm_b.dump());
     }
 
     SECTION("order-independent hash via capture_shape") {
-        json order_a = {
-            {{"type", "function"}, {"function", {{"name", "Read"}}}},
-            {{"type", "function"}, {"function", {{"name", "Bash"}}}}
-        };
-        json order_b = {
-            {{"type", "function"}, {"function", {{"name", "Bash"}}}},
-            {{"type", "function"}, {"function", {{"name", "Read"}}}}
-        };
+        json order_a = {{{"type", "function"}, {"function", {{"name", "Read"}}}},
+                        {{"type", "function"}, {"function", {{"name", "Bash"}}}}};
+        json order_b = {{{"type", "function"}, {"function", {{"name", "Bash"}}}},
+                        {{"type", "function"}, {"function", {{"name", "Read"}}}}};
         PrefixShape s_a = capture_shape("sys", order_a, 0);
         PrefixShape s_b = capture_shape("sys", order_b, 0);
         REQUIRE(s_a.tools_hash == s_b.tools_hash);
@@ -100,10 +92,7 @@ TEST_CASE("normalize_tools_schema sort determinism", "[compact][prefix_shape][ds
     }
 
     SECTION("direct name field (non-OpenAI format)") {
-        json tools = {
-            {{"name", "Zebra"}},
-            {{"name", "Alpha"}}
-        };
+        json tools = {{{"name", "Zebra"}}, {{"name", "Alpha"}}};
         auto normalized = normalize_tools_schema(tools);
         REQUIRE(normalized[0]["name"] == "Alpha");
         REQUIRE(normalized[1]["name"] == "Zebra");
@@ -153,10 +142,10 @@ TEST_CASE("compare_shape attribution", "[compact][prefix_shape][ds_cache]") {
     }
 
     SECTION("multiple reasons combined") {
-        PrefixShape prev = capture_shape("sys A",
-            {{{"type", "function"}, {"function", {{"name", "Read"}}}}}, 0);
-        PrefixShape cur = capture_shape("sys B",
-            {{{"type", "function"}, {"function", {{"name", "Bash"}}}}}, 5);
+        PrefixShape prev =
+            capture_shape("sys A", {{{"type", "function"}, {"function", {{"name", "Read"}}}}}, 0);
+        PrefixShape cur =
+            capture_shape("sys B", {{{"type", "function"}, {"function", {{"name", "Bash"}}}}}, 5);
         auto diag = compare_shape(prev, cur, 0, 1000);
         REQUIRE(diag.prefix_changed);
         REQUIRE(diag.reasons.size() == 3);

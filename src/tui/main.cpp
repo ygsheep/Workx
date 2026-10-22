@@ -6,13 +6,16 @@
  */
 
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iostream>
 #include <iterator>
 #include <memory>
+#include <sstream>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include <liblogger/logger.h>
@@ -24,6 +27,7 @@
 #include "agent/config/app_config.h"
 #include "agent/core/chat_session.h"
 #include "agent/factory.h"
+#include "agent/headless/headless.h"       // #77 非交互执行模式
 #include "agent/model/context_resolver.h"  // 上下文窗口解析（侧栏进度条分母）
 #include "agent/model/model_catalog.h"
 #include "agent/model/provider_preset.h"
@@ -32,6 +36,7 @@
 #include "core/events/event_bus.h"
 #include "core/task/task_manager.h"
 #include "core/utils/file_index.h"
+#include "core/utils/utf8_path.h"
 
 #include "island/balance_fetcher.h"
 #include "island/cost_accumulator.h"
@@ -59,13 +64,14 @@ void ensure_console_utf8() {
     const UINT prev_in = ::GetConsoleCP();
     if (prev_out != CP_UTF8) ::SetConsoleOutputCP(CP_UTF8);
     if (prev_in != CP_UTF8) ::SetConsoleCP(CP_UTF8);
-    (void)prev_out; (void)prev_in;
+    (void)prev_out;
+    (void)prev_in;
 }
 #endif
 
 }  // namespace
 
-int main(int argc, char** argv) {
+int main(int argc, char** argv) try {
     crash::InstallHandlers();
 #if defined(_WIN32)
     // 检测/加载 UTF-8 中文字符集（见 ensure_console_utf8），放在向导/主界面
@@ -74,10 +80,29 @@ int main(int argc, char** argv) {
 #endif
     bool mock_mode = false;
     bool smoke_mode = false;
+    // #77 headless 参数：-p/--print 触发非交互单次执行
+    bool headless_mode = false;
+    std::string headless_task;
+    std::string output_format = "text";
+    std::string permission_mode;
+    // #126：headless 显式验证目标（覆盖 WORKX_GOAL / config.json）
+    std::string goal;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--mock") mock_mode = true;
         if (arg == "--smoke") smoke_mode = true;
+        if (arg == "-p" || arg == "--print") {
+            headless_mode = true;
+            if (i + 1 < argc) {
+                headless_task = argv[++i];
+            }
+        } else if (arg == "--output-format") {
+            if (i + 1 < argc) output_format = argv[++i];
+        } else if (arg == "--permission-mode") {
+            if (i + 1 < argc) permission_mode = argv[++i];
+        } else if (arg == "--goal") {
+            if (i + 1 < argc) goal = argv[++i];
+        }
         if (arg == "--version" || arg == "-v") {
             // 仅打印版本与简介后退出，不触发配置向导/索引/Island/TUI
             std::cout << "workx " << WORKX_VERSION;
@@ -92,10 +117,12 @@ int main(int argc, char** argv) {
 #else
             std::cout << " [debug]\n";
 #endif
-            std::cout << "WorkX — 一个现代化的终端 Code Agent / Work Agent\n"
+            std::cout << "Workx — 一个现代化的终端 Code Agent / Work Agent\n"
                       << "用法:\n"
                       << "  workx                  启动 TUI\n"
-                      << "  workx --version | -v  显示版本与简介\n";
+                      << "  workx --version | -v  显示版本与简介\n"
+                      << "  workx -p \"<task>\"     非交互单次执行（headless）\n"
+                      << "  workx -p \"<task>\" --goal \"cmd:<命令>\"   声明验证目标后执行\n";
             return 0;
         }
     }
@@ -107,38 +134,60 @@ int main(int argc, char** argv) {
 
     // 载入默认配置文件（存在则读）
     auto config_path = agent::default_config_path();
-    const bool first_run = !fs::exists(config_path);
-    if (!first_run) agent::load_from_config_file(cfg, config_path);
+    // ⚠️ 无 ec 的 exists 在权限不足时会抛 filesystem_error（#177）—— 配置目录被 ACL 锁死时
+    // 进程会静默猝死。这里显式取 ec：不可访问时既**不**当作首次运行（避免误触发向导去写配置），
+    // 也不尝试加载，明确告警后继续；后续步骤各自处理不可写。
+    std::error_code config_ec;
+    const bool config_exists = fs::exists(config_path, config_ec);
+    const bool first_run = !config_exists && !config_ec;
+    if (config_ec) {
+        std::cerr << "Warning: 配置文件 " << config_path.string()
+                  << " 不可访问: " << config_ec.message() << "\n";
+    } else if (!first_run) {
+        agent::load_from_config_file(cfg, config_path);
+    }
     agent::load_from_env(cfg);
 
-    // 首次运行（#66）：配置文件不存在时启动设置向导（mock 模式跳过）。
-    // 向导直接写入 ConfigManager 内存并 save_to_file，无需重读。
-    if (first_run && !mock_mode) {
-        ftxtui::run_first_run_wizard(cfg, config_path);
-    }
-
-    // 日志（Debug/Release 统一到 ~/.workx/logs）
-    // 级别 / 文件路径 / 保留天数全部由配置接管；删除过期历史日志后再打开文件。
-    {
+    // ---- 日志 / 审计日志初始化（Issue #121）----
+    // ⚠️ 原实现是一段内联块，位于 headless 提前 return **之后**，headless 路径永远走不到：
+    //    `WORKX_LOG_FILE` 被静默忽略、stderr 实测 0 字节、`~/.workx/logs/` 与审计日志均无新增。
+    //    现提为 lambda，让 headless 与交互式两条路径都显式调用。
+    //
+    // @param allow_default_file 未显式指定路径时是否回落到默认文件（`~/.workx/logs/workx.log`）。
+    //        交互式 = true（保持原行为）；headless = false —— 评测会并发跑多题，
+    //        默认路径会被互相覆盖 / 追加，故 headless 仅在**显式**指定路径时才写文件。
+    auto init_logging_and_audit = [&cfg](bool allow_default_file) {
         // logging.level：字符串 → LogLevel（平缓回退到 info）
         const std::string level_str = cfg.get_or<std::string>(agent::keys::LOG_LEVEL, "info");
         agent::log::LogLevel level = agent::log::LogLevel::LOG_INFO;
-        if (level_str == "trace") level = agent::log::LogLevel::LOG_TRACE;
-        else if (level_str == "debug") level = agent::log::LogLevel::LOG_DEBUG;
-        else if (level_str == "warn") level = agent::log::LogLevel::LOG_WARN;
-        else if (level_str == "error") level = agent::log::LogLevel::LOG_ERROR;
-        else if (level_str == "fatal") level = agent::log::LogLevel::LOG_FATAL;
+        if (level_str == "trace")
+            level = agent::log::LogLevel::LOG_TRACE;
+        else if (level_str == "debug")
+            level = agent::log::LogLevel::LOG_DEBUG;
+        else if (level_str == "warn")
+            level = agent::log::LogLevel::LOG_WARN;
+        else if (level_str == "error")
+            level = agent::log::LogLevel::LOG_ERROR;
+        else if (level_str == "fatal")
+            level = agent::log::LogLevel::LOG_FATAL;
         agent::log::Logger::get_instance().set_level(level);
 
         // logging.file：空 = 默认单一固定文件 workx.log（按大小轮转）；
         // 启动时清理旧版时间戳历史日志 workx_*.log
         std::string log_file = cfg.get_or<std::string>(agent::keys::LOG_FILE, "");
-        size_t max_size_mb = static_cast<size_t>(cfg.get_or<int>(agent::keys::LOG_MAX_SIZE_MB, 10));
-        size_t max_files = static_cast<size_t>(cfg.get_or<int>(agent::keys::LOG_MAX_FILES, 5));
+        const size_t max_size_mb =
+            static_cast<size_t>(cfg.get_or<int>(agent::keys::LOG_MAX_SIZE_MB, 10));
+        const size_t max_files =
+            static_cast<size_t>(cfg.get_or<int>(agent::keys::LOG_MAX_FILES, 5));
         if (log_file.empty()) {
-            agent::cleanup_expired_logs(cfg.get_or<int>(agent::keys::LOG_RETENTION_DAYS, 7));
-            const auto& def = agent::default_log_path();
-            if (!def.empty()) log_file = def.string();
+            if (!allow_default_file) {
+                // #121 headless：未显式指定 → 保持静默，不碰默认日志。
+                // 级别已在上面设置，一旦后续显式指定路径即刻生效。
+            } else {
+                agent::cleanup_expired_logs(cfg.get_or<int>(agent::keys::LOG_RETENTION_DAYS, 7));
+                const auto& def = agent::default_log_path();
+                if (!def.empty()) log_file = def.string();
+            }
         }
         if (!log_file.empty()) {
             auto& logger = agent::log::Logger::get_instance();
@@ -149,7 +198,14 @@ int main(int argc, char** argv) {
         // 审计日志（大小轮转 + 天数清理）：启用后记录工具调用与安全事件
         if (cfg.get_or<bool>(agent::keys::AUDIT_ENABLED, true)) {
             std::string audit_file = cfg.get_or<std::string>(agent::keys::AUDIT_FILE, "");
-            if (audit_file.empty()) audit_file = (agent::log_dir() / "workx_audit.jsonl").string();
+            if (audit_file.empty()) {
+                if (!allow_default_file) {
+                    // #121 headless：同上，未显式指定则不落盘
+                    agent::audit::AuditLogger::instance().set_enabled(false);
+                    return;
+                }
+                audit_file = (agent::log_dir() / "workx_audit.jsonl").string();
+            }
             agent::audit::AuditLogger::instance().init(
                 audit_file,
                 static_cast<size_t>(cfg.get_or<int>(agent::keys::AUDIT_MAX_SIZE_MB, 10)),
@@ -157,7 +213,61 @@ int main(int argc, char** argv) {
         } else {
             agent::audit::AuditLogger::instance().set_enabled(false);
         }
+    };
+
+    // #77 headless：跳过首次运行向导 / TUI / 文件索引 / Island，直接同步执行
+    if (headless_mode) {
+        // 参数校验：非法值直接以退出码 2 拒绝，避免静默降级导致 CI 误判
+        if (output_format != "text" && output_format != "json" && output_format != "stream-json") {
+            std::cerr << "workx: 未知的 --output-format '" << output_format
+                      << "'（可选 text / json / stream-json）\n";
+            return 2;
+        }
+        if (!permission_mode.empty() && permission_mode != "default" &&
+            permission_mode != "accept-edits" && permission_mode != "bypass-permissions" &&
+            permission_mode != "plan") {
+            std::cerr << "workx: 未知的 --permission-mode '" << permission_mode
+                      << "'（可选 default / accept-edits / bypass-permissions / plan）\n";
+            return 2;
+        }
+        // 任务来源：-p 参数，或 -p - 从 stdin 读
+        agent::HeadlessOptions opts;
+        opts.output_format = output_format;
+        opts.permission_mode = permission_mode;
+        opts.goal = goal;
+        if (headless_task == "-") {
+            opts.read_from_stdin = true;
+            std::ostringstream ss;
+            ss << std::cin.rdbuf();
+            opts.task = ss.str();
+        } else {
+            opts.task = headless_task;
+        }
+        if (opts.task.empty()) {
+            std::cerr << "workx: 缺少任务文本（-p \"<task>\" 或 -p - 从 stdin 读）\n";
+            return 2;
+        }
+        // #121：headless 也必须初始化日志 / 审计，否则 `WORKX_LOG_FILE` 形同虚设，
+        // 验证门禁（#78）的运行标记全部丢失，Issue #117 的行为统计采不到数。
+        // 参数校验放在前面：非法参数 / 空任务不该产生日志文件。
+        init_logging_and_audit(/*allow_default_file=*/false);
+        auto& bus = agent::EventBus::instance();
+        auto& tm = agent::TaskManager::instance();
+        auto result = agent::run_headless(cfg, tm, bus, opts);
+        // 结果写 stdout，日志/进度写 stderr（liblogger 已走文件+stderr）
+        std::cout << result.output;
+        return result.exit_code;
     }
+
+    // 首次运行（#66）：配置文件不存在时启动设置向导（mock 模式跳过）。
+    // 向导直接写入 ConfigManager 内存并 save_to_file，无需重读。
+    if (first_run && !mock_mode) {
+        ftxtui::run_first_run_wizard(cfg, config_path);
+    }
+
+    // #121：日志 / 审计初始化已提为 lambda（定义见上方 `init_logging_and_audit`），
+    // 此处为交互式路径调用 —— 未显式指定路径时回落到 ~/.workx/logs（保持原行为）。
+    init_logging_and_audit(/*allow_default_file=*/true);
 
     auto& bus = agent::EventBus::instance();
     auto& tm = agent::TaskManager::instance();
@@ -178,13 +288,14 @@ int main(int argc, char** argv) {
     // 上下文窗口（token）：启动时经 resolve_context_length 解析，注入侧栏进度条分母
     int32_t context_limit = 0;
     // models.dev 目录：堆上原子指针，后台 detach 线程按值捕获，前台 load() 并发安全
-    auto model_catalog = std::make_shared<std::atomic<std::shared_ptr<const agent::ModelCatalog>>>();
+    auto model_catalog =
+        std::make_shared<std::atomic<std::shared_ptr<const agent::ModelCatalog>>>();
 
     if (!mock_mode) {
         // B1：与 workx 主程序共用同一会话装配（全量工具集 + 系统提示词 + 持久化）
         const std::string provider = cfg.get_or<std::string>(agent::keys::PROVIDER, "");
-        const agent::ProviderPreset* preset = provider.empty() ? nullptr
-                                                               : agent::find_preset(provider);
+        const agent::ProviderPreset* preset =
+            provider.empty() ? nullptr : agent::find_preset(provider);
         auto result = agent::create_session(cfg, preset, tm, bus);
         session = std::move(result.session);
         model_name = result.model_name;
@@ -194,15 +305,17 @@ int main(int argc, char** argv) {
         // 会话持久化目录（/resume 列出历史用）
         if (session) {
             auto config_dir = agent::default_config_path().parent_path();
-            session_dir = agent::session::get_project_session_dir(
-                config_dir, fs::current_path().string()).string();
+            session_dir =
+                agent::session::get_project_session_dir(config_dir, fs::current_path().string())
+                    .string();
         }
 
         // 上下文窗口：统一通过 resolver 解析（provider→user cfg→catalog→capability→preset→default）
         // 启动初始化时无 selector 返回值，sel_context_length 传 0；对齐 src/app/main.cpp
         auto catalog_cache_path = agent::default_config_path().parent_path() / "models_cache.json";
         if (auto cached = agent::ModelCatalog::load_cache(catalog_cache_path); cached.is_ok()) {
-            model_catalog->store(std::make_shared<const agent::ModelCatalog>(std::move(cached.value())));
+            model_catalog->store(
+                std::make_shared<const agent::ModelCatalog>(std::move(cached.value())));
         }
         // 后台线程拉取（不阻塞启动）；24h 内已拉取过则跳过（离线命中）
         // detach 安全性：model_catalog（shared_ptr）按值捕获保证生命周期；
@@ -213,14 +326,16 @@ int main(int argc, char** argv) {
                 constexpr auto kCacheTtl = std::chrono::hours(24);
                 std::error_code ec;
                 auto mtime = std::filesystem::last_write_time(catalog_cache_path, ec);
-                if (!ec && std::filesystem::file_time_type::clock::now() - mtime < kCacheTtl) return;
+                if (!ec && std::filesystem::file_time_type::clock::now() - mtime < kCacheTtl)
+                    return;
                 agent::HttpClient http;
                 auto resp = http.get("https://models.dev/api.json", {}, /*timeout_ms=*/30000);
                 if (resp.is_err() || !resp.value().is_success()) return;
                 auto parsed = agent::ModelCatalog::from_api_json(resp.value().body);
                 if (parsed.is_err()) return;
                 parsed.value().save_cache(catalog_cache_path);
-                model_catalog->store(std::make_shared<const agent::ModelCatalog>(std::move(parsed.value())));
+                model_catalog->store(
+                    std::make_shared<const agent::ModelCatalog>(std::move(parsed.value())));
             } catch (const std::exception&) {
                 // 后台刷新失败不影响启动；下次启动会重试
             }
@@ -229,9 +344,7 @@ int main(int argc, char** argv) {
 
         auto resolution = agent::resolve_context_length(
             model_name,
-            /*sel_context_length=*/0,
-            cfg.get_or<int>(agent::keys::CONTEXT_LENGTH, 0),
-            preset,
+            /*sel_context_length=*/0, cfg.get_or<int>(agent::keys::CONTEXT_LENGTH, 0), preset,
             model_catalog->load());
         context_limit = resolution.value;
     }
@@ -270,19 +383,17 @@ int main(int argc, char** argv) {
             island::RegistryWriter::default_registry_path());
 
         // 单价表：DeepSeek 官方定价 fallback + 用户 ~/.workx/pricing.json 覆盖
-        island_pricing = std::make_unique<island::PricingTable>(
-            island::PricingTable::deepseek_default());
+        island_pricing =
+            std::make_unique<island::PricingTable>(island::PricingTable::deepseek_default());
         {
-            const auto pricing_path =
-                agent::default_config_path().parent_path() / "pricing.json";
+            const auto pricing_path = agent::default_config_path().parent_path() / "pricing.json";
             std::error_code ec;
             if (std::filesystem::exists(pricing_path, ec)) {
                 std::ifstream ifs(pricing_path);
                 if (ifs) {
                     std::string text((std::istreambuf_iterator<char>(ifs)),
                                      std::istreambuf_iterator<char>());
-                    if (auto loaded = island::PricingTable::load_from_json(text);
-                        loaded.is_ok()) {
+                    if (auto loaded = island::PricingTable::load_from_json(text); loaded.is_ok()) {
                         *island_pricing = std::move(loaded.value());
                     }
                 }
@@ -290,10 +401,12 @@ int main(int argc, char** argv) {
         }
 
         island::IslandServerConfig isc;
-        isc.project_root = fs::current_path().string();
+        // #182：project_root 会进 island.registry 的 JSON。必须用 UTF-8；
+        // path::string() 在中文系统返回 GBK，会让 registry 的 dump() 抛 type_error.316。
+        isc.project_root = core::util::path_to_utf8(fs::current_path());
         isc.model = model_name;
-        island_server = std::make_unique<island::IslandServer>(
-            std::move(isc), nullptr, island_registry.get());
+        island_server =
+            std::make_unique<island::IslandServer>(std::move(isc), nullptr, island_registry.get());
 
         // 余额拉取（DeepSeek /user/balance）：api_key 非空才启用低频定时拉取
         const std::string api_key = cfg.get_or<std::string>(agent::keys::API_KEY, "");
@@ -301,14 +414,12 @@ int main(int argc, char** argv) {
             std::string base_url = cfg.get_or<std::string>(agent::keys::REMOTE_URL, "");
             if (base_url.empty()) base_url = "https://api.deepseek.com";
             island_balance = std::make_unique<island::BalanceFetcher>(
-                bus, api_key, base_url,
-                cfg.get_or<double>(agent::keys::ISLAND_USD_CNY_RATE, 7.2));
+                bus, api_key, base_url, cfg.get_or<double>(agent::keys::ISLAND_USD_CNY_RATE, 7.2));
             island_balance->start();
         }
 
         // 费用累积（订阅 StreamDone/UserInput/AgentDone → CostUpdatedEvent）
-        island_cost = std::make_unique<island::CostAccumulator>(
-            bus, *island_pricing, model_name);
+        island_cost = std::make_unique<island::CostAccumulator>(bus, *island_pricing, model_name);
         if (island_balance) {
             island_cost->set_on_task_completed(
                 [b = island_balance.get()] { b->trigger_refresh(); });
@@ -360,12 +471,12 @@ int main(int argc, char** argv) {
     deps.model_catalog = model_catalog;
     deps.command_registry = command_registry;
     deps.mcp_manager = mcp_manager;  // #27 M4：MCP server 状态（侧栏展示）
-    deps.project = fs::current_path().filename().string();
+    // #182：侧栏项目名 —— 中文目录名必须走 UTF-8，否则侧栏显示乱码
+    deps.project = core::util::path_to_utf8(fs::current_path().filename());
     // B3：侧栏 Agent 显示真实会话 ID（非硬编码 "default"），
     //     与审计日志 / 事件流的 session_id 一致，便于对照
-    deps.agent_name = (session && !session->session_id().empty())
-                          ? session->session_id()
-                          : "default";
+    deps.agent_name =
+        (session && !session->session_id().empty()) ? session->session_id() : "default";
     deps.on_submit = [&](const std::string& text, const std::vector<std::string>& images) {
         if (session) session->send_message(text, images);
     };
@@ -400,4 +511,13 @@ int main(int argc, char** argv) {
     session.reset();
     bus.clear();
     return exit_code;
+} catch (const std::exception& e) {
+    // 启动段兜底（#177）：此前启动路径上任何未捕获异常都会变成 MSVC 的 0xE06D7363 ——
+    // stdout/stderr 零输出、用户完全无从定位（配置目录被 ACL 锁死时的典型表现）。
+    // 用 function-try-block 包住整个 main 体，避免把所有局部变量挪进一层额外作用域。
+    std::cerr << "workx: 启动失败: " << e.what() << "\n";
+    return 1;
+} catch (...) {
+    std::cerr << "workx: 启动失败: 未知异常\n";
+    return 1;
 }

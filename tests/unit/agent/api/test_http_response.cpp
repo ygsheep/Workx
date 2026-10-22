@@ -74,7 +74,8 @@ TEST_CASE("HttpResponse is_http_error 2xx not error", "[http_response][is_http_e
     REQUIRE_FALSE(r.is_http_error());
 }
 
-TEST_CASE("HttpResponse is_http_error network error not http error", "[http_response][is_http_error]") {
+TEST_CASE("HttpResponse is_http_error network error not http error",
+          "[http_response][is_http_error]") {
     // 网络错误时 status_code=0 且 error 非空，不算 HTTP 错误
     HttpResponse r{.status_code = 0, .body = "", .error = "curl timeout"};
     REQUIRE_FALSE(r.is_http_error());
@@ -92,12 +93,14 @@ TEST_CASE("HttpResponse is_network_error", "[http_response][is_network_error]") 
     REQUIRE(r2.is_network_error());
 }
 
-TEST_CASE("HttpResponse is_network_error 2xx not network error", "[http_response][is_network_error]") {
+TEST_CASE("HttpResponse is_network_error 2xx not network error",
+          "[http_response][is_network_error]") {
     HttpResponse r{.status_code = 200, .body = "OK", .error = ""};
     REQUIRE_FALSE(r.is_network_error());
 }
 
-TEST_CASE("HttpResponse is_network_error 4xx not network error", "[http_response][is_network_error]") {
+TEST_CASE("HttpResponse is_network_error 4xx not network error",
+          "[http_response][is_network_error]") {
     HttpResponse r{.status_code = 404, .body = "Not Found", .error = ""};
     REQUIRE_FALSE(r.is_network_error());
 }

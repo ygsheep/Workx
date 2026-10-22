@@ -30,42 +30,41 @@ namespace {
 ResultV2<void> validate_resource_uri(const std::string& uri) {
     const auto colon = uri.find(':');
     if (colon == std::string::npos || colon == 0) {
-        return ResultV2<void>::err(Error::Code::InvalidInput,
-            "MCP 资源 URI 缺少合法 scheme", "uri=" + uri);
+        return ResultV2<void>::err(Error::Code::InvalidInput, "MCP 资源 URI 缺少合法 scheme",
+                                   "uri=" + uri);
     }
     std::string scheme = uri.substr(0, colon);
     std::transform(scheme.begin(), scheme.end(), scheme.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
     static const std::unordered_set<std::string> kDangerousSchemes = {
-        "file", "gopher", "data", "javascript", "vbscript", "ftp",
-        "dict", "ldap", "jar", "ws", "wss", "telnet", "ssh", "smb",
+        "file", "gopher", "data", "javascript", "vbscript", "ftp", "dict",
+        "ldap", "jar",    "ws",   "wss",        "telnet",   "ssh", "smb",
     };
     if (kDangerousSchemes.count(scheme) > 0) {
         return ResultV2<void>::err(Error::Code::PermissionDenied,
-            "MCP 资源 URI scheme 被禁止: " + scheme, "uri=" + uri);
+                                   "MCP 资源 URI scheme 被禁止: " + scheme, "uri=" + uri);
     }
 
     // http(s)：校验主机不解析到内网/回环/链路本地（SSRF）
     if (scheme == "http" || scheme == "https") {
         const auto purl = HttpClient::parse_url(uri);
         if (purl.host.empty()) {
-            return ResultV2<void>::err(Error::Code::InvalidInput,
-                "MCP 资源 URI 缺少主机名", "uri=" + uri);
+            return ResultV2<void>::err(Error::Code::InvalidInput, "MCP 资源 URI 缺少主机名",
+                                       "uri=" + uri);
         }
         if (host_resolves_to_private(purl.host)) {
             return ResultV2<void>::err(Error::Code::PermissionDenied,
-                "MCP 资源 URI 解析到内网/回环/链路本地地址，已拦截（SSRF）",
-                "uri=" + uri);
+                                       "MCP 资源 URI 解析到内网/回环/链路本地地址，已拦截（SSRF）",
+                                       "uri=" + uri);
         }
     }
     return ResultV2<void>::ok();
 }
 
-} // namespace
+}  // namespace
 
-ReadMcpResourceTool::ReadMcpResourceTool(
-    std::shared_ptr<mcp::McpClientManager> manager)
+ReadMcpResourceTool::ReadMcpResourceTool(std::shared_ptr<mcp::McpClientManager> manager)
     : m_manager(std::move(manager)) {}
 
 const std::string& ReadMcpResourceTool::name() const {
@@ -74,8 +73,7 @@ const std::string& ReadMcpResourceTool::name() const {
 }
 
 const std::string& ReadMcpResourceTool::description() const {
-    static const std::string d{
-        "Reads a specific MCP resource by URI from a connected MCP server."};
+    static const std::string d{"Reads a specific MCP resource by URI from a connected MCP server."};
     return d;
 }
 
@@ -88,21 +86,16 @@ const std::string& ReadMcpResourceTool::prompt() const {
 }
 
 nlohmann::json ReadMcpResourceTool::input_schema() const {
-    return {
-        {"type", "object"},
-        {"properties", {
-            {"server", {{"type", "string"}, {"description", "MCP server name"}}},
-            {"uri", {{"type", "string"}, {"description", "Resource URI to read"}}}
-        }},
-        {"required", {"server", "uri"}},
-        {"additionalProperties", false}
-    };
+    return {{"type", "object"},
+            {"properties",
+             {{"server", {{"type", "string"}, {"description", "MCP server name"}}},
+              {"uri", {{"type", "string"}, {"description", "Resource URI to read"}}}}},
+            {"required", {"server", "uri"}},
+            {"additionalProperties", false}};
 }
 
-PermissionResult ReadMcpResourceTool::check_permissions(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+PermissionResult ReadMcpResourceTool::check_permissions(const nlohmann::json& input,
+                                                        const ToolContext& ctx) const {
     if (is_bypass_mode(ctx.permission_mode)) {
         return PermissionResult::ok();
     }
@@ -110,31 +103,28 @@ PermissionResult ReadMcpResourceTool::check_permissions(
         return PermissionResult::ok();
     }
     const std::string server = input.at("server").get<std::string>();
-    if (ask_user_confirm(ctx, std::format(
-            "需要从 MCP server '{}' 读取资源，请确认：\n\n"
-            "允许读取该 MCP server 的资源？", server))) {
+    if (ask_user_confirm(ctx, std::format("需要从 MCP server '{}' 读取资源，请确认：\n\n"
+                                          "允许读取该 MCP server 的资源？",
+                                          server))) {
         return PermissionResult::ok();
     }
-    return PermissionResult::err(
-        Error::Code::PermissionDenied,
-        "用户拒绝读取 MCP server: " + server);
+    return PermissionResult::err(Error::Code::PermissionDenied,
+                                 "用户拒绝读取 MCP server: " + server);
 }
 
-ResultV2<ToolResult> ReadMcpResourceTool::call(
-    const nlohmann::json& input,
-    const ToolContext& /*ctx*/
+ResultV2<ToolResult> ReadMcpResourceTool::call(const nlohmann::json& input,
+                                               const ToolContext& /*ctx*/
 ) const {
     if (!input.contains("server") || !input.at("server").is_string()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput, "ReadMcpResourceTool 需要字符串参数 server");
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                         "ReadMcpResourceTool 需要字符串参数 server");
     }
     if (!input.contains("uri") || !input.at("uri").is_string()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput, "ReadMcpResourceTool 需要字符串参数 uri");
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                         "ReadMcpResourceTool 需要字符串参数 uri");
     }
     if (!m_manager) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InternalError, "MCP 连接管理器未初始化");
+        return ResultV2<ToolResult>::err(Error::Code::InternalError, "MCP 连接管理器未初始化");
     }
 
     const std::string server = input.at("server").get<std::string>();
@@ -151,17 +141,15 @@ ResultV2<ToolResult> ReadMcpResourceTool::call(
 
     auto client = m_manager->get_client(server);
     if (!client) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::ResourceNotFound,
-            "MCP server 不存在或未连接: " + server);
+        return ResultV2<ToolResult>::err(Error::Code::ResourceNotFound,
+                                         "MCP server 不存在或未连接: " + server);
     }
 
     auto result = client->read_resource(uri);
     if (result.is_err()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::ToolExecutionFailed,
-            "读取 MCP 资源失败: " + result.error().message,
-            "server=" + server + "; uri=" + uri);
+        return ResultV2<ToolResult>::err(Error::Code::ToolExecutionFailed,
+                                         "读取 MCP 资源失败: " + result.error().message,
+                                         "server=" + server + "; uri=" + uri);
     }
 
     std::ostringstream out;
@@ -177,11 +165,10 @@ ResultV2<ToolResult> ReadMcpResourceTool::call(
         if (!c.text.empty()) {
             out << "---\n" << c.text << "\n";
         } else if (!c.blob.empty()) {
-            out << "[二进制内容] blob_len=" << c.blob.size()
-                << "（base64，未解码）\n";
+            out << "[二进制内容] blob_len=" << c.blob.size() << "（base64，未解码）\n";
         }
     }
     return ResultV2<ToolResult>::ok(ToolResult::ok(out.str()));
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

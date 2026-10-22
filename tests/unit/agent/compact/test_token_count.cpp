@@ -9,9 +9,7 @@
 using namespace agent::compact;
 
 TEST_CASE("rough_token_count basic", "[compact][token_count]") {
-    SECTION("empty string returns 0") {
-        REQUIRE(rough_token_count("") == 0);
-    }
+    SECTION("empty string returns 0") { REQUIRE(rough_token_count("") == 0); }
 
     SECTION("default bytes_per_token=4") {
         // 8 chars / 4 = 2 tokens
@@ -52,9 +50,7 @@ TEST_CASE("bytes_per_token_for_ext", "[compact][token_count]") {
         REQUIRE(bytes_per_token_for_ext("md") == 4);
     }
 
-    SECTION("empty extension returns default") {
-        REQUIRE(bytes_per_token_for_ext("") == 4);
-    }
+    SECTION("empty extension returns default") { REQUIRE(bytes_per_token_for_ext("") == 4); }
 }
 
 TEST_CASE("estimate_message_tokens", "[compact][token_count]") {
@@ -115,14 +111,11 @@ TEST_CASE("estimate_messages_tokens accumulates", "[compact][token_count]") {
     }
 
     SECTION("multiple messages accumulate") {
-        std::vector<ChatMessage> msgs = {
-            ChatMessage::user("hello"),
-            ChatMessage::assistant("hi there"),
-            ChatMessage::user("bye")
-        };
-        int32_t sum = estimate_message_tokens(msgs[0])
-                    + estimate_message_tokens(msgs[1])
-                    + estimate_message_tokens(msgs[2]);
+        std::vector<ChatMessage> msgs = {ChatMessage::user("hello"),
+                                         ChatMessage::assistant("hi there"),
+                                         ChatMessage::user("bye")};
+        int32_t sum = estimate_message_tokens(msgs[0]) + estimate_message_tokens(msgs[1]) +
+                      estimate_message_tokens(msgs[2]);
         REQUIRE(estimate_messages_tokens(msgs) == sum);
     }
 

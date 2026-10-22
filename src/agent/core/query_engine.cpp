@@ -5,15 +5,14 @@
 #include <nlohmann/json.hpp>
 
 #include "agent/core/agent_loop_adapters.h"
-#include "agent/config/app_config.h"        // keys::AGENT_ACTIVE
-#include "agent/hook/hook_manager.h"        // Issue #50：通用 Hook 事件系统
-#include "core/config/i_config_manager.h"   // get_or<std::string>
+#include "agent/config/app_config.h"       // keys::AGENT_ACTIVE
+#include "agent/hook/hook_manager.h"       // Issue #50：通用 Hook 事件系统
+#include "core/config/i_config_manager.h"  // get_or<std::string>
 #include "liblogger/logger.h"
 
 namespace agent {
 
-QueryEngine::QueryEngine(GoalAgentDeps deps)
-    : m_deps(std::move(deps)) {}
+QueryEngine::QueryEngine(GoalAgentDeps deps) : m_deps(std::move(deps)) {}
 
 void QueryEngine::set_permission(PermissionSnapshot snap) {
     m_deps.permission_mode = snap.mode;
@@ -22,9 +21,8 @@ void QueryEngine::set_permission(PermissionSnapshot snap) {
 }
 
 void QueryEngine::apply_permission(std::unique_ptr<ReActLoop>& loop) const {
-    loop->apply_permission_state(
-        m_deps.permission_mode, m_deps.permission_mode_before_plan,
-        m_deps.permission_mode == tool::PermissionMode::Plan);
+    loop->apply_permission_state(m_deps.permission_mode, m_deps.permission_mode_before_plan,
+                                 m_deps.permission_mode == tool::PermissionMode::Plan);
     loop->set_session_mode(m_deps.session_mode);
     if (m_deps.permission_state_changed_cb) {
         loop->set_permission_state_changed_callback(m_deps.permission_state_changed_cb);
@@ -41,13 +39,13 @@ std::unique_ptr<IAgentLoop> QueryEngine::make_loop(AgentType type) const {
         case AgentType::ReAct: {
             // 常规全量 ReAct 循环（默认 max_iterations），非单步
             auto loop = std::make_unique<ReActLoop>(
-                m_deps.provider, m_deps.registry, make_react_config(),
-                m_deps.config_manager, m_deps.task_manager, m_deps.cwd,
-                m_deps.external_compactor, m_deps.event_bus, m_deps.touch_collector,
-                m_deps.file_index_invalidator, m_deps.session_id,
+                m_deps.provider, m_deps.registry, make_react_config(), m_deps.config_manager,
+                m_deps.task_manager, m_deps.cwd, m_deps.external_compactor, m_deps.event_bus,
+                m_deps.touch_collector, m_deps.file_index_invalidator, m_deps.session_id,
                 m_deps.queue_inject_cb);
             apply_permission(loop);
-            // #56 方案 C：注入命令注册表 → ToolContext.command_registry_ptr（子 Agent skill 预加载）
+            // #56 方案 C：注入命令注册表 → ToolContext.command_registry_ptr（子 Agent skill
+            // 预加载）
             loop->set_command_registry(m_deps.command_registry);
             // #56 方案 D：注入父会话全局 MCP 管理器 → ToolContext.mcp_manager_ptr
             loop->set_mcp_manager(m_deps.mcp_manager);
@@ -82,13 +80,13 @@ std::unique_ptr<IAgentLoop> QueryEngine::make_loop(AgentType type) const {
                      to_string(type));
             // 未实现类型回退到 ReAct（占位，后续实现可扩展）
             auto loop = std::make_unique<ReActLoop>(
-                m_deps.provider, m_deps.registry, make_react_config(),
-                m_deps.config_manager, m_deps.task_manager, m_deps.cwd,
-                m_deps.external_compactor, m_deps.event_bus, m_deps.touch_collector,
-                m_deps.file_index_invalidator, m_deps.session_id,
+                m_deps.provider, m_deps.registry, make_react_config(), m_deps.config_manager,
+                m_deps.task_manager, m_deps.cwd, m_deps.external_compactor, m_deps.event_bus,
+                m_deps.touch_collector, m_deps.file_index_invalidator, m_deps.session_id,
                 m_deps.queue_inject_cb);
             apply_permission(loop);
-            // #56 方案 C：注入命令注册表 → ToolContext.command_registry_ptr（子 Agent skill 预加载）
+            // #56 方案 C：注入命令注册表 → ToolContext.command_registry_ptr（子 Agent skill
+            // 预加载）
             loop->set_command_registry(m_deps.command_registry);
             // #56 方案 D：注入父会话全局 MCP 管理器 → ToolContext.mcp_manager_ptr
             loop->set_mcp_manager(m_deps.mcp_manager);
@@ -98,15 +96,24 @@ std::unique_ptr<IAgentLoop> QueryEngine::make_loop(AgentType type) const {
 
 ReActLoop::Config QueryEngine::make_react_config() const {
     ReActLoop::Config cfg;
-    cfg.max_iterations = m_deps.config_manager->get_or<int>(
-        agent::keys::AGENT_MAX_ITERATIONS, cfg.max_iterations);
+    cfg.max_iterations =
+        m_deps.config_manager->get_or<int>(agent::keys::AGENT_MAX_ITERATIONS, cfg.max_iterations);
+    // 运行旋钮（#137 墙钟预算 / #144 Thought 重试 / #147 思维链预算与空答复重试）
+    // 统一走共享装配函数 —— headless 入口（build_loop）必须装配同一组旋钮，
+    // 否则评测路径上 env 与 config.json 都改不动（见 apply_react_knobs 的注释）。
+    apply_react_knobs(cfg, *m_deps.config_manager);
+    // Issue #78 阶段 P3：FinalAnswer 前验证门禁，交互式入口也默认开启。
+    // P1 只接了 headless（评测入口），真实用户路径仍是「写完即停」——
+    // 而 issue 的验收口径（结束前实际跑过测试/构建命令的比例）正是
+    // 交互式。安全边界在 apply_verification_gate 内：目标按项目线索推断，
+    // 探测不到可跑命令 → goal 为 None → 门禁放行，不会凭空制造失败。
+    apply_verification_gate(cfg, *m_deps.config_manager, /*enabled_by_default=*/true, m_deps.cwd);
     // Issue #50：构建通用 Hook 事件系统（复用装配 helper；受 hooks.enabled 门控，
     // 空定义为空 manager）。循环级 HookManager 经 ReActLoop 注入 ToolContext，
     // 供工具线程触发 PermissionRequest / Subagent* 事件；agent 类型从中派生态
     // 只读子工具集（白名单来源）。
-    cfg.hooks = hook::make_hook_manager(*m_deps.config_manager,
-                                        m_deps.registry,
-                                        m_deps.provider, m_deps.event_bus);
+    cfg.hooks = hook::make_hook_manager(*m_deps.config_manager, m_deps.registry, m_deps.provider,
+                                        m_deps.event_bus);
     return cfg;
 }
 
@@ -129,4 +136,4 @@ AgentRunResult QueryEngine::run(const IConfigManager& cfg, AgentRunContext ctx) 
     return out;
 }
 
-} // namespace agent
+}  // namespace agent

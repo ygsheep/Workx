@@ -47,12 +47,10 @@ SuggestMode parse_suggest_query(const std::string& line, std::string& query) {
     //          文件搜索作为命令参数，同样优先走文件模式。
     const auto slash = line.rfind('/');
     const auto at = line.rfind('@');
-    const bool slash_inside_at_path = (at != std::string::npos) &&
-                                      (slash != std::string::npos) &&
-                                      at < slash;
-    const bool at_in_cmd_arg = (at != std::string::npos) &&
-                               (slash != std::string::npos) &&
-                               at > slash;
+    const bool slash_inside_at_path =
+        (at != std::string::npos) && (slash != std::string::npos) && at < slash;
+    const bool at_in_cmd_arg =
+        (at != std::string::npos) && (slash != std::string::npos) && at > slash;
     if (slash != std::string::npos && !slash_inside_at_path && !at_in_cmd_arg) {
         const std::string cmd_after = line.substr(slash + 1);
         if (cmd_after.find(' ') == std::string::npos) {
@@ -76,8 +74,7 @@ std::vector<size_t> filter_commands(const std::vector<std::string>& commands,
     std::vector<size_t> hits;
     const std::string q = lower(query);
     for (size_t i = 0; i < commands.size(); ++i) {
-        if (q.empty() || lower(commands[i]).find(q) != std::string::npos)
-            hits.push_back(i);
+        if (q.empty() || lower(commands[i]).find(q) != std::string::npos) hits.push_back(i);
     }
     return hits;
 }
@@ -87,19 +84,15 @@ std::string apply_command_suggest(const std::string& line, const std::string& fu
     // 非 @路径 内的最后一个 "/"），从该处起替换为完整命令。
     const auto slash = line.rfind('/');
     const auto at = line.rfind('@');
-    const bool slash_inside_at_path = (at != std::string::npos) &&
-                                      (slash != std::string::npos) &&
-                                      at < slash;
+    const bool slash_inside_at_path =
+        (at != std::string::npos) && (slash != std::string::npos) && at < slash;
     if (slash != std::string::npos && !slash_inside_at_path)
         return line.substr(0, slash) + full + " ";
     return line + full + " ";
 }
 
-Element render_suggest_panel(SuggestMode mode,
-                             const std::vector<SuggestEntry>& entries,
-                             int selected,
-                             bool file_ready,
-                             std::deque<ftxui::Box>* hit_boxes) {
+Element render_suggest_panel(SuggestMode mode, const std::vector<SuggestEntry>& entries,
+                             int selected, bool file_ready, std::deque<ftxui::Box>* hit_boxes) {
     using namespace ftxui;
 
     if (mode == SuggestMode::None) return emptyElement();
@@ -112,8 +105,8 @@ Element render_suggest_panel(SuggestMode mode,
             body = text(std::string(str::kSuggestIndexing)) | color(theme::T::TextDim);
         } else {
             body = text(mode == SuggestMode::Command ? std::string(str::kSuggestNoCommand)
-                                                     : std::string(str::kSuggestNoFile))
-                   | color(theme::T::TextDim);
+                                                     : std::string(str::kSuggestNoFile)) |
+                   color(theme::T::TextDim);
         }
     } else {
         // 滚动窗口：选中项始终可见（Tab 向下 / Shift+Tab 向上循环到超长列表时不脱视）
@@ -135,9 +128,8 @@ Element render_suggest_panel(SuggestMode mode,
                 text(sel ? "  ❯ " : "    "),
                 text(e.title) | color(theme::T::Text),
                 e.subtitle.empty() ? flex(text("")) : flex(text("")),
-                e.subtitle.empty()
-                    ? emptyElement()
-                    : text("  " + e.subtitle) | color(theme::T::TextFaint),
+                e.subtitle.empty() ? emptyElement()
+                                   : text("  " + e.subtitle) | color(theme::T::TextFaint),
                 text(" "),
             });
             if (sel) row = row | bgcolor(theme::T::Selection);
@@ -150,8 +142,7 @@ Element render_suggest_panel(SuggestMode mode,
         }
         const int hidden = total - shown_end;
         if (hidden > 0)
-            rows.push_back(text(std::string(str::kPaletteMorePrefix) +
-                                std::to_string(hidden) +
+            rows.push_back(text(std::string(str::kPaletteMorePrefix) + std::to_string(hidden) +
                                 std::string(str::kPaletteMoreSuffix)) |
                            color(theme::T::TextFaint));
         body = vbox(std::move(rows));
@@ -162,10 +153,8 @@ Element render_suggest_panel(SuggestMode mode,
                text(" "),
                hbox({text("  "), body | flex, text("  ")}),
                text(" "),
-           })
-           | size(HEIGHT, LESS_THAN, 10)
-           | bgcolor(theme::T::Panel)
-           | border | color(kBorderColor);
+           }) |
+           size(HEIGHT, LESS_THAN, 10) | bgcolor(theme::T::Panel) | border | color(kBorderColor);
 }
 
 }  // namespace ftxtui

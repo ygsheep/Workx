@@ -26,7 +26,7 @@ namespace agent {
 /// - 非空查询返回名称包含查询串的文件（最多 50 个）
 /// - 自动跳过 .git/build/node_modules 等目录
 class FileIndex {
-public:
+   public:
     /// @brief 确保后台构建线程 join，避免 std::thread 析构 terminate
     ~FileIndex() {
         if (m_build_thread.joinable()) {
@@ -36,10 +36,10 @@ public:
 
     /// @brief 索引条目
     struct Entry {
-        std::string name;                   ///< 文件名（如 "main.cpp"）
-        std::string relative_path;          ///< 相对路径（如 "src/app/main.cpp"）
-        std::filesystem::file_time_type modified; ///< 修改时间
-        bool is_directory{false};           ///< 是否为目录
+        std::string name;                          ///< 文件名（如 "main.cpp"）
+        std::string relative_path;                 ///< 相对路径（如 "src/app/main.cpp"）
+        std::filesystem::file_time_type modified;  ///< 修改时间
+        bool is_directory{false};                  ///< 是否为目录
     };
 
     /// @brief 默认空查询返回的文件数
@@ -77,19 +77,14 @@ public:
     /// @param query 搜索查询（空字符串 → 返回最近修改的文件）
     /// @param limit 最大返回数
     /// @return 匹配的文件条目列表（按修改时间倒序）
-    std::vector<Entry> search(
-        const std::string& query,
-        size_t limit = DEFAULT_SEARCH_LIMIT
-    ) const;
+    std::vector<Entry> search(const std::string& query, size_t limit = DEFAULT_SEARCH_LIMIT) const;
 
     /// @brief 搜索文件名（仅返回路径字符串）
     /// @param query 搜索查询
     /// @param limit 最大返回数
     /// @return 匹配的文件路径列表
-    std::vector<std::string> search_paths(
-        const std::string& query,
-        size_t limit = DEFAULT_SEARCH_LIMIT
-    ) const;
+    std::vector<std::string> search_paths(const std::string& query,
+                                          size_t limit = DEFAULT_SEARCH_LIMIT) const;
 
     /// @brief 索引是否已就绪
     /// @return 已构建返回 true
@@ -111,19 +106,20 @@ public:
     ///          若索引从未构建过（ready_=false）则直接返回 false。
     bool refresh_if_needed(int64_t min_interval_ms);
 
-private:
+   private:
     std::vector<Entry> entries_;
     bool ready_{false};
     mutable std::mutex mutex_;
 
-    std::atomic<bool> m_dirty{true};                              ///< 脏标记：工具写入后置 true，build 后清 false
-    std::chrono::steady_clock::time_point m_last_build_ts;        ///< 上次构建时间（用于防抖）
-    std::string m_cwd_;                                           ///< 上次构建的工作目录（refresh 复用）
+    std::atomic<bool> m_dirty{true};  ///< 脏标记：工具写入后置 true，build 后清 false
+    std::chrono::steady_clock::time_point m_last_build_ts;  ///< 上次构建时间（用于防抖）
+    std::string m_cwd_;  ///< 上次构建的工作目录（refresh 复用）
 
     // ---- 异步构建状态（build_async / wait_ready / shutdown）----
-    std::thread m_build_thread;                                   ///< 后台构建线程（shutdown 时 join）
-    std::atomic<bool> m_build_in_progress{false};                 ///< 是否已有后台构建在进行/已请求
-    std::atomic<bool> m_ready_flag{false};                        ///< 索引就绪标志（is_ready/wait_ready 读取，不碰 mutex_ 避免阻塞）
+    std::thread m_build_thread;                    ///< 后台构建线程（shutdown 时 join）
+    std::atomic<bool> m_build_in_progress{false};  ///< 是否已有后台构建在进行/已请求
+    std::atomic<bool> m_ready_flag{
+        false};  ///< 索引就绪标志（is_ready/wait_ready 读取，不碰 mutex_ 避免阻塞）
 
     /// @brief 判断目录是否应跳过
     /// @param dir_name 目录名
@@ -135,4 +131,4 @@ private:
 /// @return FileIndex 单例引用
 FileIndex& global_file_index();
 
-} // namespace agent
+}  // namespace agent

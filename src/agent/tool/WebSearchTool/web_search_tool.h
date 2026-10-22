@@ -26,7 +26,7 @@ namespace agent::tool {
 ///   1. AppConfig web.search.tavily_api_key（持久化于 ~/.workx/config.json）
 ///   2. 进程环境变量 TAVILY_API_KEY / WORKX_TAVILY_API_KEY
 class WebSearchTool : public ITool {
-public:
+   public:
     const std::string& name() const override;
     const std::string& description() const override;
     const std::string& prompt() const override;
@@ -36,11 +36,8 @@ public:
     // ---------- 纯函数（便于单测） ----------
 
     /// @brief 组装 Tavily 请求体，含 num_results 范围裁剪
-    static nlohmann::json build_tavily_request(
-        const std::string& api_key,
-        const std::string& query,
-        int num_results,
-        const std::string& search_depth);
+    static nlohmann::json build_tavily_request(const std::string& api_key, const std::string& query,
+                                               int num_results, const std::string& search_depth);
 
     /// @brief 把 Tavily JSON 响应 → 给模型看的文本
     /// @return 非空格式化文本；缺 results/空数组返回占位提示"未找到相关结果"
@@ -50,19 +47,15 @@ public:
     static std::string parse_searxng_response(const nlohmann::json& response_json);
 
     /// @brief 构造 SearXNG JSON 查询 URL（含 query URL 编码）
-    static std::string build_searxng_url(
-        const std::string& base_url,
-        const std::string& query);
+    static std::string build_searxng_url(const std::string& base_url, const std::string& query);
 
     /// @brief 校验 SearXNG 实例 URL 安全性（#25 P1-1/P2-2）
     /// @return true = 安全：仅 https scheme 且 host 未解析到内网/回环/链路本地
     static bool is_safe_searxng_url(const std::string& url);
 
     /// @brief 构造 Bing HTML 搜索 URL（免 Key 兜底）
-    static std::string build_bing_url(
-        const std::string& base_url,
-        const std::string& query,
-        int num_results);
+    static std::string build_bing_url(const std::string& base_url, const std::string& query,
+                                      int num_results);
 
     /// @brief 解析 Bing 搜索结果 HTML → 给模型看的文本
     static std::string parse_bing_response(const std::string& html);
@@ -79,15 +72,10 @@ public:
     static constexpr const char* kBingEndpoint = "https://www.bing.com/search";
 
     /// @brief 权限检查（#25）：Bypass 放行；搜索词命中内网路径/敏感关键词时 AskUser 确认
-    PermissionResult check_permissions(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    PermissionResult check_permissions(const nlohmann::json& input,
+                                       const ToolContext& ctx) const override;
 
-    ResultV2<ToolResult> call(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    ResultV2<ToolResult> call(const nlohmann::json& input, const ToolContext& ctx) const override;
 };
 
-} // namespace agent::tool
+}  // namespace agent::tool

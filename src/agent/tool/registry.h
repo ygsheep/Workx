@@ -26,7 +26,7 @@ namespace agent::tool {
 /// - 按名称查找工具
 /// - 列举所有工具的 schema（供 LLM function calling 使用）
 class WORKX_API ToolRegistry {
-public:
+   public:
     /// @brief 注册工具
     /// @param tool 工具实例
     inline void register_tool(std::shared_ptr<ITool> tool) {
@@ -45,9 +45,7 @@ public:
 
     /// @brief 获取所有已注册工具
     /// @return 工具列表
-    inline std::vector<std::shared_ptr<ITool>> get_all_tools() const {
-        return tools_;
-    }
+    inline std::vector<std::shared_ptr<ITool>> get_all_tools() const { return tools_; }
 
     /// @brief 获取所有工具的 schema（供 LLM function calling）
     /// @return JSON 数组，每个元素包含 name/description/input_schema
@@ -84,17 +82,15 @@ public:
     /// @brief 检查工具是否存在
     /// @param name 工具名称
     /// @return 存在返回 true
-    inline bool exists(const std::string& name) const {
-        return name_index_.contains(name);
-    }
+    inline bool exists(const std::string& name) const { return name_index_.contains(name); }
 
     /// @brief 获取工具数量
     /// @return 工具数量
     inline size_t size() const { return tools_.size(); }
 
-private:
+   private:
     std::vector<std::shared_ptr<ITool>> tools_;
     std::unordered_map<std::string, std::shared_ptr<ITool>> name_index_;
 };
 
-} // namespace agent::tool
+}  // namespace agent::tool

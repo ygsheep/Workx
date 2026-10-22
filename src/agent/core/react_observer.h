@@ -20,7 +20,7 @@ namespace agent {
 /// @details 所有方法由 ReActLoop 在对应阶段同步调用，实现方应避免阻塞。
 ///          默认空实现，子类按需覆盖。
 class WORKX_API IReActObserver {
-public:
+   public:
     virtual ~IReActObserver() = default;
 
     /// @brief Thought 阶段完成（LLM 推理 + 工具调用决策）
@@ -40,4 +40,4 @@ public:
                           const std::string& /*reasoning_delta*/) {}
 };
 
-} // namespace agent
+}  // namespace agent

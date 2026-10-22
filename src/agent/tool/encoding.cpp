@@ -15,12 +15,12 @@
 #include <cstdint>
 
 #ifdef _WIN32
-#  define WIN32_LEAN_AND_MEAN
-#  define NOMINMAX
-#  include <windows.h>
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
 #else
-#  include <iconv.h>
-#  include <cerrno>
+#include <iconv.h>
+#include <cerrno>
 #endif
 
 namespace agent::tool {
@@ -62,11 +62,11 @@ static std::string utf16_to_utf8_impl(const char* data, size_t size) {
                     result += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
                     result += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
                     result += static_cast<char>(0x80 | (cp & 0x3F));
-                    ++i; // 跳过低代理项
+                    ++i;  // 跳过低代理项
                     continue;
                 }
             }
-            continue; // 无效高代理项，跳过
+            continue;  // 无效高代理项，跳过
         }
 
         // 孤立低代理项，跳过
@@ -102,18 +102,17 @@ static std::string gbk_to_utf8(const char* data, size_t size) {
 #ifdef _WIN32
     // Windows: MultiByteToWideChar (GBK = CP_936)
     const int wlen = MultiByteToWideChar(936, 0, data, static_cast<int>(size), nullptr, 0);
-    if (wlen == 0) return std::string(data, size); // 回退
+    if (wlen == 0) return std::string(data, size);  // 回退
 
     std::wstring wstr(static_cast<size_t>(wlen), 0);
     MultiByteToWideChar(936, 0, data, static_cast<int>(size), wstr.data(), wlen);
 
-    const int ulen = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), wlen,
-                                         nullptr, 0, nullptr, nullptr);
-    if (ulen == 0) return std::string(data, size); // 回退
+    const int ulen =
+        WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), wlen, nullptr, 0, nullptr, nullptr);
+    if (ulen == 0) return std::string(data, size);  // 回退
 
     std::string result(static_cast<size_t>(ulen), 0);
-    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), wlen,
-                        result.data(), ulen, nullptr, nullptr);
+    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), wlen, result.data(), ulen, nullptr, nullptr);
     return result;
 #else
     // Linux: iconv
@@ -121,7 +120,7 @@ static std::string gbk_to_utf8(const char* data, size_t size) {
     if (cd == reinterpret_cast<iconv_t>(-1)) return std::string(data, size);
 
     size_t in_left = size;
-    size_t out_left = size * 3; // 最坏情况
+    size_t out_left = size * 3;  // 最坏情况
     std::string result(out_left, 0);
 
     char* in_buf = const_cast<char*>(data);
@@ -130,7 +129,7 @@ static std::string gbk_to_utf8(const char* data, size_t size) {
     const size_t ret = iconv(cd, &in_buf, &in_left, &out_buf, &out_left);
     iconv_close(cd);
 
-    if (ret == static_cast<size_t>(-1)) return std::string(data, size); // 回退
+    if (ret == static_cast<size_t>(-1)) return std::string(data, size);  // 回退
 
     result.resize(result.size() - out_left);
     return result;
@@ -150,7 +149,7 @@ static std::string utf8_to_utf16le(const std::string& utf8) {
     };
 
     const size_t n = utf8.size();
-    for (size_t i = 0; i < n; ) {
+    for (size_t i = 0; i < n;) {
         const unsigned char c = static_cast<unsigned char>(utf8[i]);
         uint32_t cp = 0;
 
@@ -162,21 +161,31 @@ static std::string utf8_to_utf16le(const std::string& utf8) {
             cp = 0xFFFD;
             ++i;
         } else if (c < 0xE0) {
-            if (i + 1 >= n) { cp = 0xFFFD; ++i; continue; }
+            if (i + 1 >= n) {
+                cp = 0xFFFD;
+                ++i;
+                continue;
+            }
             cp = ((c & 0x1F) << 6) | (static_cast<unsigned char>(utf8[i + 1]) & 0x3F);
             i += 2;
         } else if (c < 0xF0) {
-            if (i + 2 >= n) { cp = 0xFFFD; ++i; continue; }
-            cp = ((c & 0x0F) << 12)
-               | ((static_cast<unsigned char>(utf8[i + 1]) & 0x3F) << 6)
-               | (static_cast<unsigned char>(utf8[i + 2]) & 0x3F);
+            if (i + 2 >= n) {
+                cp = 0xFFFD;
+                ++i;
+                continue;
+            }
+            cp = ((c & 0x0F) << 12) | ((static_cast<unsigned char>(utf8[i + 1]) & 0x3F) << 6) |
+                 (static_cast<unsigned char>(utf8[i + 2]) & 0x3F);
             i += 3;
         } else if (c < 0xF5) {
-            if (i + 3 >= n) { cp = 0xFFFD; ++i; continue; }
-            cp = ((c & 0x07) << 18)
-               | ((static_cast<unsigned char>(utf8[i + 1]) & 0x3F) << 12)
-               | ((static_cast<unsigned char>(utf8[i + 2]) & 0x3F) << 6)
-               | (static_cast<unsigned char>(utf8[i + 3]) & 0x3F);
+            if (i + 3 >= n) {
+                cp = 0xFFFD;
+                ++i;
+                continue;
+            }
+            cp = ((c & 0x07) << 18) | ((static_cast<unsigned char>(utf8[i + 1]) & 0x3F) << 12) |
+                 ((static_cast<unsigned char>(utf8[i + 2]) & 0x3F) << 6) |
+                 (static_cast<unsigned char>(utf8[i + 3]) & 0x3F);
             i += 4;
         } else {
             cp = 0xFFFD;
@@ -208,7 +217,7 @@ static std::string utf8_to_utf16be(const std::string& utf8) {
     };
 
     const size_t n = utf8.size();
-    for (size_t i = 0; i < n; ) {
+    for (size_t i = 0; i < n;) {
         const unsigned char c = static_cast<unsigned char>(utf8[i]);
         uint32_t cp = 0;
 
@@ -219,21 +228,31 @@ static std::string utf8_to_utf16be(const std::string& utf8) {
             cp = 0xFFFD;
             ++i;
         } else if (c < 0xE0) {
-            if (i + 1 >= n) { cp = 0xFFFD; ++i; continue; }
+            if (i + 1 >= n) {
+                cp = 0xFFFD;
+                ++i;
+                continue;
+            }
             cp = ((c & 0x1F) << 6) | (static_cast<unsigned char>(utf8[i + 1]) & 0x3F);
             i += 2;
         } else if (c < 0xF0) {
-            if (i + 2 >= n) { cp = 0xFFFD; ++i; continue; }
-            cp = ((c & 0x0F) << 12)
-               | ((static_cast<unsigned char>(utf8[i + 1]) & 0x3F) << 6)
-               | (static_cast<unsigned char>(utf8[i + 2]) & 0x3F);
+            if (i + 2 >= n) {
+                cp = 0xFFFD;
+                ++i;
+                continue;
+            }
+            cp = ((c & 0x0F) << 12) | ((static_cast<unsigned char>(utf8[i + 1]) & 0x3F) << 6) |
+                 (static_cast<unsigned char>(utf8[i + 2]) & 0x3F);
             i += 3;
         } else if (c < 0xF5) {
-            if (i + 3 >= n) { cp = 0xFFFD; ++i; continue; }
-            cp = ((c & 0x07) << 18)
-               | ((static_cast<unsigned char>(utf8[i + 1]) & 0x3F) << 12)
-               | ((static_cast<unsigned char>(utf8[i + 2]) & 0x3F) << 6)
-               | (static_cast<unsigned char>(utf8[i + 3]) & 0x3F);
+            if (i + 3 >= n) {
+                cp = 0xFFFD;
+                ++i;
+                continue;
+            }
+            cp = ((c & 0x07) << 18) | ((static_cast<unsigned char>(utf8[i + 1]) & 0x3F) << 12) |
+                 ((static_cast<unsigned char>(utf8[i + 2]) & 0x3F) << 6) |
+                 (static_cast<unsigned char>(utf8[i + 3]) & 0x3F);
             i += 4;
         } else {
             cp = 0xFFFD;
@@ -259,29 +278,26 @@ static std::string utf8_to_utf16be(const std::string& utf8) {
 static std::string utf8_to_gbk(const std::string& utf8) {
 #ifdef _WIN32
     // UTF-8 → UTF-16
-    const int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8.data(),
-                                         static_cast<int>(utf8.size()), nullptr, 0);
-    if (wlen == 0) return utf8; // 回退
+    const int wlen =
+        MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
+    if (wlen == 0) return utf8;  // 回退
 
     std::wstring wstr(static_cast<size_t>(wlen), 0);
-    MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()),
-                        wstr.data(), wlen);
+    MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), wstr.data(), wlen);
 
     // UTF-16 → GBK (CP_936)
-    const int glen = WideCharToMultiByte(936, 0, wstr.c_str(), wlen,
-                                         nullptr, 0, nullptr, nullptr);
-    if (glen == 0) return utf8; // 回退
+    const int glen = WideCharToMultiByte(936, 0, wstr.c_str(), wlen, nullptr, 0, nullptr, nullptr);
+    if (glen == 0) return utf8;  // 回退
 
     std::string result(static_cast<size_t>(glen), 0);
-    WideCharToMultiByte(936, 0, wstr.c_str(), wlen,
-                        result.data(), glen, nullptr, nullptr);
+    WideCharToMultiByte(936, 0, wstr.c_str(), wlen, result.data(), glen, nullptr, nullptr);
     return result;
 #else
     iconv_t cd = iconv_open("GBK", "UTF-8");
     if (cd == reinterpret_cast<iconv_t>(-1)) return utf8;
 
     size_t in_left = utf8.size();
-    size_t out_left = utf8.size() * 2; // GBK 最坏情况
+    size_t out_left = utf8.size() * 2;  // GBK 最坏情况
     std::string result(out_left, 0);
 
     char* in_buf = const_cast<char*>(utf8.data());
@@ -290,7 +306,7 @@ static std::string utf8_to_gbk(const std::string& utf8) {
     const size_t ret = iconv(cd, &in_buf, &in_left, &out_buf, &out_left);
     iconv_close(cd);
 
-    if (ret == static_cast<size_t>(-1)) return utf8; // 回退
+    if (ret == static_cast<size_t>(-1)) return utf8;  // 回退
 
     result.resize(result.size() - out_left);
     return result;
@@ -301,23 +317,25 @@ static std::string utf8_to_gbk(const std::string& utf8) {
 /// @return 0=非UTF-8, 1=纯ASCII, 2=含多字节序列的UTF-8
 static int validate_utf8(const unsigned char* buf, size_t len) {
     bool has_multibyte = false;
-    for (size_t i = 0; i < len; ) {
+    for (size_t i = 0; i < len;) {
         const unsigned char c = buf[i];
         if (c < 0x80) {
             ++i;
         } else if (c < 0xC2) {
-            return 0; // 非法首字节
+            return 0;  // 非法首字节
         } else if (c < 0xE0) {
             if (i + 1 >= len || (buf[i + 1] & 0xC0) != 0x80) return 0;
             has_multibyte = true;
             i += 2;
         } else if (c < 0xF0) {
-            if (i + 2 >= len || (buf[i + 1] & 0xC0) != 0x80 || (buf[i + 2] & 0xC0) != 0x80) return 0;
+            if (i + 2 >= len || (buf[i + 1] & 0xC0) != 0x80 || (buf[i + 2] & 0xC0) != 0x80)
+                return 0;
             has_multibyte = true;
             i += 3;
         } else if (c < 0xF5) {
-            if (i + 3 >= len || (buf[i + 1] & 0xC0) != 0x80
-                || (buf[i + 2] & 0xC0) != 0x80 || (buf[i + 3] & 0xC0) != 0x80) return 0;
+            if (i + 3 >= len || (buf[i + 1] & 0xC0) != 0x80 || (buf[i + 2] & 0xC0) != 0x80 ||
+                (buf[i + 3] & 0xC0) != 0x80)
+                return 0;
             has_multibyte = true;
             i += 4;
         } else {
@@ -340,13 +358,13 @@ static bool is_likely_gbk(const unsigned char* buf, size_t len) {
     size_t double_byte_chars = 0;  // 双字节字符数
     size_t common_chinese = 0;     // 常用汉字（首字节 0xB0-0xF7）
 
-    for (size_t i = 0; i < len; ) {
+    for (size_t i = 0; i < len;) {
         const unsigned char c = buf[i];
         if (c < 0x80) {
             ++total_chars;
             ++i;
         } else if (c >= 0x81 && c <= 0xFE) {
-            if (i + 1 >= len) break; // 最后一个字节无法判断
+            if (i + 1 >= len) break;  // 最后一个字节无法判断
             const unsigned char c2 = buf[i + 1];
             if (c2 >= 0x40 && c2 <= 0xFE && c2 != 0x7F) {
                 ++total_chars;
@@ -356,10 +374,10 @@ static bool is_likely_gbk(const unsigned char* buf, size_t len) {
                 }
                 i += 2;
             } else {
-                return false; // 不符合 GBK 模式
+                return false;  // 不符合 GBK 模式
             }
         } else {
-            return false; // 0x80 / 0xFF 不是合法 GBK 首字节
+            return false;  // 0x80 / 0xFF 不是合法 GBK 首字节
         }
     }
 
@@ -391,15 +409,12 @@ Encoding detect_encoding(const fs::path& path) {
     file.read(reinterpret_cast<char*>(buf), CHECK_SIZE);
     const size_t n = static_cast<size_t>(file.gcount());
 
-    if (n == 0) return Encoding::Utf8; // 空文件视为 UTF-8
+    if (n == 0) return Encoding::Utf8;  // 空文件视为 UTF-8
 
     // 1. BOM 检测
-    if (n >= 3 && buf[0] == 0xEF && buf[1] == 0xBB && buf[2] == 0xBF)
-        return Encoding::Utf8;
-    if (n >= 2 && buf[0] == 0xFF && buf[1] == 0xFE)
-        return Encoding::Utf16LE;
-    if (n >= 2 && buf[0] == 0xFE && buf[1] == 0xFF)
-        return Encoding::Utf16BE;
+    if (n >= 3 && buf[0] == 0xEF && buf[1] == 0xBB && buf[2] == 0xBF) return Encoding::Utf8;
+    if (n >= 2 && buf[0] == 0xFF && buf[1] == 0xFE) return Encoding::Utf16LE;
+    if (n >= 2 && buf[0] == 0xFE && buf[1] == 0xFF) return Encoding::Utf16BE;
 
     // 2. null 字节检测（二进制判定，UTF-16 已由 BOM 排除）
     for (size_t i = 0; i < n; ++i) {
@@ -421,8 +436,8 @@ std::vector<std::string> read_as_utf8_lines(const fs::path& path, Encoding encod
     std::vector<std::string> lines;
 
     // UTF-8/ASCII：直接读取（跳过 BOM）
-    if (encoding == Encoding::Utf8 || encoding == Encoding::Ascii
-        || encoding == Encoding::Unknown) {
+    if (encoding == Encoding::Utf8 || encoding == Encoding::Ascii ||
+        encoding == Encoding::Unknown) {
         std::ifstream file(path);
         if (!file.is_open()) return lines;
 
@@ -441,20 +456,19 @@ std::vector<std::string> read_as_utf8_lines(const fs::path& path, Encoding encod
     std::ifstream file(path, std::ios::binary);
     if (!file.is_open()) return lines;
 
-    std::string content((std::istreambuf_iterator<char>(file)),
-                        std::istreambuf_iterator<char>());
+    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     file.close();
 
     std::string utf8_content;
-    size_t skip = 0; // 跳过 BOM
+    size_t skip = 0;  // 跳过 BOM
 
     switch (encoding) {
         case Encoding::Utf16LE:
-            skip = 2; // FF FE
+            skip = 2;  // FF FE
             utf8_content = utf16le_to_utf8(content.data() + skip, content.size() - skip);
             break;
         case Encoding::Utf16BE:
-            skip = 2; // FE FF
+            skip = 2;  // FE FF
             utf8_content = utf16be_to_utf8(content.data() + skip, content.size() - skip);
             break;
         case Encoding::Gbk:
@@ -477,8 +491,8 @@ std::vector<std::string> read_as_utf8_lines(const fs::path& path, Encoding encod
 
 std::string read_file_as_utf8(const fs::path& path, Encoding encoding) {
     // UTF-8/ASCII：直接读取并跳过 BOM
-    if (encoding == Encoding::Utf8 || encoding == Encoding::Ascii
-        || encoding == Encoding::Unknown || encoding == Encoding::Binary) {
+    if (encoding == Encoding::Utf8 || encoding == Encoding::Ascii ||
+        encoding == Encoding::Unknown || encoding == Encoding::Binary) {
         std::ifstream file(path, std::ios::binary);
         if (!file.is_open()) return {};
 
@@ -486,10 +500,9 @@ std::string read_file_as_utf8(const fs::path& path, Encoding encoding) {
                             std::istreambuf_iterator<char>());
 
         // 跳过 UTF-8 BOM（若存在）
-        if (content.size() >= 3
-            && static_cast<unsigned char>(content[0]) == 0xEF
-            && static_cast<unsigned char>(content[1]) == 0xBB
-            && static_cast<unsigned char>(content[2]) == 0xBF) {
+        if (content.size() >= 3 && static_cast<unsigned char>(content[0]) == 0xEF &&
+            static_cast<unsigned char>(content[1]) == 0xBB &&
+            static_cast<unsigned char>(content[2]) == 0xBF) {
             content.erase(0, 3);
         }
         return content;
@@ -499,8 +512,7 @@ std::string read_file_as_utf8(const fs::path& path, Encoding encoding) {
     std::ifstream file(path, std::ios::binary);
     if (!file.is_open()) return {};
 
-    std::string content((std::istreambuf_iterator<char>(file)),
-                        std::istreambuf_iterator<char>());
+    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 
     switch (encoding) {
         case Encoding::Utf16LE:
@@ -522,12 +534,8 @@ std::string read_file_as_utf8(const fs::path& path, Encoding encoding) {
     }
 }
 
-bool write_file_with_encoding(
-    const fs::path& path,
-    const std::string& utf8_content,
-    Encoding encoding,
-    const std::function<bool()>& is_cancelled
-) {
+bool write_file_with_encoding(const fs::path& path, const std::string& utf8_content,
+                              Encoding encoding, const std::function<bool()>& is_cancelled) {
     namespace fsx = std::filesystem;
 
     // 原子写（#23 P2）：先写同目录临时文件，rename 原子替换。
@@ -565,8 +573,7 @@ bool write_file_with_encoding(
             }
             default:
                 // UTF-8/ASCII/Binary/Unknown：原样写入（不加 BOM，对齐 CC 行为）
-                file.write(utf8_content.data(),
-                           static_cast<std::streamsize>(utf8_content.size()));
+                file.write(utf8_content.data(), static_cast<std::streamsize>(utf8_content.size()));
                 break;
         }
 
@@ -595,13 +602,20 @@ bool write_file_with_encoding(
 
 const char* encoding_name(Encoding encoding) {
     switch (encoding) {
-        case Encoding::Utf8:    return "UTF-8";
-        case Encoding::Utf16LE: return "UTF-16LE";
-        case Encoding::Utf16BE: return "UTF-16BE";
-        case Encoding::Gbk:     return "GBK";
-        case Encoding::Ascii:   return "ASCII";
-        case Encoding::Binary:  return "Binary";
-        default:                return "Unknown";
+        case Encoding::Utf8:
+            return "UTF-8";
+        case Encoding::Utf16LE:
+            return "UTF-16LE";
+        case Encoding::Utf16BE:
+            return "UTF-16BE";
+        case Encoding::Gbk:
+            return "GBK";
+        case Encoding::Ascii:
+            return "ASCII";
+        case Encoding::Binary:
+            return "Binary";
+        default:
+            return "Unknown";
     }
 }
 
@@ -614,10 +628,8 @@ void normalize_eol(std::string& line) {
 bool skip_utf8_bom(std::ifstream& file) {
     char bom[3];
     file.read(bom, 3);
-    if (file.gcount() == 3
-        && static_cast<unsigned char>(bom[0]) == 0xEF
-        && static_cast<unsigned char>(bom[1]) == 0xBB
-        && static_cast<unsigned char>(bom[2]) == 0xBF) {
+    if (file.gcount() == 3 && static_cast<unsigned char>(bom[0]) == 0xEF &&
+        static_cast<unsigned char>(bom[1]) == 0xBB && static_cast<unsigned char>(bom[2]) == 0xBF) {
         return true;  // BOM 已跳过
     }
     file.seekg(0);  // 无 BOM，回到开头
@@ -625,7 +637,7 @@ bool skip_utf8_bom(std::ifstream& file) {
 }
 
 std::string sanitize_utf8(std::string_view text) {
-    static constexpr char kUfffd[] = "\xEF\xBF\xBD"; // U+FFFD (EF BF BD)
+    static constexpr char kUfffd[] = "\xEF\xBF\xBD";  // U+FFFD (EF BF BD)
 
     const char* data = text.data();
     const size_t len = text.size();
@@ -633,9 +645,7 @@ std::string sanitize_utf8(std::string_view text) {
     result.reserve(len);
 
     size_t i = 0;
-    auto append_valid = [&](size_t start, size_t count) {
-        result.append(data + start, count);
-    };
+    auto append_valid = [&](size_t start, size_t count) { result.append(data + start, count); };
 
     while (i < len) {
         const unsigned char c = static_cast<unsigned char>(data[i]);
@@ -667,21 +677,23 @@ std::string sanitize_utf8(std::string_view text) {
         if (ok) {
             for (int k = 1; k < seq_len; ++k) {
                 const unsigned char cc = static_cast<unsigned char>(data[i + k]);
-                if ((cc & 0xC0) != 0x80) { ok = false; break; }
+                if ((cc & 0xC0) != 0x80) {
+                    ok = false;
+                    break;
+                }
             }
         }
         // 约束：不允许字节序列过长表示（overlong）与非法码点
         if (ok && seq_len == 3 &&
             (c == 0xE0 && (static_cast<unsigned char>(data[i + 1]) & 0xE0) == 0x80)) {
-            ok = false; // E0 80..9F 的 overlong 2-byte
+            ok = false;  // E0 80..9F 的 overlong 2-byte
         }
         if (ok && seq_len == 4 &&
             (c == 0xF0 && (static_cast<unsigned char>(data[i + 1]) & 0xF0) == 0x80)) {
-            ok = false; // F0 80..8F 的 overlong 3-byte
+            ok = false;  // F0 80..8F 的 overlong 3-byte
         }
-        if (ok && seq_len == 4 &&
-            (c == 0xF4 && static_cast<unsigned char>(data[i + 1]) > 0x8F)) {
-            ok = false; // F4 90..BF 超出 U+10FFFF
+        if (ok && seq_len == 4 && (c == 0xF4 && static_cast<unsigned char>(data[i + 1]) > 0x8F)) {
+            ok = false;  // F4 90..BF 超出 U+10FFFF
         }
 
         if (ok) {
@@ -722,7 +734,7 @@ nlohmann::json sanitize_json_strings(const nlohmann::json& j) {
         }
         return out;
     }
-    return j; // number/bool/null 原样返回
+    return j;  // number/bool/null 原样返回
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

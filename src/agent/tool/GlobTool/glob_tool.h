@@ -38,7 +38,7 @@ bool glob_match(std::string_view pattern, std::string_view text);
 /// - ?  匹配单个字符
 /// - 结果按修改时间倒序排列（最新优先）
 class GlobTool : public ITool {
-public:
+   public:
     const std::string& name() const override;
     const std::string& description() const override;
     const std::string& prompt() const override;
@@ -47,27 +47,20 @@ public:
     bool is_read_only() const override { return true; }
 
     /// @brief 权限检查（#60：路径边界校验，与 Read 工具一致）
-    PermissionResult check_permissions(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    PermissionResult check_permissions(const nlohmann::json& input,
+                                       const ToolContext& ctx) const override;
 
     /// @brief 验证输入：pattern 不能为空
-    ValidationResult validate_input(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    ValidationResult validate_input(const nlohmann::json& input,
+                                    const ToolContext& ctx) const override;
 
-    ResultV2<ToolResult> call(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    ResultV2<ToolResult> call(const nlohmann::json& input, const ToolContext& ctx) const override;
 
-private:
+   private:
     /// @brief 规范化路径分隔符为正斜杠
     /// @param path 原始路径
     /// @return 规范化后的路径
     static std::string normalize_path(const std::string& path);
 };
 
-} // namespace agent::tool
+}  // namespace agent::tool

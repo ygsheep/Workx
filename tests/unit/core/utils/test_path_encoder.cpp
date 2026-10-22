@@ -9,18 +9,16 @@
 
 TEST_CASE("path_encoder: encodes Windows path", "[core][utils][path_encoder]") {
     // 路径分隔符 \ 和 : 全替换为 -
-    REQUIRE(core::util::encode_project_path(R"(D:\develop\Workspace\workx)")
-            == "D--develop-Workspace-workx");
+    REQUIRE(core::util::encode_project_path(R"(D:\develop\Workspace\workx)") ==
+            "D--develop-Workspace-workx");
 }
 
 TEST_CASE("path_encoder: encodes POSIX path", "[core][utils][path_encoder]") {
-    REQUIRE(core::util::encode_project_path("/home/user/workx")
-            == "-home-user-workx");
+    REQUIRE(core::util::encode_project_path("/home/user/workx") == "-home-user-workx");
 }
 
 TEST_CASE("path_encoder: handles trailing separator", "[core][utils][path_encoder]") {
-    REQUIRE(core::util::encode_project_path(R"(D:\develop\workx\)")
-            == "D--develop-workx-");
+    REQUIRE(core::util::encode_project_path(R"(D:\develop\workx\)") == "D--develop-workx-");
 }
 
 TEST_CASE("path_encoder: empty path returns empty", "[core][utils][path_encoder]") {

@@ -13,6 +13,7 @@
 
 #include "agent/mcp/mcp_client.h"
 #include "agent/mcp/mcp_config.h"
+#include "helpers/python_command.h"
 
 using namespace agent;
 using namespace agent::mcp;
@@ -22,16 +23,15 @@ namespace {
 
 /// 假 server 的绝对路径（SOURCE_DIR 由 CMake 注入）
 std::string fake_server_path() {
-    return (std::filesystem::path(SOURCE_DIR) /
-            "tests" / "unit" / "agent" / "mcp" / "fake_mcp_server.py")
+    return (std::filesystem::path(SOURCE_DIR) / "tests" / "unit" / "agent" / "mcp" /
+            "fake_mcp_server.py")
         .string();
 }
 
-McpServerConfig make_stdio_cfg(const std::string& name,
-                               const std::string& mode) {
+McpServerConfig make_stdio_cfg(const std::string& name, const std::string& mode) {
     McpServerConfig cfg;
     cfg.name = name;
-    cfg.command = "python";
+    cfg.command = agent::test::python_command();
     cfg.args = {fake_server_path()};
     // PYTHONHASHSEED=0：Windows 下子进程熵初始化失败的已知规避
     cfg.env["FAKE_MCP_MODE"] = mode;
@@ -39,7 +39,7 @@ McpServerConfig make_stdio_cfg(const std::string& name,
     return cfg;
 }
 
-} // namespace
+}  // namespace
 
 // ============================================================================
 // 2.0 无状态模式（server/discover 成功）
@@ -146,8 +146,7 @@ TEST_CASE("McpClient list_prompts / get_prompt", "[mcp_client][prompts]") {
     REQUIRE(messages.is_ok());
     REQUIRE(messages.value().size() == 1);
     REQUIRE(messages.value()[0].role == "user");
-    REQUIRE_THAT(messages.value()[0].content.value("text", ""),
-                 ContainsSubstring("MCP"));
+    REQUIRE_THAT(messages.value()[0].content.value("text", ""), ContainsSubstring("MCP"));
 
     auto missing = client.get_prompt("nope", nlohmann::json::object());
     REQUIRE(missing.is_err());

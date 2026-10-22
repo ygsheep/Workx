@@ -14,13 +14,17 @@
 namespace agent::input {
 
 class InputParser {
-public:
+   public:
     /// 解析用户输入
     auto parse(const std::string& input) -> ParsedInput {
         std::string trimmed = trim(input);
 
         if (trimmed.empty()) {
-            return {.type = InputType::Empty, .text = {}, .command = {}, .attachments = {}, .image_paths = {}};
+            return {.type = InputType::Empty,
+                    .text = {},
+                    .command = {},
+                    .attachments = {},
+                    .image_paths = {}};
         }
 
         // 检查是否为斜杠命令
@@ -58,7 +62,7 @@ public:
         };
     }
 
-private:
+   private:
     auto trim(const std::string& s) -> std::string {
         auto start = s.find_first_not_of(" \t\n\r");
         auto end = s.find_last_not_of(" \t\n\r");
@@ -128,17 +132,15 @@ private:
         if (dot == std::string::npos) return false;
         std::string ext = path.substr(dot);
         for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        return ext == ".png" || ext == ".jpg" || ext == ".jpeg"
-            || ext == ".gif" || ext == ".bmp" || ext == ".webp";
+        return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".gif" || ext == ".bmp" ||
+               ext == ".webp";
     }
 
     static const std::regex& ref_pattern() {
         // 匹配顺序: @"..." > @<...> > @\S+
         // 要求 @ 在词首（行首或前面是空白），避免误配 你好@world
         // 捕获组: 1=@"..."内容, 2=@<...>内容, 3=@word
-        static const std::regex re(
-            R"re((?:^|\s)@(?:"([^"]*)"|<([^>]+)>|(\S+)))re"
-        );
+        static const std::regex re(R"re((?:^|\s)@(?:"([^"]*)"|<([^>]+)>|(\S+)))re");
         return re;
     }
 
@@ -162,9 +164,12 @@ private:
             // 提取引用路径（三个捕获组互斥，取匹配的那个）
             // 原组1 (?:^|\s) 是非捕获组，@"..."=组1, @<...>=组2, @word=组3
             std::string ref;
-            if (match[1].matched) ref = match[1].str();       // @"..."
-            else if (match[2].matched) ref = match[2].str();  // @<...>
-            else if (match[3].matched) ref = match[3].str();  // @word
+            if (match[1].matched)
+                ref = match[1].str();  // @"..."
+            else if (match[2].matched)
+                ref = match[2].str();  // @<...>
+            else if (match[3].matched)
+                ref = match[3].str();  // @word
 
             if (!ref.empty()) {
                 if (is_image_ext(ref)) {
@@ -184,6 +189,4 @@ private:
     }
 };
 
-} // namespace agent::input
-
-
+}  // namespace agent::input

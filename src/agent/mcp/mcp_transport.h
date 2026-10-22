@@ -25,7 +25,7 @@ namespace agent::mcp {
 
 /// @brief 传输抽象：发送 JSON-RPC 消息并同步等待响应
 class McpTransport {
-public:
+   public:
     virtual ~McpTransport() = default;
 
     /// @brief 启动传输（spawn 子进程 / 建立连接）
@@ -37,8 +37,7 @@ public:
     /// @param msg JSON-RPC 请求（含 id）
     /// @param timeout_ms 总超时（含等待响应）
     /// @return ok: 完整 JSON-RPC 响应（含 result 或 error）；err: 传输错误/超时
-    virtual ResultV2<nlohmann::json> send_request(
-        const nlohmann::json& msg, int timeout_ms) = 0;
+    virtual ResultV2<nlohmann::json> send_request(const nlohmann::json& msg, int timeout_ms) = 0;
 
     /// @brief 发送通知（无需响应）
     virtual ResultV2<void> send_notification(const nlohmann::json& msg) = 0;
@@ -46,17 +45,16 @@ public:
 
 /// @brief stdio 传输：持久子进程 + 双向管道
 class StdioMcpTransport : public McpTransport {
-public:
+   public:
     explicit StdioMcpTransport(McpServerConfig cfg);
     ~StdioMcpTransport() override;
 
     ResultV2<void> start() override;
     void stop() override;
-    ResultV2<nlohmann::json> send_request(
-        const nlohmann::json& msg, int timeout_ms) override;
+    ResultV2<nlohmann::json> send_request(const nlohmann::json& msg, int timeout_ms) override;
     ResultV2<void> send_notification(const nlohmann::json& msg) override;
 
-private:
+   private:
     McpServerConfig m_cfg;
     McpStdioProcess m_proc;
     bool m_started = false;
@@ -68,17 +66,16 @@ private:
 /// - 响应支持 application/json 与 text/event-stream 两种 Content-Type
 /// - 1.x 会话：捕获响应头 Mcp-Session-Id 并在后续请求回传
 class HttpMcpTransport : public McpTransport {
-public:
+   public:
     explicit HttpMcpTransport(McpServerConfig cfg);
     ~HttpMcpTransport() override;
 
     ResultV2<void> start() override;
     void stop() override;
-    ResultV2<nlohmann::json> send_request(
-        const nlohmann::json& msg, int timeout_ms) override;
+    ResultV2<nlohmann::json> send_request(const nlohmann::json& msg, int timeout_ms) override;
     ResultV2<void> send_notification(const nlohmann::json& msg) override;
 
-private:
+   private:
     /// 构造请求头（Content-Type / Accept / 会话头 / 用户配置头）
     std::vector<std::pair<std::string, std::string>> build_headers() const;
     /// 解析响应体（JSON 或 SSE），返回 JSON-RPC 消息
@@ -96,4 +93,4 @@ private:
 /// @brief 创建传输实例（按配置选择 stdio/http）
 std::unique_ptr<McpTransport> create_transport(const McpServerConfig& cfg);
 
-} // namespace agent::mcp
+}  // namespace agent::mcp

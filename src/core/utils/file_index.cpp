@@ -24,17 +24,31 @@ namespace fs = std::filesystem;
 bool FileIndex::should_skip_dir(const std::string& dir_name) {
     // 常见需要跳过的目录（含隐藏目录中的无关项）
     static const std::set<std::string> skip_dirs = {
-        ".git",          ///< Git 元数据（大量无关文件）
-        ".vs",           ///< Visual Studio 临时文件
-        ".vscode",       ///< VS Code 配置（可选，但通常无需搜索）
-        ".idea",         ///< JetBrains 配置
-        ".cache",        ///< 缓存目录
-        "build", "out", "bin", "obj",
-        "node_modules", "__pycache__", ".venv", "venv",
-        "vcpkg_installed", "CMakeFiles",
-        "cmake-build-debug", "cmake-build-release",
-        "dist", "target", "Debug", "Release",
-        "x64", "Win32", "ARM", "ARM64",
+        ".git",     ///< Git 元数据（大量无关文件）
+        ".vs",      ///< Visual Studio 临时文件
+        ".vscode",  ///< VS Code 配置（可选，但通常无需搜索）
+        ".idea",    ///< JetBrains 配置
+        ".cache",   ///< 缓存目录
+        "build",
+        "out",
+        "bin",
+        "obj",
+        "node_modules",
+        "__pycache__",
+        ".venv",
+        "venv",
+        "vcpkg_installed",
+        "CMakeFiles",
+        "cmake-build-debug",
+        "cmake-build-release",
+        "dist",
+        "target",
+        "Debug",
+        "Release",
+        "x64",
+        "Win32",
+        "ARM",
+        "ARM64",
     };
 
     return skip_dirs.count(dir_name) > 0;
@@ -42,8 +56,7 @@ bool FileIndex::should_skip_dir(const std::string& dir_name) {
 
 /// @brief 小写转换
 static std::string to_lower(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(),
-        [](unsigned char c) { return std::tolower(c); });
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
     return s;
 }
 
@@ -75,13 +88,9 @@ void FileIndex::build(const std::string& cwd, size_t max_files) {
         fs::path current_dir = dir_queue.front();
         dir_queue.pop();
 
-        for (auto it = fs::directory_iterator(
-                 current_dir,
-                 fs::directory_options::skip_permission_denied,
-                 ec);
-             it != fs::directory_iterator();
-             it.increment(ec)) {
-
+        for (auto it = fs::directory_iterator(current_dir,
+                                              fs::directory_options::skip_permission_denied, ec);
+             it != fs::directory_iterator(); it.increment(ec)) {
             if (ec) {
                 ec.clear();
                 continue;
@@ -141,9 +150,7 @@ void FileIndex::build(const std::string& cwd, size_t max_files) {
 
     // 按修改时间倒序排列（最新在前）
     std::sort(new_entries.begin(), new_entries.end(),
-        [](const Entry& a, const Entry& b) {
-            return a.modified > b.modified;
-        });
+              [](const Entry& a, const Entry& b) { return a.modified > b.modified; });
 
     // 短锁：一次性 swap 到 entries_，并更新元信息
     {
@@ -163,10 +170,7 @@ void FileIndex::build(const std::string& cwd, size_t max_files) {
 // 搜索
 // ============================================================
 
-std::vector<FileIndex::Entry> FileIndex::search(
-    const std::string& query,
-    size_t limit
-) const {
+std::vector<FileIndex::Entry> FileIndex::search(const std::string& query, size_t limit) const {
     std::lock_guard<std::mutex> lock(mutex_);
 
     std::vector<Entry> results;
@@ -201,10 +205,7 @@ std::vector<FileIndex::Entry> FileIndex::search(
     return results;
 }
 
-std::vector<std::string> FileIndex::search_paths(
-    const std::string& query,
-    size_t limit
-) const {
+std::vector<std::string> FileIndex::search_paths(const std::string& query, size_t limit) const {
     auto entries = search(query, limit);
     std::vector<std::string> paths;
     paths.reserve(entries.size());
@@ -239,8 +240,7 @@ void FileIndex::build_async(const std::string& cwd, size_t max_files) {
 }
 
 bool FileIndex::wait_ready(int timeout_ms) const {
-    const auto deadline = std::chrono::steady_clock::now()
-                        + std::chrono::milliseconds(timeout_ms);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     for (;;) {
         if (m_ready_flag.load(std::memory_order_acquire)) {
             return true;
@@ -284,8 +284,8 @@ bool FileIndex::refresh_if_needed(int64_t min_interval_ms) {
         cwd = m_cwd_;
 
         const auto now = std::chrono::steady_clock::now();
-        const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - m_last_build_ts).count();
+        const auto elapsed_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(now - m_last_build_ts).count();
         const bool dirty = m_dirty.load(std::memory_order_acquire);
         need_refresh = dirty || elapsed_ms >= min_interval_ms;
     }
@@ -307,4 +307,4 @@ FileIndex& global_file_index() {
     return instance;
 }
 
-} // namespace agent
+}  // namespace agent

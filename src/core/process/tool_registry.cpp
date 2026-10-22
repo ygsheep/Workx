@@ -28,9 +28,7 @@ ToolRegistry& ToolRegistry::instance() {
     return registry;
 }
 
-std::string ToolRegistry::executable_dir() {
-    return get_executable_dir();
-}
+std::string ToolRegistry::executable_dir() { return get_executable_dir(); }
 
 std::string ToolRegistry::get_executable_dir() {
 #ifdef _WIN32
@@ -74,8 +72,8 @@ std::optional<std::string> ToolRegistry::find_in_path(const std::string& name) {
 #else
             ':'
 #endif
-            , start
-        );
+            ,
+            start);
         if (end == std::string::npos) end = path_str.size();
         if (end > start) {
             std::string dir = path_str.substr(start, end - start);
@@ -94,19 +92,17 @@ std::optional<std::string> ToolRegistry::find_executable(const std::string& name
 #ifdef _WIN32
     // Windows: PATH 中常省略 .exe 扩展名，自动补试一次
     constexpr std::string_view kExeExt = ".exe";
-    if (name.size() < kExeExt.size()
-        || name.compare(name.size() - kExeExt.size(), kExeExt.size(), kExeExt) != 0) {
+    if (name.size() < kExeExt.size() ||
+        name.compare(name.size() - kExeExt.size(), kExeExt.size(), kExeExt) != 0) {
         return find_in_path(name + std::string(kExeExt));
     }
 #endif
     return std::nullopt;
 }
 
-std::optional<std::string> ToolRegistry::resolve_tool(
-    const std::string& tool_name,
-    const std::string& bundled_relative_path,
-    const std::string& path_name
-) const {
+std::optional<std::string> ToolRegistry::resolve_tool(const std::string& tool_name,
+                                                      const std::string& bundled_relative_path,
+                                                      const std::string& path_name) const {
     std::lock_guard<std::mutex> lock(m_mutex);
 
     // 1. 查缓存
@@ -157,4 +153,4 @@ void ToolRegistry::clear_cache() {
     m_cache.clear();
 }
 
-} // namespace agent::process
+}  // namespace agent::process

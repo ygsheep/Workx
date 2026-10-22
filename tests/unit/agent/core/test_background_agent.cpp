@@ -18,10 +18,10 @@
 #include "agent/api/chat_types.h"
 #include "agent/core/agent_loop_adapters.h"
 #include "agent/core/agent_type.h"
-#include "agent/core/goal_guarded_agent.h"   // GoalAgentDeps
+#include "agent/core/goal_guarded_agent.h"  // GoalAgentDeps
 #include "agent/core/i_agent_loop.h"
-#include "core/events/event_bus.h"          // EventBus::instance()
-#include "core/task/task_manager.h"          // ITaskManager / TaskType
+#include "core/events/event_bus.h"   // EventBus::instance()
+#include "core/task/task_manager.h"  // ITaskManager / TaskType
 #include "helpers/mock_provider.h"
 #include "helpers/mock_task_manager.h"
 
@@ -39,7 +39,7 @@ TEST_CASE("background: 分发后立即返回 task_id（不阻塞主对话）", "
     deps.provider = &provider;
     deps.registry = registry;
     deps.task_manager = &tm;
-    deps.event_bus = &EventBus::instance();   // 生命周期事件总线
+    deps.event_bus = &EventBus::instance();  // 生命周期事件总线
     deps.cwd = ".";
     deps.session_id = "sess-1";
 
@@ -108,12 +108,12 @@ TEST_CASE("background: 单次使用守卫 — 二次 run 被拒绝（P1-2）", "
     ctx.messages = &messages;
     ctx.system_prompt = "sys";
 
-    REQUIRE_FALSE(adapter.run(ctx).react.was_error);   // 首次成功（分发）
-    const AgentRunResult second = adapter.run(ctx);     // 二次应被单次守卫拒绝
+    REQUIRE_FALSE(adapter.run(ctx).react.was_error);  // 首次成功（分发）
+    const AgentRunResult second = adapter.run(ctx);   // 二次应被单次守卫拒绝
     REQUIRE(second.react.was_error);
     REQUIRE(second.background_task_id.empty());
     REQUIRE(second.react.error_message.find("single-use") != std::string::npos);
-    REQUIRE(tm.launched_count() == 1);                 // 未重复分发
+    REQUIRE(tm.launched_count() == 1);  // 未重复分发
 }
 
 TEST_CASE("background: cancel() 定向取消已分发任务（P1-1）", "[agent][background]") {
@@ -143,7 +143,7 @@ TEST_CASE("background: cancel() 定向取消已分发任务（P1-1）", "[agent]
     adapter.cancel();
     const auto task = tm.find_task(out.background_task_id);
     REQUIRE(task != nullptr);
-    REQUIRE(task->shouldCancel());   // 协作式取消标志已置位
+    REQUIRE(task->shouldCancel());  // 协作式取消标志已置位
 
     // task_id 按值返回（header API），不暴露内部缓冲引用
     REQUIRE(adapter.task_id() == out.background_task_id);

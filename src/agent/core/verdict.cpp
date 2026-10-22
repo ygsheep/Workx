@@ -3,12 +3,14 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
+#include "agent/prompt/environment_probe.h"  // #129：与提示词侧共用构建目录口径
 #include "core/process/exec_output.h"
 #include "core/process/subprocess.h"
 #include "liblogger/logger.h"
@@ -77,8 +79,7 @@ std::string command_exec_token(std::string_view line) {
     if (!cur.empty()) tokens.push_back(cur);
 
     const auto strip_quote = [](std::string t) {
-        if (t.size() >= 2 &&
-            (t.front() == '"' || t.front() == '\'') && t.back() == t.front()) {
+        if (t.size() >= 2 && (t.front() == '"' || t.front() == '\'') && t.back() == t.front()) {
             t = t.substr(1, t.size() - 2);
         }
         return t;
@@ -106,8 +107,9 @@ std::string command_exec_token(std::string_view line) {
 /// @brief 命令串是否含 shell 链接/分隔/重定向/命令替换元字符（P1-1 硬阻塞修复）
 /// @details guard_command 必须在字符串级拒绝这些字符，而非仅校验首个 token：
 ///          即使首命令在白名单内（如 cmake），`&&` 之后的任意命令仍会被包装
-///          shell（sh -c / cmd /c）执行 → RCE。默认命令（kTestCmd/kBuildCmd/
-///          kLintCmd）是项目硬编码可信串，不含这些字符，放行不受影响。
+///          shell（sh -c / cmd /c）执行 → RCE。默认命令（kTestCmd 及
+///          detect_goal_command 生成的构建/测试命令）是内部可信串，不含这些
+///          字符，放行不受影响。
 bool contains_separator(std::string_view s) noexcept {
     for (const char c : s) {
         switch (c) {
@@ -132,22 +134,50 @@ bool contains_separator(std::string_view s) noexcept {
 
 /// @brief 命令是否在白名单内（仅校验真实落地的 exec token）
 bool is_command_allowed(std::string_view line) noexcept {
-    // P1-1：构建/测试/包管理/常见脚本工具白名单。默认命令（kTestCmd/kBuildCmd
-    //       等）是项目硬编码的可信串，不在此校验范围内；此处只拦截 goal.command
-    //       里的任意命令。
+    // P1-1：构建/测试/包管理/常见脚本工具白名单。默认命令（kTestCmd 及
+    //       detect_goal_command 生成的命令）是内部可信串，不在此校验范围内；
+    //       此处只拦截 goal.command 里的任意命令。
     static constexpr std::string_view kAllowed[] = {
         // 构建
-        "cmake", "ctest", "ninja", "make", "nmake", "msbuild", "dotnet",
-        "cargo", "go", "gcc", "g++", "clang", "clang++", "cl",
+        "cmake",
+        "ctest",
+        "ninja",
+        "make",
+        "nmake",
+        "msbuild",
+        "dotnet",
+        "cargo",
+        "go",
+        "gcc",
+        "g++",
+        "clang",
+        "clang++",
+        "cl",
         // 包管理
-        "npm", "npx", "yarn", "pnpm", "pip", "pip3", "conan", "vcpkg",
-        "mvn", "gradle",
+        "npm",
+        "npx",
+        "yarn",
+        "pnpm",
+        "pip",
+        "pip3",
+        "conan",
+        "vcpkg",
+        "mvn",
+        "gradle",
         // 脚本/语言运行
-        "python", "python3", "py", "pytest", "node",
+        "python",
+        "python3",
+        "py",
+        "pytest",
+        "node",
         // 版本控制
         "git",
         // 基础 shell 元命令（褪去包装层后的落点，如 `cmd /C exit 0`）
-        "echo", "true", "false", "exit", "test",
+        "echo",
+        "true",
+        "false",
+        "exit",
+        "test",
     };
     const std::string tok = command_exec_token(line);
     if (tok.empty()) return false;
@@ -175,25 +205,29 @@ std::string sanitize_detail(std::string_view raw) noexcept {
     return out;
 }
 
-} // namespace
+}  // namespace
 
 /// @brief 执行命令并返回退出码；启动失败返回 -1
 int run_exit_code(const std::string& cmd, const std::string& cwd) {
     using namespace agent::process;
     // exec() 的 cmd 必须是纯可执行名、参数走 args；命令字符串需经 shell 包装
-    //（cmd：cmd.exe /d /s /c；POSIX：sh -c），对齐 skill hooks.cpp 的既有用法
+    // （cmd：cmd.exe /d /s /c；POSIX：sh -c），对齐 skill hooks.cpp 的既有用法
+    // #78 VF-08：验证是自动执行的，stdin 必须接空设备 —— 否则继承父进程
+    //            stdin，命令一旦读输入就会挂到 60s 超时才返回。
 #if defined(_WIN32)
     auto res = exec("cmd.exe", ExecOptions{
-        .cwd = cwd,
-        .args = {"/d", "/s", "/c", cmd},
-        .timeout = std::chrono::milliseconds(60000),
-    });
+                                   .cwd = cwd,
+                                   .args = {"/d", "/s", "/c", cmd},
+                                   .timeout = std::chrono::milliseconds(60000),
+                                   .stdin_mode = StdinMode::Null,
+                               });
 #else
     auto res = exec("sh", ExecOptions{
-        .cwd = cwd,
-        .args = {"-c", cmd},
-        .timeout = std::chrono::milliseconds(60000),
-    });
+                              .cwd = cwd,
+                              .args = {"-c", cmd},
+                              .timeout = std::chrono::milliseconds(60000),
+                              .stdin_mode = StdinMode::Null,
+                          });
 #endif
     if (res.is_err()) {
         LOG_WARN("[verdict] exec failed cmd='{}': {}", cmd, res.error().message);
@@ -202,10 +236,9 @@ int run_exit_code(const std::string& cmd, const std::string& cwd) {
     return res.value().exit_code;
 }
 
-/// @brief 默认测试命令（可被 goal.command 覆盖）
+/// @brief 默认测试命令（in-source 场景；out-of-source 由 detect_goal_command
+///        按 #129 的构建目录推导生成，可被 goal.command 覆盖）
 const char* kTestCmd = "ctest --output-on-failure";
-/// 默认编译（Windows 用 cmake --build；非 Windows 同，CMake 跨平台）
-const char* kBuildCmd = "cmake --build . --config Debug";
 
 /// @brief 校验一条待执行命令（默认命令白名单直通；覆盖命令需在白名单内）
 /// @return 允许则返回原命令；被拦截则返回空
@@ -227,12 +260,145 @@ std::string guard_command(const std::string& cmd) {
     return {};
 }
 
+// ============================================================
+// #78 P4：验证命令自适应探测
+// ============================================================
+
+namespace {
+
+/// @brief 读取文件前若干字节；读不到返回空串
+/// @details 仅用于探测项目线索，不做严格错误处理。
+std::string read_text_head(const fs::path& p, size_t max_bytes = 256 * 1024) {
+    std::ifstream in(p, std::ios::binary);
+    if (!in) {
+        return {};
+    }
+    std::string out(max_bytes, '\0');
+    in.read(out.data(), static_cast<std::streamsize>(max_bytes));
+    out.resize(static_cast<size_t>(in.gcount()));
+    return out;
+}
+
+}  // namespace
+
+std::string detect_goal_command(AgentGoal::Type type, const std::string& cwd) {
+    std::error_code ec;
+    const fs::path base = cwd.empty() ? fs::current_path() : fs::path(cwd);
+    if (!fs::is_directory(base, ec)) {
+        return {};
+    }
+    const auto has = [&](std::string_view rel) { return fs::exists(base / rel, ec); };
+    const auto text_of = [&](std::string_view rel) { return read_text_head(base / rel); };
+
+    switch (type) {
+        case AgentGoal::TestsPass:
+            // CMake：必须真的生成过 CTest 入口才算「有测试」——
+            // 只有 CMakeLists.txt 而没有 CTestTestfile，说明尚未 configure，
+            // 跑 ctest 必然报错，属于「无法验证」，不该当成「测试失败」。
+            if (has("CMakeLists.txt")) {
+                // #129：构建目录未必是 CWD（本仓就是 build/）。
+                //   - CWD 里有 CTestTestfile（in-source configure）→ 原地 ctest 即可；
+                //   - 否则按 presets / build 缓存推导构建目录，目录里有
+                //     CTestTestfile 才算「有测试」，命令带 --test-dir 指过去；
+                //   - 都没有 = 未 configure → 返回空走 unavailable 放行，
+                //     绝不返回一条必然失败的命令。
+                if (has("CTestTestfile.cmake")) {
+                    return kTestCmd;
+                }
+                if (const auto dir = prompt::detect_cmake_binary_dir(base);
+                    dir && !dir->empty()) {
+                    const std::filesystem::path p = std::filesystem::path(*dir).is_relative()
+                                                        ? base / *dir
+                                                        : std::filesystem::path(*dir);
+                    if (fs::exists(p / "CTestTestfile.cmake", ec)) {
+                        return std::format(
+                            "ctest --test-dir {} -C Debug --output-on-failure", *dir);
+                    }
+                }
+                return {};
+            }
+            if (has("Cargo.toml")) {
+                return "cargo test";
+            }
+            if (has("go.mod")) {
+                return "go test ./...";
+            }
+            if (has("package.json") &&
+                text_of("package.json").find("\"test\"") != std::string::npos) {
+                return "npm test";
+            }
+            if (has("Makefile") && text_of("Makefile").find("\ntest:") != std::string::npos) {
+                return "make test";
+            }
+            if (has("pytest.ini") || has("setup.py") || has("pyproject.toml") || has("tests")) {
+                return "pytest";
+            }
+            return {};
+
+        case AgentGoal::BuildClean:
+            // #129：CMake 构建目录未必是 CWD（本仓就是 build/），旧的硬编码
+            // `cmake --build .` 在 out-of-source 项目必然失败。改用与提示词侧
+            // 同源的推导（presets → build 缓存 → in-source 缓存 → 未 configure
+            // 时自举），不会返回一条必然失败的命令。
+            if (has("CMakeLists.txt")) {
+                const auto cmd = prompt::detect_cmake_build(base);
+                return cmd.value_or(std::string{});
+            }
+            if (has("Cargo.toml")) {
+                return "cargo build";
+            }
+            if (has("go.mod")) {
+                return "go build ./...";
+            }
+            if (has("Makefile")) {
+                return "make";
+            }
+            if (has("package.json") &&
+                text_of("package.json").find("\"build\"") != std::string::npos) {
+                return "npm run build";
+            }
+            return {};
+
+        case AgentGoal::LintZero:
+            // 只覆盖能给出完整可跑命令的 lint 栈。.clang-tidy 单独跑无参数
+            // 会 usage error，给出它反而制造假失败，故不探测。
+            if (has(".eslintrc") || has(".eslintrc.json") || has(".eslintrc.js") ||
+                has("eslint.config.js")) {
+                return "npx eslint .";
+            }
+            return {};
+
+        default:
+            // None / FileExists / CustomScript：命令由 goal 自身给定，无探测必要
+            return {};
+    }
+}
+
+AgentGoal detect_default_goal(const std::string& cwd) {
+    AgentGoal goal;
+    if (!detect_goal_command(AgentGoal::TestsPass, cwd).empty()) {
+        goal.type = AgentGoal::TestsPass;
+        return goal;
+    }
+    if (!detect_goal_command(AgentGoal::BuildClean, cwd).empty()) {
+        goal.type = AgentGoal::BuildClean;
+        return goal;
+    }
+    return goal;  // None：项目里没有可验证的东西，门禁放行
+}
+
 Verdict checker_tests(const AgentGoal& goal, const std::string& cwd) {
-    const std::string cmd = guard_command(goal.command.empty() ? kTestCmd : goal.command);
+    // #78 P4：未指定命令时先探测；探测不到则报「不可用」由门禁放行。
+    const std::string cmd =
+        goal.command.empty() ? detect_goal_command(AgentGoal::TestsPass, cwd) : goal.command;
     if (cmd.empty()) {
+        return {GoalStatus::Unknown, "no test command detected in this project", true};
+    }
+    const std::string guarded = guard_command(cmd);
+    if (guarded.empty()) {
         return {GoalStatus::Failed, "test command rejected (not in allowlist)"};
     }
-    const int code = run_exit_code(cmd, cwd);
+    const int code = run_exit_code(guarded, cwd);
     if (code < 0) {
         return {GoalStatus::Failed, "test command failed to start"};
     }
@@ -243,7 +409,13 @@ Verdict checker_tests(const AgentGoal& goal, const std::string& cwd) {
 }
 
 Verdict checker_build(const AgentGoal& goal, const std::string& cwd) {
-    const std::string cmd = guard_command(goal.command.empty() ? kBuildCmd : goal.command);
+    // 同 checker_tests：未显式指定命令时先探测。
+    const std::string raw =
+        goal.command.empty() ? detect_goal_command(AgentGoal::BuildClean, cwd) : goal.command;
+    if (raw.empty()) {
+        return {GoalStatus::Unknown, "no build command detected in this project", true};
+    }
+    const std::string cmd = guard_command(raw);
     if (cmd.empty()) {
         return {GoalStatus::Failed, "build command rejected (not in allowlist)"};
     }
@@ -257,13 +429,16 @@ Verdict checker_build(const AgentGoal& goal, const std::string& cwd) {
     return {GoalStatus::Pending, std::format("build has errors (exit={})", code)};
 }
 
-namespace {
-/// @brief lint 默认命令（纯 echo 落 0 退出，避免含 shell 元字符的默认值过白名单）
-constexpr const char* kLintCmd = "echo 'no lint config'";
-}
-
 Verdict checker_lint(const AgentGoal& goal, const std::string& cwd) {
-    const std::string cmd = guard_command(goal.command.empty() ? kLintCmd : goal.command);
+    // #78 P4：lint 此前的默认命令是 `echo 'no lint config'` —— 它恒定退出 0，
+    // 等于「没有 lint 配置也永远判定通过」，是假绿。改为探测不到就
+    // 如实报不可用（门禁放行），不再用 echo 假装验证过。
+    const std::string raw =
+        goal.command.empty() ? detect_goal_command(AgentGoal::LintZero, cwd) : goal.command;
+    if (raw.empty()) {
+        return {GoalStatus::Unknown, "no lint command detected in this project", true};
+    }
+    const std::string cmd = guard_command(raw);
     if (cmd.empty()) {
         return {GoalStatus::Failed, "lint command rejected (not in allowlist)"};
     }
@@ -285,7 +460,7 @@ Verdict checker_file_exists(const AgentGoal& goal, const std::string& cwd) {
     //        再用"父子包含"判定是否逃逸出 cwd（防 file_exists:../../.ssh/id_rsa 探测
     //        任意文件）。P2-3：路径大小写保持原名，不做 lowered。
     std::error_code ec;
-    const fs::path base = fs::weakly_canonical(fs::path(cwd), ec);       // cwd 规范化
+    const fs::path base = fs::weakly_canonical(fs::path(cwd), ec);  // cwd 规范化
     if (ec) {
         return {GoalStatus::Failed, "cannot resolve working directory"};
     }
@@ -296,7 +471,8 @@ Verdict checker_file_exists(const AgentGoal& goal, const std::string& cwd) {
     }
     const fs::path canon = fs::weakly_canonical(target, ec);
     if (ec) {
-        return {GoalStatus::Failed, sanitize_detail(std::format("cannot resolve path: {}", goal.path))};
+        return {GoalStatus::Failed,
+                sanitize_detail(std::format("cannot resolve path: {}", goal.path))};
     }
     // 判定 canon 是否在 base 子树内（自身或位于 base 之下）
     const std::string base_s = base.lexically_normal().string();
@@ -344,11 +520,16 @@ Verdict checker_custom(const AgentGoal& goal, const std::string& cwd) {
 
 Verdict check_goal(const AgentGoal& goal, const std::string& cwd) {
     switch (goal.type) {
-        case AgentGoal::TestsPass:    return checker_tests(goal, cwd);
-        case AgentGoal::BuildClean:   return checker_build(goal, cwd);
-        case AgentGoal::LintZero:     return checker_lint(goal, cwd);
-        case AgentGoal::FileExists:   return checker_file_exists(goal, cwd);
-        case AgentGoal::CustomScript: return checker_custom(goal, cwd);
+        case AgentGoal::TestsPass:
+            return checker_tests(goal, cwd);
+        case AgentGoal::BuildClean:
+            return checker_build(goal, cwd);
+        case AgentGoal::LintZero:
+            return checker_lint(goal, cwd);
+        case AgentGoal::FileExists:
+            return checker_file_exists(goal, cwd);
+        case AgentGoal::CustomScript:
+            return checker_custom(goal, cwd);
         case AgentGoal::Script:
         case AgentGoal::Batch:
         case AgentGoal::Watch:
@@ -384,7 +565,7 @@ bool starts_with(std::string_view v, std::string_view prefix) noexcept {
     return v.size() >= prefix.size() && v.substr(0, prefix.size()) == prefix;
 }
 
-} // namespace
+}  // namespace
 
 AgentGoal parse_goal(std::string_view spec) noexcept {
     // P2-3：类型前缀判定大小写不敏感（lowered_trim），但 file_exists:/cmd: 的
@@ -425,8 +606,8 @@ AgentGoal parse_goal(std::string_view spec) noexcept {
     }
     if (starts_with(v_low, "batch:") || starts_with(v_low, "watch:")) {
         const bool is_watch = starts_with(v_low, "watch:");
-        const std::string_view sfx = is_watch ? std::string_view("watch:")
-                                               : std::string_view("batch:");
+        const std::string_view sfx =
+            is_watch ? std::string_view("watch:") : std::string_view("batch:");
         const std::string rest = trimmed(spec).substr(sfx.size());
         // & 分隔的 k=v 键值表
         std::vector<std::pair<std::string, std::string>> kv;
@@ -435,22 +616,34 @@ AgentGoal parse_goal(std::string_view spec) noexcept {
         while (std::getline(ss, tok, '&')) {
             const size_t eq = tok.find('=');
             if (eq == std::string::npos) {
-                kv.emplace_back(tok, "");   // 裸键（如 concurrency）值为空
+                kv.emplace_back(tok, "");  // 裸键（如 concurrency）值为空
             } else {
                 kv.emplace_back(tok.substr(0, eq), tok.substr(eq + 1));
             }
         }
         goal.type = is_watch ? AgentGoal::Watch : AgentGoal::Batch;
         for (auto& [k, val] : kv) {
-            if (k == "cmd")        goal.command = val;
-            else if (k == "glob")  goal.glob = val;
-            else if (k == "path")  goal.path = val;
+            if (k == "cmd")
+                goal.command = val;
+            else if (k == "glob")
+                goal.glob = val;
+            else if (k == "path")
+                goal.path = val;
             else if (k == "concurrency") {
-                try { goal.concurrency = std::max(1, std::stoi(val)); } catch (...) {}
+                try {
+                    goal.concurrency = std::max(1, std::stoi(val));
+                } catch (...) {
+                }
             } else if (k == "polls") {
-                try { goal.watch_polls = std::max(1, std::stoi(val)); } catch (...) {}
+                try {
+                    goal.watch_polls = std::max(1, std::stoi(val));
+                } catch (...) {
+                }
             } else if (k == "interval") {
-                try { goal.watch_interval_ms = std::max(0, std::stoi(val)); } catch (...) {}
+                try {
+                    goal.watch_interval_ms = std::max(0, std::stoi(val));
+                } catch (...) {
+                }
             }
         }
         return goal;
@@ -459,4 +652,4 @@ AgentGoal parse_goal(std::string_view spec) noexcept {
     return goal;
 }
 
-} // namespace agent
+}  // namespace agent

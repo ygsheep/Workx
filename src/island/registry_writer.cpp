@@ -19,13 +19,12 @@ namespace {
 constexpr const char* kSessionsKey = "sessions";
 
 agent::Error io_error(const std::filesystem::path& path, const std::string& what) {
-    return agent::Error(agent::Error::Code::InternalError,
-                        "registry 文件操作失败: " + what, path.string());
+    return agent::Error(agent::Error::Code::InternalError, "registry 文件操作失败: " + what,
+                        path.string());
 }
 
 /// @brief 原子写：临时文件 + rename（失败时清理临时文件）
-agent::ResultV2<void> atomic_write(const std::filesystem::path& path,
-                                   const std::string& content) {
+agent::ResultV2<void> atomic_write(const std::filesystem::path& path, const std::string& content) {
     std::error_code ec;
     const auto dir = path.parent_path();
     if (!dir.empty()) {
@@ -48,21 +47,25 @@ agent::ResultV2<void> atomic_write(const std::filesystem::path& path,
     return agent::ResultV2<void>::ok();
 }
 
-} // namespace
+}  // namespace
 
 RegistryWriter::RegistryWriter(std::filesystem::path path) : m_path(std::move(path)) {}
 
 agent::ResultV2<void> RegistryWriter::write(const RegistryEntry& entry) {
     auto existing = read_all(m_path);
-    std::vector<RegistryEntry> entries = existing.is_ok() ? std::move(existing.value())
-                                                          : std::vector<RegistryEntry>{};
+    std::vector<RegistryEntry> entries =
+        existing.is_ok() ? std::move(existing.value()) : std::vector<RegistryEntry>{};
     // 替换同 pid 记录，保留其他会话（多 TUI 共存）
     entries.erase(std::remove_if(entries.begin(), entries.end(),
                                  [&](const RegistryEntry& e) { return e.pid == entry.pid; }),
                   entries.end());
     entries.push_back(entry);
 
-    const std::string content = to_json(entries).dump();
+    // #182：error_handler=replace —— project_root 等字段此前由 path::string() 填入，
+    // 中文路径在 Windows 上是 GBK（非法 UTF-8），默认 strict 会抛 type_error.316，
+    // 而这里正处在 IslandServer::start 的启动路径上 → 直接表现为**启动即崩**。
+    const std::string content =
+        to_json(entries).dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
     return atomic_write(m_path, content);
 }
 
@@ -73,7 +76,8 @@ agent::ResultV2<void> RegistryWriter::remove(uint32_t pid) {
     entries.erase(std::remove_if(entries.begin(), entries.end(),
                                  [&](const RegistryEntry& e) { return e.pid == pid; }),
                   entries.end());
-    return atomic_write(m_path, to_json(entries).dump());
+    return atomic_write(
+        m_path, to_json(entries).dump(-1, ' ', false, nlohmann::json::error_handler_t::replace));
 }
 
 agent::ResultV2<std::vector<RegistryEntry>> RegistryWriter::read_all(
@@ -86,7 +90,8 @@ agent::ResultV2<std::vector<RegistryEntry>> RegistryWriter::read_all(
     if (!ifs) return agent::ResultV2<std::vector<RegistryEntry>>::err(io_error(path, "无法打开"));
     std::ostringstream oss;
     oss << ifs.rdbuf();
-    if (ifs.bad()) return agent::ResultV2<std::vector<RegistryEntry>>::err(io_error(path, "读取失败"));
+    if (ifs.bad())
+        return agent::ResultV2<std::vector<RegistryEntry>>::err(io_error(path, "读取失败"));
     return parse(oss.str());
 }
 
@@ -94,7 +99,7 @@ std::filesystem::path RegistryWriter::default_registry_path() {
     std::filesystem::path home;
     const char* home_env = std::getenv("USERPROFILE");
 #ifdef _WIN32
-    if (!home_env) home_env = std::getenv("HOMEDRIVE"); // 兜底（不处理 HOMEPATH 拼接，罕见）
+    if (!home_env) home_env = std::getenv("HOMEDRIVE");  // 兜底（不处理 HOMEPATH 拼接，罕见）
 #else
     home_env = std::getenv("HOME");
 #endif
@@ -131,9 +136,8 @@ agent::ResultV2<std::vector<RegistryEntry>> RegistryWriter::parse(const std::str
                          std::string("registry json 解析失败: ") + e.what()));
     }
     if (!j.is_object() || !j.contains(kSessionsKey) || !j[kSessionsKey].is_array()) {
-        return agent::ResultV2<std::vector<RegistryEntry>>::err(
-            agent::Error(agent::Error::Code::ConfigParseFailed,
-                         "registry 格式错误：缺少 sessions 数组"));
+        return agent::ResultV2<std::vector<RegistryEntry>>::err(agent::Error(
+            agent::Error::Code::ConfigParseFailed, "registry 格式错误：缺少 sessions 数组"));
     }
 
     std::vector<RegistryEntry> entries;
@@ -152,4 +156,4 @@ agent::ResultV2<std::vector<RegistryEntry>> RegistryWriter::parse(const std::str
     return agent::ResultV2<std::vector<RegistryEntry>>::ok(std::move(entries));
 }
 
-} // namespace island
+}  // namespace island

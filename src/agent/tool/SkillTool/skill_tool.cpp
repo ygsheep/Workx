@@ -44,31 +44,23 @@ const std::string& SkillTool::description() const {
 const std::string& SkillTool::prompt() const {
     static const std::string p{
         "Loads the detailed instructions of a skill by its name. "
-        "Use when the current task matches a skill's description or when_to_use."
-    };
+        "Use when the current task matches a skill's description or when_to_use."};
     return p;
 }
 
 nlohmann::json SkillTool::input_schema() const {
     return {
         {"type", "object"},
-        {"properties", {
-            {"name", {{"type", "string"}, {"description", "The skill name to load"}}}
-        }},
+        {"properties", {{"name", {{"type", "string"}, {"description", "The skill name to load"}}}}},
         {"required", {"name"}},
-        {"additionalProperties", false}
-    };
+        {"additionalProperties", false}};
 }
 
-ResultV2<ToolResult> SkillTool::call(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+ResultV2<ToolResult> SkillTool::call(const nlohmann::json& input, const ToolContext& ctx) const {
     const auto name_it = input.find("name");
     if (name_it == input.end() || !name_it->is_string() || name_it->get<std::string>().empty()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput,
-            "Missing required argument: name");
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                         "Missing required argument: name");
     }
 
     std::shared_ptr<command::CommandRegistry> registry;
@@ -77,23 +69,20 @@ ResultV2<ToolResult> SkillTool::call(
         registry = registry_;
     }
     if (!registry) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput,
-            "Skill registry not configured");
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                         "Skill registry not configured");
     }
 
     const auto cmd = registry->find_by_name(name_it->get<std::string>());
     if (!cmd) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::ResourceNotFound,
-            "Skill not found: " + name_it->get<std::string>());
+        return ResultV2<ToolResult>::err(Error::Code::ResourceNotFound,
+                                         "Skill not found: " + name_it->get<std::string>());
     }
 
     auto* prompt_cmd = dynamic_cast<command::PromptCommand*>(cmd.get());
     if (!prompt_cmd) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput,
-            "Not a skill: " + name_it->get<std::string>());
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                         "Not a skill: " + name_it->get<std::string>());
     }
 
     command::CommandContext cctx;
@@ -109,10 +98,10 @@ ResultV2<ToolResult> SkillTool::call(
     if (text.size() > kMaxSkillTextLength) {
         text.resize(kMaxSkillTextLength);
         text += "\n\n[技能 '" + skill_name +
-            "' 全文过长已截断（仅保留前段）。如需完整指令，请用 FileRead 工具读取该技能 "
-            "目录下的 SKILL.md 文件。]";
+                "' 全文过长已截断（仅保留前段）。如需完整指令，请用 FileRead 工具读取该技能 "
+                "目录下的 SKILL.md 文件。]";
     }
     return ResultV2<ToolResult>::ok(ToolResult::ok(std::move(text)));
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

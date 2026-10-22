@@ -19,9 +19,9 @@ namespace ftxtui {
 /// @brief 内置命令所需的 UI 副作用回调
 /// @details App 注入（捕获 ViewModel / m_screen 等）；注册表侧只持有这些回调。
 struct FtuiCommandCallbacks {
-    std::function<void()> on_exit;          ///< /exit：请求退出 UI
-    std::function<void()> on_model_select;  ///< /model：打开模型选择面板
-    std::function<void()> on_provider_select; ///< /provider：打开供应商切换面板
+    std::function<void()> on_exit;             ///< /exit：请求退出 UI
+    std::function<void()> on_model_select;     ///< /model：打开模型选择面板
+    std::function<void()> on_provider_select;  ///< /provider：打开供应商切换面板
     /// @brief /resume：恢复历史会话（args 为空打开会话面板、非空切换）
     std::function<void(const std::string&)> on_resume;
     /// @brief /rename：重命名会话（args 为标题）

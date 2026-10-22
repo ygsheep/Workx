@@ -35,7 +35,7 @@ using ValidationResult = ResultV2<void>;
 ///          这些方法均为 const noexcept 级别（不抛异常、无副作用），
 ///          适合在日志/UI/registry 等不需要执行能力的场景按此接口引用。
 class IToolMetadata {
-public:
+   public:
     virtual ~IToolMetadata() = default;
 
     /// @brief 工具名称
@@ -66,16 +66,15 @@ public:
 ///          与 IToolCallable 分离后，未来可让审计/拦截层只依赖此接口，
 ///          无需引入执行能力。
 class IToolGuard {
-public:
+   public:
     virtual ~IToolGuard() = default;
 
     /// @brief 检查工具调用权限（默认允许，子类可覆盖）
     /// @param input 工具输入参数
     /// @param ctx 工具执行上下文
     /// @return 权限检查结果（错误码建议 PermissionDenied）
-    virtual PermissionResult check_permissions(
-        const nlohmann::json& /*input*/,
-        const ToolContext& /*ctx*/
+    virtual PermissionResult check_permissions(const nlohmann::json& /*input*/,
+                                               const ToolContext& /*ctx*/
     ) const {
         return PermissionResult::ok();
     }
@@ -84,9 +83,8 @@ public:
     /// @param input 工具输入参数
     /// @param ctx 工具执行上下文
     /// @return 验证结果（错误码建议 InvalidInput / MissingArgument）
-    virtual ValidationResult validate_input(
-        const nlohmann::json& /*input*/,
-        const ToolContext& /*ctx*/
+    virtual ValidationResult validate_input(const nlohmann::json& /*input*/,
+                                            const ToolContext& /*ctx*/
     ) const {
         return ValidationResult::ok();
     }
@@ -97,7 +95,7 @@ public:
 ///          测试可注入 StubIToolCallable 仅实现执行逻辑，
 ///          而不需要重写元信息方法。
 class IToolCallable {
-public:
+   public:
     virtual ~IToolCallable() = default;
 
     /// @brief 执行工具
@@ -109,10 +107,8 @@ public:
     /// 并行调用同一实例。需要缓存可变状态的工具用 `mutable` + mutex 保护。
     /// 跨工具共享状态通过单例（如 FileHistory / FileReadStateTracker）访问，
     /// 这些单例内部已用 mutex 保护。
-    virtual ResultV2<ToolResult> call(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const = 0;
+    virtual ResultV2<ToolResult> call(const nlohmann::json& input,
+                                      const ToolContext& ctx) const = 0;
 };
 
 /// @brief ITool 接口 — 工具抽象基类（M-5：组合 IToolMetadata/IToolGuard/IToolCallable）
@@ -130,4 +126,4 @@ class ITool : public IToolMetadata, public IToolGuard, public IToolCallable {
     // 纯抽象组合，无新增方法。所有虚函数由三个父接口定义。
 };
 
-} // namespace agent::tool
+}  // namespace agent::tool

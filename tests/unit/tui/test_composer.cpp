@@ -25,11 +25,9 @@ using namespace ftxtui;
 // Windows 补丁：Ctrl+Enter 改写为 kitty 序列 \x1b[13;5u → Special 事件
 // ============================================================================
 
-TEST_CASE("parser maps ctrl-enter kitty sequence to Special event",
-          "[composer][parser]") {
+TEST_CASE("parser maps ctrl-enter kitty sequence to Special event", "[composer][parser]") {
     std::vector<ftxui::Event> received;
-    ftxui::TerminalInputParser parser(
-        [&](ftxui::Event e) { received.push_back(std::move(e)); });
+    ftxui::TerminalInputParser parser([&](ftxui::Event e) { received.push_back(std::move(e)); });
     const std::string seq = "\x1b[13;5u";
     for (char c : seq) parser.Add(c);
     REQUIRE(received.size() == 1);
@@ -37,11 +35,9 @@ TEST_CASE("parser maps ctrl-enter kitty sequence to Special event",
     REQUIRE(received[0].input() == seq);
 }
 
-TEST_CASE("parser maps shift-enter kitty sequence to Special event",
-          "[composer][parser]") {
+TEST_CASE("parser maps shift-enter kitty sequence to Special event", "[composer][parser]") {
     std::vector<ftxui::Event> received;
-    ftxui::TerminalInputParser parser(
-        [&](ftxui::Event e) { received.push_back(std::move(e)); });
+    ftxui::TerminalInputParser parser([&](ftxui::Event e) { received.push_back(std::move(e)); });
     const std::string seq = "\x1b[13;2u";
     for (char c : seq) parser.Add(c);
     REQUIRE(received.size() == 1);
@@ -49,11 +45,9 @@ TEST_CASE("parser maps shift-enter kitty sequence to Special event",
     REQUIRE(received[0].input() == seq);
 }
 
-TEST_CASE("parser maps ctrl-left kitty sequence to Special event",
-          "[composer][parser]") {
+TEST_CASE("parser maps ctrl-left kitty sequence to Special event", "[composer][parser]") {
     std::vector<ftxui::Event> received;
-    ftxui::TerminalInputParser parser(
-        [&](ftxui::Event e) { received.push_back(std::move(e)); });
+    ftxui::TerminalInputParser parser([&](ftxui::Event e) { received.push_back(std::move(e)); });
     const std::string seq = "\x1b[1;5D";
     for (char c : seq) parser.Add(c);
     REQUIRE(received.size() == 1);
@@ -61,11 +55,9 @@ TEST_CASE("parser maps ctrl-left kitty sequence to Special event",
     REQUIRE(received[0].input() == seq);
 }
 
-TEST_CASE("parser maps ctrl-right kitty sequence to Special event",
-          "[composer][parser]") {
+TEST_CASE("parser maps ctrl-right kitty sequence to Special event", "[composer][parser]") {
     std::vector<ftxui::Event> received;
-    ftxui::TerminalInputParser parser(
-        [&](ftxui::Event e) { received.push_back(std::move(e)); });
+    ftxui::TerminalInputParser parser([&](ftxui::Event e) { received.push_back(std::move(e)); });
     const std::string seq = "\x1b[1;5C";
     for (char c : seq) parser.Add(c);
     REQUIRE(received.size() == 1);
@@ -104,9 +96,7 @@ struct ComposerHarness {
             return true;
         };
         opt.on_submit = [this](const std::string&) { submit_called = true; };
-        opt.on_submit_ctrl = [this](const std::string&) {
-            ctrl_submit_called = true;
-        };
+        opt.on_submit_ctrl = [this](const std::string&) { ctrl_submit_called = true; };
         comp = make_composer(opt);
     }
 };
@@ -123,8 +113,7 @@ TEST_CASE("composer Ctrl+Enter calls suggest_enter_insert when panel active",
     REQUIRE_FALSE(h.submit_called);
 }
 
-TEST_CASE("composer Enter calls suggest_enter when panel active",
-          "[composer][suggest]") {
+TEST_CASE("composer Enter calls suggest_enter when panel active", "[composer][suggest]") {
     ComposerHarness h;
     const bool handled = h.comp->OnEvent(ftxui::Event::Return);
     REQUIRE(handled);
@@ -133,8 +122,7 @@ TEST_CASE("composer Enter calls suggest_enter when panel active",
     REQUIRE_FALSE(h.submit_called);
 }
 
-TEST_CASE("composer Ctrl+Enter submits via on_submit_ctrl without panel",
-          "[composer][suggest]") {
+TEST_CASE("composer Ctrl+Enter submits via on_submit_ctrl without panel", "[composer][suggest]") {
     ComposerHarness h;
     h.panel_active = false;
     h.buf = "queued msg";
@@ -147,8 +135,7 @@ TEST_CASE("composer Ctrl+Enter submits via on_submit_ctrl without panel",
     REQUIRE(h.buf.empty());  // 提交后清空输入缓冲
 }
 
-TEST_CASE("composer Shift+Enter inserts newline without submitting",
-          "[composer][suggest]") {
+TEST_CASE("composer Shift+Enter inserts newline without submitting", "[composer][suggest]") {
     ComposerHarness h;
     const bool handled = h.comp->OnEvent(ftxui::Event::Special("\x1b[13;2u"));
     REQUIRE(handled);

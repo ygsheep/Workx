@@ -52,13 +52,19 @@ TEST_CASE("SandboxConfig restrictive factory includes cwd read/write", "[sandbox
 
     bool found_in_write = false;
     for (const auto& p : config.allow_write) {
-        if (p == cwd) { found_in_write = true; break; }
+        if (p == cwd) {
+            found_in_write = true;
+            break;
+        }
     }
     REQUIRE(found_in_write);
 
     bool found_in_read = false;
     for (const auto& p : config.allow_read) {
-        if (p == cwd) { found_in_read = true; break; }
+        if (p == cwd) {
+            found_in_read = true;
+            break;
+        }
     }
     REQUIRE(found_in_read);
 

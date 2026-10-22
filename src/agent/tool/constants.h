@@ -19,4 +19,4 @@ constexpr size_t MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
 /// 默认最大读取行数，未指定 limit 时生效
 constexpr int MAX_LINES_TO_READ = 2000;
 
-} // namespace agent::tool::constants
+}  // namespace agent::tool::constants

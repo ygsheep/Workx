@@ -1,4 +1,4 @@
-# WorkX 完整扩展文档（Full Guide）
+# Workx 完整扩展文档（Full Guide）
 
 > 🔙 **回到入口**：[README.md](../README.md) 是项目极简入口（两动线快速上手）。
 >
@@ -140,7 +140,7 @@ src/
 
 ## Agent 工具能力
 
-WorkX 的核心是 Agent 自主调用工具完成任务。内置工具集如下：
+Workx 的核心是 Agent 自主调用工具完成任务。内置工具集如下：
 
 | 工具 | 说明 |
 |------|------|
@@ -256,7 +256,7 @@ WorkX 的核心是 Agent 自主调用工具完成任务。内置工具集如下�
 
 ![四层兜底盾牌（HTTP重试→异常捕获→Fail-Closed→卡死守卫）](img/characters/11_failure_fallback_whale.jpg)
 
-WorkX 对每一层可能失败的点都做了独立闭环，从网络到工具到压缩到权限共 **四层兜底盾牌**：
+Workx 对每一层可能失败的点都做了独立闭环，从网络到工具到压缩到权限共 **四层兜底盾牌**：
 
 | 层 | 失败场景 | 兜底策略 | 源码位置 |
 |----|---------|---------|---------|
@@ -377,7 +377,7 @@ Resize → Begin → 分层渲染 → End → Flush 五步严格顺序，违反�
 
 ### Harness 是什么：`workx_core` + `workx_agent` 两层库
 
-WorkX 的源码按「是否与终端 UI 绑定」严格分层，CMake `install()` 规则只安装两个静态库目标（**不**含 `workx_tui` / `workx_app`），外部工程走 `find_package(workx)` 或 `add_subdirectory` 即可直接驱动 ReAct Agent 循环——**不需要拉 FTXUI、不需要 Win32/POSIX 终端封装、不需要设置向导**。这就是我们说的 "Agent Harness"：
+Workx 的源码按「是否与终端 UI 绑定」严格分层，CMake `install()` 规则只安装两个静态库目标（**不**含 `workx_tui` / `workx_app`），外部工程走 `find_package(workx)` 或 `add_subdirectory` 即可直接驱动 ReAct Agent 循环——**不需要拉 FTXUI、不需要 Win32/POSIX 终端封装、不需要设置向导**。这就是我们说的 "Agent Harness"：
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -438,7 +438,7 @@ bus.unsubscribe<StreamDoneEvent>(token);
 
 ### 为什么需要这些 Tool（7步漏斗每层的设计理由）
 
-很多同行 Code Agent 用"LLM 返回 tool_use → 拿到函数名反射调用"这种极简模式上线，上线一周后几乎都会遇到同一组事故：**LLM 幻觉出 `rm -rf /` 跑了 / API Key 被写进 git / Bash 打印的密钥被模型看到又 echo 回去 / 内网元数据被 curl 到**。WorkX 每一层工具链路都是针对这些真实事故设计的：
+很多同行 Code Agent 用"LLM 返回 tool_use → 拿到函数名反射调用"这种极简模式上线，上线一周后几乎都会遇到同一组事故：**LLM 幻觉出 `rm -rf /` 跑了 / API Key 被写进 git / Bash 打印的密钥被模型看到又 echo 回去 / 内网元数据被 curl 到**。Workx 每一层工具链路都是针对这些真实事故设计的：
 
 | 链路环节 | 不做会出什么事故 | 为什么这么设计 |
 |---------|----------------|--------------|

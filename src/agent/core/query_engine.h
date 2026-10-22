@@ -34,7 +34,7 @@ struct PermissionSnapshot {
 
 /// @brief 查询引擎：解析 AgentType → 构造 Agent → 执行（含 queryTracking 调用链）
 class WORKX_API QueryEngine {
-public:
+   public:
     /// @brief 依赖（与 GoalAgentDeps 同源，ReAct 与 GoalGuarded 共用）
     explicit QueryEngine(GoalAgentDeps deps);
 
@@ -62,7 +62,7 @@ public:
     /// @brief 查询调用链追踪器（begin/verdict/finish 记录，供 UI/诊断读取）
     const QueryTracker& tracker() const noexcept { return m_tracker; }
 
-private:
+   private:
     void apply_permission(std::unique_ptr<ReActLoop>& loop) const;
 
     /// @brief 构建 ReAct 循环配置（读取 agent.max_iterations，缺失用引擎默认值）
@@ -72,4 +72,4 @@ private:
     QueryTracker m_tracker;
 };
 
-} // namespace agent
+}  // namespace agent

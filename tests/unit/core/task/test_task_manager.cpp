@@ -38,7 +38,7 @@ struct TaskManagerFixture {
     }
 };
 
-} // namespace
+}  // namespace
 
 // ============================================================================
 // Task basic behavior
@@ -113,12 +113,11 @@ TEST_CASE("Task setType changes type", "[task_manager][task]") {
 // TaskManager create & launch
 // ============================================================================
 
-TEST_CASE_METHOD(TaskManagerFixture, "TaskManager create returns task without starting", "[task_manager][create]") {
+TEST_CASE_METHOD(TaskManagerFixture, "TaskManager create returns task without starting",
+                 "[task_manager][create]") {
     bool executed = false;
     auto task = TaskManager::instance().create(
-        "not_started",
-        [&executed](const std::atomic<bool>&) { executed = true; }
-    );
+        "not_started", [&executed](const std::atomic<bool>&) { executed = true; });
 
     REQUIRE(task != nullptr);
     REQUIRE(task->getName() == "not_started");
@@ -129,9 +128,7 @@ TEST_CASE_METHOD(TaskManagerFixture, "TaskManager create returns task without st
 TEST_CASE_METHOD(TaskManagerFixture, "TaskManager launch starts task", "[task_manager][launch]") {
     std::atomic<bool> executed{false};
     auto task = TaskManager::instance().launch(
-        "launched",
-        [&executed](const std::atomic<bool>&) { executed = true; }
-    );
+        "launched", [&executed](const std::atomic<bool>&) { executed = true; });
 
     // wait for completion
     TaskManager::instance().waitForAll();
@@ -144,13 +141,11 @@ TEST_CASE_METHOD(TaskManagerFixture, "TaskManager wait(task) blocks until finish
                  "[task_manager][wait][h9]") {
     // H-9：验证 wait(task) 替代 sleep_for 轮询
     std::atomic<bool> executed{false};
-    auto task = TaskManager::instance().launch(
-        "wait-target",
-        [&executed](const std::atomic<bool>&) {
+    auto task =
+        TaskManager::instance().launch("wait-target", [&executed](const std::atomic<bool>&) {
             std::this_thread::sleep_for(50ms);
             executed = true;
-        }
-    );
+        });
 
     // wait(task) 应阻塞直到 task 结束
     TaskManager::instance().wait(task);
@@ -164,13 +159,11 @@ TEST_CASE_METHOD(TaskManagerFixture, "TaskManager wait(nullptr) is no-op (H-9)",
     REQUIRE_NOTHROW(TaskManager::instance().wait(nullptr));
 }
 
-TEST_CASE_METHOD(TaskManagerFixture, "TaskManager launch Blocking task executes synchronously", "[task_manager][blocking]") {
+TEST_CASE_METHOD(TaskManagerFixture, "TaskManager launch Blocking task executes synchronously",
+                 "[task_manager][blocking]") {
     std::atomic<bool> executed{false};
     auto task = TaskManager::instance().launch(
-        "blocking",
-        [&executed](const std::atomic<bool>&) { executed = true; },
-        TaskType::Blocking
-    );
+        "blocking", [&executed](const std::atomic<bool>&) { executed = true; }, TaskType::Blocking);
 
     // Blocking 任务应在 launch 返回前已执行完
     REQUIRE(executed.load());
@@ -181,7 +174,8 @@ TEST_CASE_METHOD(TaskManagerFixture, "TaskManager launch Blocking task executes 
 // Task cancellation
 // ============================================================================
 
-TEST_CASE_METHOD(TaskManagerFixture, "Task cancellation via should_cancel flag", "[task_manager][cancel]") {
+TEST_CASE_METHOD(TaskManagerFixture, "Task cancellation via should_cancel flag",
+                 "[task_manager][cancel]") {
     std::atomic<bool> started{false};
     std::atomic<bool> cancelled_observed{false};
 
@@ -197,8 +191,7 @@ TEST_CASE_METHOD(TaskManagerFixture, "Task cancellation via should_cancel flag",
                 }
                 std::this_thread::sleep_for(2ms);
             }
-        }
-    );
+        });
 
     // 等任务开始
     while (!started.load()) std::this_thread::sleep_for(1ms);
@@ -211,7 +204,8 @@ TEST_CASE_METHOD(TaskManagerFixture, "Task cancellation via should_cancel flag",
     REQUIRE(task->isFinished());
 }
 
-TEST_CASE_METHOD(TaskManagerFixture, "TaskManager cancelAll cancels all running tasks", "[task_manager][cancel_all]") {
+TEST_CASE_METHOD(TaskManagerFixture, "TaskManager cancelAll cancels all running tasks",
+                 "[task_manager][cancel_all]") {
     constexpr int TASK_COUNT = 3;
     std::atomic<int> cancelled_count{0};
     std::vector<std::shared_ptr<Task>> tasks;
@@ -224,8 +218,7 @@ TEST_CASE_METHOD(TaskManagerFixture, "TaskManager cancelAll cancels all running 
                     std::this_thread::sleep_for(5ms);
                 }
                 cancelled_count++;
-            }
-        );
+            });
         tasks.push_back(task);
     }
 
@@ -245,13 +238,11 @@ TEST_CASE_METHOD(TaskManagerFixture, "TaskManager cancelAll cancels all running 
 // Task exception handling
 // ============================================================================
 
-TEST_CASE_METHOD(TaskManagerFixture, "Task throwing std::exception marks Failed", "[task_manager][exception]") {
-    auto task = TaskManager::instance().launch(
-        "throws_std",
-        [](const std::atomic<bool>&) {
-            throw std::runtime_error("intentional failure");
-        }
-    );
+TEST_CASE_METHOD(TaskManagerFixture, "Task throwing std::exception marks Failed",
+                 "[task_manager][exception]") {
+    auto task = TaskManager::instance().launch("throws_std", [](const std::atomic<bool>&) {
+        throw std::runtime_error("intentional failure");
+    });
 
     TaskManager::instance().waitForAll();
 
@@ -259,13 +250,11 @@ TEST_CASE_METHOD(TaskManagerFixture, "Task throwing std::exception marks Failed"
     REQUIRE(task->isFinished());
 }
 
-TEST_CASE_METHOD(TaskManagerFixture, "Task throwing unknown exception marks Failed", "[task_manager][exception]") {
-    auto task = TaskManager::instance().launch(
-        "throws_unknown",
-        [](const std::atomic<bool>&) {
-            throw 42;  // non-std exception
-        }
-    );
+TEST_CASE_METHOD(TaskManagerFixture, "Task throwing unknown exception marks Failed",
+                 "[task_manager][exception]") {
+    auto task = TaskManager::instance().launch("throws_unknown", [](const std::atomic<bool>&) {
+        throw 42;  // non-std exception
+    });
 
     TaskManager::instance().waitForAll();
 
@@ -277,13 +266,12 @@ TEST_CASE_METHOD(TaskManagerFixture, "Task throwing unknown exception marks Fail
 // update() cleanup
 // ============================================================================
 
-TEST_CASE_METHOD(TaskManagerFixture, "TaskManager update cleans up finished tasks", "[task_manager][update]") {
+TEST_CASE_METHOD(TaskManagerFixture, "TaskManager update cleans up finished tasks",
+                 "[task_manager][update]") {
     // 启动 3 个快速完成的任务
     for (int i = 0; i < 3; ++i) {
-        TaskManager::instance().launch(
-            "quick_" + std::to_string(i),
-            [](const std::atomic<bool>&) { /* immediate completion */ }
-        );
+        TaskManager::instance().launch("quick_" + std::to_string(i),
+                                       [](const std::atomic<bool>&) { /* immediate completion */ });
     }
 
     TaskManager::instance().waitForAll();
@@ -299,17 +287,16 @@ TEST_CASE_METHOD(TaskManagerFixture, "TaskManager update cleans up finished task
     REQUIRE(after == 0);
 }
 
-TEST_CASE_METHOD(TaskManagerFixture, "TaskManager update does not clean Critical tasks", "[task_manager][update]") {
+TEST_CASE_METHOD(TaskManagerFixture, "TaskManager update does not clean Critical tasks",
+                 "[task_manager][update]") {
     std::atomic<bool> started{false};
-    auto task = TaskManager::instance().create(
-        "critical",
-        [&started](const std::atomic<bool>& should_cancel) {
-            started = true;
-            while (!should_cancel) {
-                std::this_thread::sleep_for(2ms);
-            }
-        }
-    );
+    auto task = TaskManager::instance().create("critical",
+                                               [&started](const std::atomic<bool>& should_cancel) {
+                                                   started = true;
+                                                   while (!should_cancel) {
+                                                       std::this_thread::sleep_for(2ms);
+                                                   }
+                                               });
     task->setType(TaskType::Critical);
     TaskManager::instance().start(task);
 
@@ -332,19 +319,18 @@ TEST_CASE_METHOD(TaskManagerFixture, "TaskManager update does not clean Critical
 // Concurrency
 // ============================================================================
 
-TEST_CASE_METHOD(TaskManagerFixture, "TaskManager concurrent launch executes all tasks", "[task_manager][concurrency]") {
+TEST_CASE_METHOD(TaskManagerFixture, "TaskManager concurrent launch executes all tasks",
+                 "[task_manager][concurrency]") {
     constexpr int TASK_COUNT = 10;
     std::atomic<int> completed_count{0};
 
     std::vector<std::shared_ptr<Task>> tasks;
     for (int i = 0; i < TASK_COUNT; ++i) {
-        auto task = TaskManager::instance().launch(
-            "concurrent_" + std::to_string(i),
-            [&completed_count](const std::atomic<bool>&) {
-                std::this_thread::sleep_for(5ms);
-                completed_count++;
-            }
-        );
+        auto task = TaskManager::instance().launch("concurrent_" + std::to_string(i),
+                                                   [&completed_count](const std::atomic<bool>&) {
+                                                       std::this_thread::sleep_for(5ms);
+                                                       completed_count++;
+                                                   });
         tasks.push_back(task);
     }
 
@@ -356,20 +342,16 @@ TEST_CASE_METHOD(TaskManagerFixture, "TaskManager concurrent launch executes all
     }
 }
 
-TEST_CASE_METHOD(TaskManagerFixture, "TaskManager getRunningTasks returns only running", "[task_manager][query]") {
+TEST_CASE_METHOD(TaskManagerFixture, "TaskManager getRunningTasks returns only running",
+                 "[task_manager][query]") {
     std::atomic<bool> long_started{false};
     auto long_task = TaskManager::instance().launch(
-        "long_running",
-        [&long_started](const std::atomic<bool>& should_cancel) {
+        "long_running", [&long_started](const std::atomic<bool>& should_cancel) {
             long_started = true;
             while (!should_cancel) std::this_thread::sleep_for(2ms);
-        }
-    );
+        });
 
-    auto quick_task = TaskManager::instance().launch(
-        "quick",
-        [](const std::atomic<bool>&) { }
-    );
+    auto quick_task = TaskManager::instance().launch("quick", [](const std::atomic<bool>&) {});
 
     // 等待 quick 完成，long 启动
     while (!long_started.load() || !quick_task->isFinished()) {
@@ -384,26 +366,24 @@ TEST_CASE_METHOD(TaskManagerFixture, "TaskManager getRunningTasks returns only r
     TaskManager::instance().waitForAll();
 }
 
-TEST_CASE_METHOD(TaskManagerFixture, "TaskManager getRunningTaskCount returns correct count", "[task_manager][query]") {
+TEST_CASE_METHOD(TaskManagerFixture, "TaskManager getRunningTaskCount returns correct count",
+                 "[task_manager][query]") {
     std::atomic<bool> started{false};
     std::atomic<int> active{0};
 
     auto t1 = TaskManager::instance().launch(
-        "r1",
-        [&started, &active](const std::atomic<bool>& should_cancel) {
-            started = true; active++;
-            while (!should_cancel) std::this_thread::sleep_for(2ms);
-            active--;
-        }
-    );
-    auto t2 = TaskManager::instance().launch(
-        "r2",
-        [&active](const std::atomic<bool>& should_cancel) {
+        "r1", [&started, &active](const std::atomic<bool>& should_cancel) {
+            started = true;
             active++;
             while (!should_cancel) std::this_thread::sleep_for(2ms);
             active--;
-        }
-    );
+        });
+    auto t2 =
+        TaskManager::instance().launch("r2", [&active](const std::atomic<bool>& should_cancel) {
+            active++;
+            while (!should_cancel) std::this_thread::sleep_for(2ms);
+            active--;
+        });
 
     while (!started.load()) std::this_thread::sleep_for(1ms);
     std::this_thread::sleep_for(20ms);  // 让两个任务都进入运行
@@ -419,19 +399,14 @@ TEST_CASE_METHOD(TaskManagerFixture, "TaskManager getRunningTaskCount returns co
 // onCompleted callback
 // ============================================================================
 
-TEST_CASE_METHOD(TaskManagerFixture, "Task onCompleted callback fires on completion", "[task_manager][callback][slow]") {
+TEST_CASE_METHOD(TaskManagerFixture, "Task onCompleted callback fires on completion",
+                 "[task_manager][callback][slow]") {
     std::atomic<bool> callback_fired{false};
 
     auto task = std::make_shared<Task>(
-        "with_callback",
-        [](const std::atomic<bool>&) { /* quick */ },
-        EventBus::instance(),
-        std::function<void()>{},
-        100.0f
-    );
-    task->onCompleted([&callback_fired]() {
-        callback_fired = true;
-    });
+        "with_callback", [](const std::atomic<bool>&) { /* quick */ }, EventBus::instance(),
+        std::function<void()>{}, 100.0f);
+    task->onCompleted([&callback_fired]() { callback_fired = true; });
 
     TaskManager::instance().start(task);
     TaskManager::instance().waitForAll();
@@ -444,7 +419,8 @@ TEST_CASE_METHOD(TaskManagerFixture, "Task onCompleted callback fires on complet
 // 压力测试：并发启动大量 Task，验证线程数受 ThreadPool 限制
 // ============================================================================
 
-TEST_CASE_METHOD(TaskManagerFixture, "TaskManager stress test: 50 concurrent tasks limited by thread pool",
+TEST_CASE_METHOD(TaskManagerFixture,
+                 "TaskManager stress test: 50 concurrent tasks limited by thread pool",
                  "[task_manager][stress][slow]") {
     // TaskManager 单例的线程池大小 = hardware_concurrency（测试环境通常 4-16）
     const size_t pool_workers = TaskManager::instance().worker_count();
@@ -465,8 +441,9 @@ TEST_CASE_METHOD(TaskManagerFixture, "TaskManager stress test: 50 concurrent tas
                 // CAS 更新 max_concurrent
                 int prev = max_concurrent.load(std::memory_order_relaxed);
                 while (c > prev) {
-                    if (max_concurrent.compare_exchange_weak(prev, c,
-                        std::memory_order_relaxed, std::memory_order_relaxed)) break;
+                    if (max_concurrent.compare_exchange_weak(prev, c, std::memory_order_relaxed,
+                                                             std::memory_order_relaxed))
+                        break;
                 }
                 // 阻塞直到 release
                 while (!release.load(std::memory_order_relaxed)) {
@@ -475,10 +452,7 @@ TEST_CASE_METHOD(TaskManagerFixture, "TaskManager stress test: 50 concurrent tas
                 concurrent.fetch_sub(1, std::memory_order_relaxed);
                 completed_count.fetch_add(1, std::memory_order_relaxed);
             },
-            EventBus::instance(),
-            std::function<void()>{},
-            100.0f
-        );
+            EventBus::instance(), std::function<void()>{}, 100.0f);
         TaskManager::instance().start(task);
     }
 
@@ -508,12 +482,10 @@ TEST_CASE_METHOD(TaskManagerFixture, "TaskManager pool rejects unbounded thread 
     std::atomic<int> done{0};
     for (int i = 0; i < 100; ++i) {
         TaskManager::instance().launch(
-            "burst_" + std::to_string(i),
-            [&done](const std::atomic<bool>&) {
+            "burst_" + std::to_string(i), [&done](const std::atomic<bool>&) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(5));
                 done.fetch_add(1, std::memory_order_relaxed);
-            }
-        );
+            });
     }
 
     // 工作线程数不应增长
@@ -535,8 +507,7 @@ TEST_CASE("Task execute is public, drives state machine without friend (M-6)",
     //      因此必须用 shared_ptr 构造（不能栈对象）。
     std::atomic<bool> executed{false};
     auto task = std::make_shared<Task>(
-        "m6_direct_execute",
-        [&executed](const std::atomic<bool>&) { executed = true; },
+        "m6_direct_execute", [&executed](const std::atomic<bool>&) { executed = true; },
         EventBus::instance());
 
     REQUIRE(task->getStatus() == TaskStatus::Pending);
@@ -558,8 +529,7 @@ TEST_CASE("Task execute transitions Pending → Running → Cancelled (M-6)",
           "[task_manager][task][m6]") {
     // M-6：验证 execute 在 should_cancel=true 时走 Cancelled 分支
     auto task = std::make_shared<Task>(
-        "m6_cancelled",
-        [](const std::atomic<bool>&) { /* 用户函数检查 cancel 并返回 */ },
+        "m6_cancelled", [](const std::atomic<bool>&) { /* 用户函数检查 cancel 并返回 */ },
         EventBus::instance());
     task->cancel();  // 设置 should_cancel
 
@@ -572,12 +542,10 @@ TEST_CASE("Task execute transitions Pending → Running → Cancelled (M-6)",
     REQUIRE(task->isFinished());
 }
 
-TEST_CASE("Task execute catches exception and marks Failed (M-6)",
-          "[task_manager][task][m6]") {
+TEST_CASE("Task execute catches exception and marks Failed (M-6)", "[task_manager][task][m6]") {
     // M-6：验证 execute 异常路径（markFailed 为 private，通过 execute 间接触发）
     auto task = std::make_shared<Task>(
-        "m6_throws",
-        [](const std::atomic<bool>&) { throw std::runtime_error("boom"); },
+        "m6_throws", [](const std::atomic<bool>&) { throw std::runtime_error("boom"); },
         EventBus::instance());
 
     task->execute();

@@ -26,14 +26,13 @@ namespace agent {
 /// @param data SSE data 内容
 /// @param out 输出的 StreamChunk
 /// @return true 如果解析出了有效 chunk
-using ParseSSECallback = std::function<bool(const std::string& event_type,
-                                            const std::string& data,
-                                            StreamChunk& out)>;
+using ParseSSECallback =
+    std::function<bool(const std::string& event_type, const std::string& data, StreamChunk& out)>;
 
 /// @brief SSE 流读取器
 /// @details 从 HTTP 响应接收原始数据，通过 SSEParser 解析，通过回调输出 StreamChunk
 class SSEStreamReader : public IStreamReader {
-public:
+   public:
     /// @brief 构造
     /// @param parse_cb SSE 事件解析回调（Provider 特定）
     explicit SSEStreamReader(ParseSSECallback parse_cb);
@@ -52,10 +51,21 @@ public:
     /// @param error 错误信息，空表示正常结束
     void finish(const std::string& error = "");
 
+    /// @brief #89：带 HTTP 状态码标记响应结束
+    /// @param http_code HTTP 状态码（0 表示无 HTTP 响应，如 curl 传输失败）
+    /// @param error 错误信息，空表示正常结束
+    /// @details 状态码此前被字符串化进 error 后丢弃，上层只能靠解析文本反推。
+    ///          现在单独承载，供重试与降级判定结构化读取。
+    void finish(long http_code, const std::string& error);
+
     /// @brief 是否已结束（包括正常结束和错误）
     bool is_finished() const { return m_finished.load(); }
 
-private:
+    // IStreamReader 错误通道（#89）
+    int http_status() const override;
+    std::string error_message() const override;
+
+   private:
     void on_sse_event(const SSEEvent& event);
 
     ParseSSECallback m_parse_cb;  ///< Provider 特定解析回调
@@ -67,6 +77,7 @@ private:
     std::atomic<bool> m_cancelled{false};
     std::atomic<bool> m_finished{false};
     std::string m_finish_error;
+    std::atomic<int> m_finish_status{0};  ///< #89：终止时的 HTTP 状态码（0 = 无 HTTP 响应）
 
     SSEParser m_sse_parser;
 
@@ -76,4 +87,4 @@ private:
     int32_t m_token_count = 0;
 };
 
-} // namespace agent
+}  // namespace agent

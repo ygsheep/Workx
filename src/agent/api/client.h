@@ -18,7 +18,7 @@
 #include <mutex>
 
 #include "core/utils/result.h"
-#include "core/utils/result_v2.h"       // V2-3：新 ResultV2
+#include "core/utils/result_v2.h"  // V2-3：新 ResultV2
 #include "core/events/event_bus.h"
 #include "agent/api/chat_types.h"
 #include "agent/api/retry.h"  // H-3：HttpRetryPolicy
@@ -39,8 +39,8 @@ struct ChatCallbacks {
     /// @brief 收到增量 token（回复或思考）
     /// @param content_delta 正文增量
     /// @param reasoning_delta 推理/思考增量
-    std::function<void(const std::string& content_delta,
-                       const std::string& reasoning_delta)> on_token;
+    std::function<void(const std::string& content_delta, const std::string& reasoning_delta)>
+        on_token;
 
     /// @brief 流式完成（正常结束），final_chunk.is_final == true
     std::function<void(const StreamChunk& final_chunk)> on_done;
@@ -94,7 +94,7 @@ struct ClientConfig {
 /// @brief 顶层聊天客户端 — 封装 BackendFactory + 会话管理
 /// @details 调用方不直接接触 IBackend / ChatSession / EventBus。
 class Client {
-public:
+   public:
     /// @brief 从配置创建 Client
     /// @details 内部完成：查 preset（若 provider 非空）→ 拼 BackendConfig
     ///          → BackendFactory::create → backend->initialize
@@ -120,10 +120,8 @@ public:
     /// @details V2-3：返回 ResultV2，错误通过 Error 携带错误码
     ResultV2<std::string> chat(const std::string& user_text);
     ResultV2<std::string> chat(const std::vector<ChatMessage>& messages);
-    ResultV2<void> stream_chat(const std::string& user_text,
-                               const ChatCallbacks& cbs);
-    ResultV2<void> stream_chat(const std::vector<ChatMessage>& messages,
-                               const ChatCallbacks& cbs);
+    ResultV2<void> stream_chat(const std::string& user_text, const ChatCallbacks& cbs);
+    ResultV2<void> stream_chat(const std::vector<ChatMessage>& messages, const ChatCallbacks& cbs);
 
     // ---- 异步 API（TUI/交互场景）----
     // 立即返回，推理在 TaskManager 后台任务中执行。
@@ -131,10 +129,8 @@ public:
     // TUI 场景建议开启 enable_event_bus，用 EventBus 回主线程渲染。
     // 返回 Ok 表示已提交；提交级失败返回 Err。
     /// @details V2-3：返回 ResultV2，错误通过 Error 携带错误码
-    ResultV2<void> chat_async(const std::string& user_text,
-                              const ChatCallbacks& cbs);
-    ResultV2<void> stream_chat_async(const std::string& user_text,
-                                     const ChatCallbacks& cbs);
+    ResultV2<void> chat_async(const std::string& user_text, const ChatCallbacks& cbs);
+    ResultV2<void> stream_chat_async(const std::string& user_text, const ChatCallbacks& cbs);
 
     // ---- 控制 ----
     void interrupt();
@@ -153,15 +149,10 @@ public:
     Client& operator=(const Client&) = delete;
     ~Client();
 
-private:
+   private:
     // M-1：参数顺序调整为 DI 必需参数在前、可选参数在后
-    Client(std::unique_ptr<IBackend> backend,
-           ITaskManager& task_manager,
-           IEventBus* event_bus,
-           bool publish_events,
-           std::string system_prompt,
-           int retry_count,
-           int retry_delay_ms);
+    Client(std::unique_ptr<IBackend> backend, ITaskManager& task_manager, IEventBus* event_bus,
+           bool publish_events, std::string system_prompt, int retry_count, int retry_delay_ms);
 
     /// 构造 CompletionRequest（含 system_prompt + history + 新消息）
     CompletionRequest build_request(const std::string& user_text);
@@ -170,10 +161,8 @@ private:
     /// 流式核心实现（阻塞版共享）
     /// @param should_stop 外部取消检查
     /// @details V2-3：返回 ResultV2，错误通过 Error 携带错误码
-    ResultV2<void> run_stream(const CompletionRequest& request,
-                              const ChatCallbacks& cbs,
-                              const std::function<bool()>& should_stop,
-                              std::string& content_out,
+    ResultV2<void> run_stream(const CompletionRequest& request, const ChatCallbacks& cbs,
+                              const std::function<bool()>& should_stop, std::string& content_out,
                               std::string& reasoning_out);
 
     /// @brief 可中断的睡眠（用于重试退避等待）
@@ -182,7 +171,8 @@ private:
                              const std::function<bool()>& should_stop);
 
     /// @brief B.3：处理 submit 失败的错误回调与事件发布
-    /// @return true 表示已触发重试（调用方应 continue 重试循环）；false 表示重试耗尽（调用方应返回 err）
+    /// @return true 表示已触发重试（调用方应 continue 重试循环）；false 表示重试耗尽（调用方应返回
+    /// err）
     bool handle_submit_failure(int attempt, int64_t delay_ms, const ChatCallbacks& cbs,
                                const std::function<bool()>& should_stop);
 
@@ -225,4 +215,4 @@ private:
     bool m_subscribed = false;
 };
 
-} // namespace agent
+}  // namespace agent

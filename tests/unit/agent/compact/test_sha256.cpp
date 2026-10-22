@@ -41,8 +41,9 @@ TEST_CASE("sha256: 448-bit message (NIST test 3)", "[compact][sha256][ds_cache]"
 TEST_CASE("sha256: 896-bit message (two blocks, NIST test 4)", "[compact][sha256][ds_cache]") {
     // NIST FIPS 180-4 B.4: "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmn..."
     // (896 位 = 112 字节，需两个块处理)
-    std::string input = "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmno"
-                        "ijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu";
+    std::string input =
+        "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmno"
+        "ijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu";
     std::string hex = sha256_hex(input, 32);
     REQUIRE(hex == "cf5b16a778af8380036ce59e7b0492370b249b11e8f07a51afac45037afee9d1");
 }

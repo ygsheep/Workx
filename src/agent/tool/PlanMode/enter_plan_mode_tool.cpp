@@ -39,21 +39,16 @@ const std::string& EnterPlanModeTool::prompt() const {
 nlohmann::json EnterPlanModeTool::input_schema() const {
     return {
         {"type", "object"},
-        {"properties", nlohmann::json::object({
-            {"reason", {
-                {"type", "string"},
-                {"description", "Why you are entering plan mode (optional)."}
-            }}
-        })},
+        {"properties", nlohmann::json::object(
+                           {{"reason",
+                             {{"type", "string"},
+                              {"description", "Why you are entering plan mode (optional)."}}}})},
         {"required", nlohmann::json::array()},
-        {"additionalProperties", false}
-    };
+        {"additionalProperties", false}};
 }
 
-ResultV2<ToolResult> EnterPlanModeTool::call(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+ResultV2<ToolResult> EnterPlanModeTool::call(const nlohmann::json& input,
+                                             const ToolContext& ctx) const {
     const std::string reason = input.value("reason", "");
 
     // 1. 通过回调进入计划模式（宿主保存原模式并切换 Plan）
@@ -69,10 +64,8 @@ ResultV2<ToolResult> EnterPlanModeTool::call(
 
     // 2. 仅当真正进入计划模式时发布事件（评审 #3 幂等：未进入不重复发布）
     if (entered && ctx.event_bus_ptr) {
-        ctx.event_bus_ptr->publish_async(EnterPlanModeEvent{
-            .session_id = ctx.session_id,
-            .reason = reason
-        });
+        ctx.event_bus_ptr->publish_async(
+            EnterPlanModeEvent{.session_id = ctx.session_id, .reason = reason});
     }
 
     std::string msg;
@@ -84,9 +77,11 @@ ResultV2<ToolResult> EnterPlanModeTool::call(
     } else if (is_plan_mode(ctx.permission_mode)) {
         msg = "Already in plan mode. Write/edit and command execution remain blocked.";
     } else {
-        msg = "Plan mode not entered (bypass permissions mode is active; read/write remain permitted).";
+        msg =
+            "Plan mode not entered (bypass permissions mode is active; read/write remain "
+            "permitted).";
     }
     return ResultV2<ToolResult>::ok(ToolResult::ok(std::move(msg)));
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

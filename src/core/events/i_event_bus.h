@@ -33,7 +33,7 @@ namespace agent {
 /// @details 提供类型擦除的虚函数接口供 DI 注入；模板包装方法委托虚函数，
 ///          调用方可像使用 EventBus 一样使用 IEventBus&。
 class WORKX_API IEventBus {
-public:
+   public:
     virtual ~IEventBus() = default;
 
     // === 类型擦除的虚函数（由实现类提供，使用 _raw 后缀避免与模板包装冲突）===
@@ -56,8 +56,7 @@ public:
     /// @par M-8 异步驱动约束
     /// 本方法仅入队，不立即派发。必须由主循环调用 process_async_events() /
     /// drain_async_events() 才会派发到订阅者。详见文件头说明。
-    virtual void publish_async_raw(std::type_index type,
-                                   std::function<void()> emitter) = 0;
+    virtual void publish_async_raw(std::type_index type, std::function<void()> emitter) = 0;
 
     /// @brief 处理当前队列中的异步事件（单批次）
     /// @details 取出当前队列快照并逐个派发。新派发过程中再次 publish_async
@@ -94,22 +93,21 @@ public:
     // === 模板包装（非虚，委托 _raw 虚函数）===
 
     /// @brief 订阅事件（类型安全）
-    template<typename T>
+    template <typename T>
     EventToken subscribe(std::function<void(const T&)> callback) {
-        return subscribe_raw(std::type_index(typeid(T)),
-            [cb = std::move(callback)](const void* p) {
-                cb(*static_cast<const T*>(p));
-            });
+        return subscribe_raw(std::type_index(typeid(T)), [cb = std::move(callback)](const void* p) {
+            cb(*static_cast<const T*>(p));
+        });
     }
 
     /// @brief 取消订阅（类型安全）
-    template<typename T>
+    template <typename T>
     void unsubscribe(const EventToken& token) {
         unsubscribe_raw(std::type_index(typeid(T)), token);
     }
 
     /// @brief 同步发布事件（类型安全）
-    template<typename T>
+    template <typename T>
     void publish(const T& event) {
         publish_raw(std::type_index(typeid(T)), &event);
     }
@@ -117,21 +115,22 @@ public:
     /// @brief 异步发布事件（类型安全）
     /// @details 捕获事件拷贝到 emitter，等 process_async_events 时再同步发布。
     ///          M-8：异步驱动约束详见 publish_async_raw 文档与文件头。
-    template<typename T>
+    template <typename T>
     void publish_async(const T& event) {
-        publish_async_raw(std::type_index(typeid(T)),
-            [this, event]() { this->publish_raw(std::type_index(typeid(T)), &event); });
+        publish_async_raw(std::type_index(typeid(T)), [this, event]() {
+            this->publish_raw(std::type_index(typeid(T)), &event);
+        });
     }
 
     /// @brief 指定事件类型的订阅者数量
-    template<typename T>
+    template <typename T>
     [[nodiscard]] size_t subscriber_count() const {
         return subscriber_count_typed(std::type_index(typeid(T)));
     }
 
-protected:
+   protected:
     /// @brief 类型擦除的 subscriber_count（供模板包装调用）
     [[nodiscard]] virtual size_t subscriber_count_typed(std::type_index type) const = 0;
 };
 
-} // namespace agent
+}  // namespace agent

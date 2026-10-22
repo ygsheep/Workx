@@ -2,7 +2,7 @@
  * @file bash_tool.cpp
  * @brief BashTool 实现
  * @details Shell 执行工具的具体实现，支持同步/后台/沙盒/超时/进度回调
- * @version 1.1.1
+ * @version 1.2.0
  * @date 2026-07
  */
 
@@ -10,8 +10,10 @@
 
 #include "agent/tool/ShellTool/shell_detector.h"
 #include "agent/tool/ShellTool/shell_tool_common.h"
+#include "agent/tool/background_task_tracker.h"
 #include "agent/tool/permission_ask.h"
 #include "agent/tool/secret_scanner.h"
+#include "agent/tool/command_policy.h"
 #include "agent/tool/shell_guard.h"
 #include "agent/audit/audit_logger.h"
 #include "core/process/subprocess.h"
@@ -50,7 +52,7 @@ std::atomic<size_t> s_task_id_counter{0};
 /// @details 保存后台任务的 ExecOutput，供 LLM 通过未来 GetBashOutputTool 查询。
 ///          线程安全，容量上限 kMaxRegistryEntries，FIFO 淘汰最旧条目。
 class BashOutputRegistry {
-public:
+   public:
     static BashOutputRegistry& instance() {
         static BashOutputRegistry inst;
         return inst;
@@ -91,7 +93,7 @@ public:
         return m_outputs.size();
     }
 
-private:
+   private:
     BashOutputRegistry() = default;
     mutable std::mutex m_mutex;
     std::map<std::string, process::ExecOutput> m_outputs;
@@ -100,11 +102,9 @@ private:
 /// @brief 获取当前 shell（运行期检测，首次调用后缓存）
 /// @details Windows 上优先 Git Bash（支持 ls/grep/cat 等 Unix 命令），
 ///          无 Git Bash 时降级 cmd.exe。非 Windows 用 /bin/sh。
-const shell_detect::ShellInfo& shell() {
-    return shell_detect::detect();
-}
+const shell_detect::ShellInfo& shell() { return shell_detect::detect(); }
 
-} // namespace
+}  // namespace
 
 // ============================================================
 // 元信息
@@ -118,8 +118,7 @@ const std::string& BashTool::name() const {
 const std::string& BashTool::description() const {
     static const std::string d{
         "Executes a shell command and returns stdout, stderr, and exit code. "
-        "Supports timeout, working directory, and optional background execution."
-    };
+        "Supports timeout, working directory, and optional background execution."};
     return d;
 }
 
@@ -146,8 +145,10 @@ const std::string& BashTool::prompt() const {
         "- Prefer specialized tools (FileRead/FileEdit/FileWrite/Grep/Glob) when applicable\n"
         "- Use `description` to briefly explain what the command does (5-10 words)\n"
         "- Set `timeout` for long-running commands (max 600000ms)\n"
-        "- Use `run_in_background=true` for long-running commands whose output "
-        "you don't immediately need\n"
+        "- Use `run_in_background=true` for long-running commands: they run without "
+        "blocking you, and their output is automatically delivered back to you "
+        "when they finish (use it for builds/tests/downloads you can wait on "
+        "while doing other work)\n"
         "- Avoid interactive commands that require user input\n"
         "- Commands run in the current working directory by default\n"
         "- The sandbox restricts filesystem and network access by default; "
@@ -157,8 +158,7 @@ const std::string& BashTool::prompt() const {
         "- stdout is wrapped in <stdout>...</stdout> tags\n"
         "- stderr is wrapped in <stderr>...</stderr> tags\n"
         "- Non-zero exit codes are reported in <error>...</error> tags\n"
-        "- Output exceeding 8000 characters is truncated\n"
-    };
+        "- Output exceeding 8000 characters is truncated\n"};
 
     // cmd.exe 降级 — 仅 Windows 命令
     static const std::string cmd_prompt{
@@ -183,8 +183,10 @@ const std::string& BashTool::prompt() const {
         "- Prefer specialized tools (FileRead/FileEdit/FileWrite/Grep/Glob) when applicable\n"
         "- Use `description` to briefly explain what the command does (5-10 words)\n"
         "- Set `timeout` for long-running commands (max 600000ms)\n"
-        "- Use `run_in_background=true` for long-running commands whose output "
-        "you don't immediately need\n"
+        "- Use `run_in_background=true` for long-running commands: they run without "
+        "blocking you, and their output is automatically delivered back to you "
+        "when they finish (use it for builds/tests/downloads you can wait on "
+        "while doing other work)\n"
         "- Avoid interactive commands that require user input\n"
         "- Commands run in the current working directory by default\n"
         "- The sandbox restricts filesystem and network access by default; "
@@ -194,47 +196,36 @@ const std::string& BashTool::prompt() const {
         "- stdout is wrapped in <stdout>...</stdout> tags\n"
         "- stderr is wrapped in <stderr>...</stderr> tags\n"
         "- Non-zero exit codes are reported in <error>...</error> tags\n"
-        "- Output exceeding 8000 characters is truncated\n"
-    };
+        "- Output exceeding 8000 characters is truncated\n"};
 
     return sh.is_unix ? unix_prompt : cmd_prompt;
 }
 
 nlohmann::json BashTool::input_schema() const {
-    return {
-        {"type", "object"},
-        {"properties", {
-            {"command", {
-                {"type", "string"},
-                {"description", "The shell command to execute"}
-            }},
-            {"description", {
-                {"type", "string"},
-                {"description", "Brief description of what the command does (5-10 words)"}
-            }},
-            {"timeout", {
-                {"type", "integer"},
+    return {{"type", "object"},
+            {"properties",
+             {{"command", {{"type", "string"}, {"description", "The shell command to execute"}}},
+              {"description",
+               {{"type", "string"},
+                {"description", "Brief description of what the command does (5-10 words)"}}},
+              {"timeout",
+               {{"type", "integer"},
                 {"description", "Timeout in milliseconds (max 600000)"},
-                {"default", 120000}
-            }},
-            {"cwd", {
-                {"type", "string"},
-                {"description", "Working directory for the command (defaults to ctx.cwd). Use absolute paths."}
-            }},
-            {"run_in_background", {
-                {"type", "boolean"},
+                {"default", 120000}}},
+              {"cwd",
+               {{"type", "string"},
+                {"description",
+                 "Working directory for the command (defaults to ctx.cwd). Use absolute paths."}}},
+              {"run_in_background",
+               {{"type", "boolean"},
                 {"description", "Run command in background, return immediately with task id"},
-                {"default", false}
-            }},
-            {"dangerously_disable_sandbox", {
-                {"type", "boolean"},
+                {"default", false}}},
+              {"dangerously_disable_sandbox",
+               {{"type", "boolean"},
                 {"description", "Disable sandbox restrictions for this command"},
-                {"default", false}
-            }}
-        }},
-        {"required", {"command"}},
-        {"additionalProperties", false}
-    };
+                {"default", false}}}}},
+            {"required", {"command"}},
+            {"additionalProperties", false}};
 }
 
 // ============================================================
@@ -245,20 +236,28 @@ nlohmann::json BashTool::input_schema() const {
 // 权限检查
 // ============================================================
 
-PermissionResult BashTool::check_permissions(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+PermissionResult BashTool::check_permissions(const nlohmann::json& input,
+                                             const ToolContext& ctx) const {
     // #36：Bypass 模式完全放行
     if (is_bypass_mode(ctx.permission_mode)) {
         return PermissionResult::ok();
     }
     // #36：Plan 模式禁止执行命令
     if (deny_execute_by_mode(ctx.permission_mode)) {
-        return PermissionResult::err(
-            Error::Code::PermissionDenied,
-            "Command execution is not allowed in plan mode. "
-            "Switch to default mode to run commands.");
+        return PermissionResult::err(Error::Code::PermissionDenied,
+                                     "Command execution is not allowed in plan mode. "
+                                     "Switch to default mode to run commands.");
+    }
+    // #85：严格档——白名单放行，未命中需确认（headless 无确认通道 → 拒绝），
+    //      破坏性命令直接拒绝不询问。判定与审计都在 enforce_strict_command 内。
+    if (is_strict_mode(ctx.permission_mode)) {
+        if (input.contains("command") && input["command"].is_string()) {
+            const auto r = enforce_strict_command(input["command"].get<std::string>(), ctx, name());
+            if (!r.allowed) {
+                return PermissionResult::err(Error::Code::PermissionDenied, r.reason);
+            }
+        }
+        return PermissionResult::ok();
     }
     // #36：Default 模式危险命令需用户确认
     if (input.contains("command") && input["command"].is_string()) {
@@ -266,7 +265,8 @@ PermissionResult BashTool::check_permissions(
         if (is_dangerous_command(command)) {
             const std::string question = std::format(
                 "The command contains destructive patterns and requires your approval:\n\n"
-                "```\n{}\n```\n\nAllow running this command?", command);
+                "```\n{}\n```\n\nAllow running this command?",
+                command);
             if (!ask_user_confirm(ctx, question)) {
                 return PermissionResult::err(
                     Error::Code::PermissionDenied,
@@ -281,19 +281,16 @@ PermissionResult BashTool::check_permissions(
 // 执行
 // ============================================================
 
-ResultV2<ToolResult> BashTool::call(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+ResultV2<ToolResult> BashTool::call(const nlohmann::json& input, const ToolContext& ctx) const {
     // 解析参数
     if (!input.contains("command") || !input["command"].is_string()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::MissingArgument, "BashTool: 'command' is required");
+        return ResultV2<ToolResult>::err(Error::Code::MissingArgument,
+                                         "BashTool: 'command' is required");
     }
     const std::string command = input["command"].get<std::string>();
     if (command.empty()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput, "BashTool: 'command' must not be empty");
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                         "BashTool: 'command' must not be empty");
     }
 
     int timeout_ms = kDefaultTimeoutMs;
@@ -301,6 +298,16 @@ ResultV2<ToolResult> BashTool::call(
         timeout_ms = input["timeout"].get<int>();
         if (timeout_ms <= 0) timeout_ms = kDefaultTimeoutMs;
         if (timeout_ms > kMaxTimeoutMs) timeout_ms = kMaxTimeoutMs;
+    }
+    // #137：按剩余墙钟封顶（未注入预算时 ctx.remaining_wall_clock_ms < 0，行为不变）
+    if (ctx.remaining_wall_clock_ms >= 0) {
+        const int clamped = shell_common::clamp_timeout_by_wall_clock(
+            timeout_ms, ctx.remaining_wall_clock_ms);
+        if (clamped != timeout_ms) {
+            LOG_WARN("[bash_tool] timeout {}ms -> {}ms (remaining wall clock {}ms)", timeout_ms,
+                     clamped, ctx.remaining_wall_clock_ms);
+            timeout_ms = clamped;
+        }
     }
 
     bool run_in_background = false;
@@ -322,37 +329,73 @@ ResultV2<ToolResult> BashTool::call(
         auto guard_event = [&](EventType t) {
             audit::AuditLogger::instance().log_security(t, reason, ctx.session_id, name());
         };
-        if ((risk & ShellRisk::Destructive) != ShellRisk::None) guard_event(EventType::SecurityDangerousCommand);
-        if ((risk & ShellRisk::SSRF) != ShellRisk::None) guard_event(EventType::SecuritySSRFAttempt);
-        if ((risk & ShellRisk::EnvLeak) != ShellRisk::None) guard_event(EventType::SecurityEnvVarLeak);
+        if ((risk & ShellRisk::Destructive) != ShellRisk::None)
+            guard_event(EventType::SecurityDangerousCommand);
+        if ((risk & ShellRisk::SSRF) != ShellRisk::None)
+            guard_event(EventType::SecuritySSRFAttempt);
+        if ((risk & ShellRisk::EnvLeak) != ShellRisk::None)
+            guard_event(EventType::SecurityEnvVarLeak);
         if (!is_bypass_mode(ctx.permission_mode) && !is_plan_mode(ctx.permission_mode)) {
             const std::string question = std::format(
                 "The command is blocked by the security guard ({}):\n\n```\n{}\n```\n\n"
-                "Allow running this command?", reason, command);
+                "Allow running this command?",
+                reason, command);
             if (ask_user_confirm(ctx, question)) {
                 disable_sandbox = true;
             } else {
-                return ResultV2<ToolResult>::err(
-                    Error::Code::PermissionDenied,
-                    "Command execution denied by user: " + reason);
+                return ResultV2<ToolResult>::err(Error::Code::PermissionDenied,
+                                                 "Command execution denied by user: " + reason);
             }
         } else {
-            return ResultV2<ToolResult>::err(
-                Error::Code::PermissionDenied,
-                "Command blocked by security guard: " + reason);
+            return ResultV2<ToolResult>::err(Error::Code::PermissionDenied,
+                                             "Command blocked by security guard: " + reason);
         }
     }
 
     // cwd：优先用参数，否则用 ctx.cwd
     std::string cwd = ctx.cwd;
-    if (input.contains("cwd") && input["cwd"].is_string() && !input["cwd"].get<std::string>().empty()) {
+    if (input.contains("cwd") && input["cwd"].is_string() &&
+        !input["cwd"].get<std::string>().empty()) {
         cwd = input["cwd"].get<std::string>();
+    }
+
+    // #84 方案 A：restrictive 档敏感目标前置拦截（Windows 无 FS/网络沙盒后端的兜底，
+    // macOS/Linux 与 seatbelt/bwrap 构成纵深）。命中即审计 + 用户确认；确认后放行并禁用沙箱。
+    if (!disable_sandbox) {
+        const auto sb_config = process::sandbox::SandboxConfig::restrictive(cwd);
+        SandboxTargetPolicy target_policy;
+        target_policy.network_isolated = sb_config.network_isolated;
+        target_policy.allow_domains = sb_config.allow_domains;
+        target_policy.deny_write = sb_config.deny_write;
+        const auto target_risk = detect_sandbox_target_risk(command, target_policy);
+        if (target_risk != SandboxTargetRisk::None) {
+            const std::string reason = sandbox_target_risk_description(target_risk);
+            audit::AuditLogger::instance().log_security(EventType::SecuritySandboxTargetBlocked,
+                                                        reason, ctx.session_id, name());
+            if (!is_bypass_mode(ctx.permission_mode) && !is_plan_mode(ctx.permission_mode)) {
+                const std::string question = std::format(
+                    "The command targets protected resources ({}):\n\n```\n{}\n```\n\n"
+                    "Allow running this command (sandbox will be disabled)?",
+                    reason, command);
+                if (ask_user_confirm(ctx, question)) {
+                    disable_sandbox = true;
+                } else {
+                    return ResultV2<ToolResult>::err(Error::Code::PermissionDenied,
+                                                     "Command execution denied by user: " +
+                                                         reason);
+                }
+            } else {
+                return ResultV2<ToolResult>::err(
+                    Error::Code::PermissionDenied,
+                    "Command blocked by sandbox target guard: " + reason);
+            }
+        }
     }
 
     // 取消检查
     if (ctx.is_cancelled()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::Cancelled, "BashTool: cancelled before execution");
+        return ResultV2<ToolResult>::err(Error::Code::Cancelled,
+                                         "BashTool: cancelled before execution");
     }
 
     if (run_in_background) {
@@ -365,45 +408,39 @@ ResultV2<ToolResult> BashTool::call(
 // execute_sync — 同步执行路径
 // ============================================================
 
-ResultV2<ToolResult> BashTool::execute_sync(
-    const std::string& command,
-    const std::string& cwd,
-    int timeout_ms,
-    bool disable_sandbox,
-    const ToolContext& ctx
-) const {
+ResultV2<ToolResult> BashTool::execute_sync(const std::string& command, const std::string& cwd,
+                                            int timeout_ms, bool disable_sandbox,
+                                            const ToolContext& ctx) const {
     // 上报开始
     ctx.report_progress(std::format("Executing: {}", command));
 
     // 构建沙盒配置（若启用）
-    process::sandbox::SandboxConfig sb_config = disable_sandbox
-        ? process::sandbox::SandboxConfig::permissive()
-        : process::sandbox::SandboxConfig::restrictive(cwd);
+    process::sandbox::SandboxConfig sb_config =
+        disable_sandbox ? process::sandbox::SandboxConfig::permissive()
+                        : process::sandbox::SandboxConfig::restrictive(cwd);
 
     // 包装命令：通过 shell 执行，使管道/重定向/复合命令可用
     const auto& sh = shell();
-    auto wrapped = process::sandbox::SandboxAdapter::wrap_command(
-        sh.cmd, {sh.flag, command}, sb_config);
+    auto wrapped =
+        process::sandbox::SandboxAdapter::wrap_command(sh.cmd, {sh.flag, command}, sb_config);
 
-    // 上报降级或包装情况
-    if (wrapped.was_wrapped) {
-        std::string sb_status = wrapped.degraded ? "degraded" : "active";
-        ctx.report_progress("Sandbox: " + sb_status + " (backend: " + wrapped.backend_name + ")");
-    }
+    // #84：沙箱状态可见化 —— 原实现在 `if (wrapped.was_wrapped)` 门控内上报，
+    // 而降级路径（Windows 无后端）恰好 was_wrapped=false，导致"裸跑且零提示"。
+    sandbox_visibility_.report(wrapped, disable_sandbox, name(), ctx);
 
     // 构建 ExecOptions
     process::ExecOptions opts;
     opts.cwd = cwd;
     opts.args = wrapped.args;
+    // #84 方案 B：把策略侧派生的进程级约束交给执行层（Windows 上落为 Job Object）
+    opts.isolation = wrapped.isolation;
     if (timeout_ms > 0) {
         opts.timeout = std::chrono::milliseconds(timeout_ms);
     }
     // 取消回调：绑定到 ctx
     if (ctx.cancel_flag != nullptr) {
         const std::atomic<bool>* flag = ctx.cancel_flag;
-        opts.is_cancelled = [flag]() {
-            return flag->load(std::memory_order_acquire);
-        };
+        opts.is_cancelled = [flag]() { return flag->load(std::memory_order_acquire); };
     }
 
     // 执行
@@ -416,6 +453,9 @@ ResultV2<ToolResult> BashTool::execute_sync(
     }
 
     const auto& out = exec_result.value();
+    // #84 方案 B：进程级隔离到底有没有施加上，只有 exec 返回后才知道
+    sandbox_visibility_.report_isolation(out.isolation, name(), ctx);
+
     std::string formatted = format_result(out);
     formatted = truncate_output(std::move(formatted), kMaxOutputChars);
     // #36：输出脱敏，密钥内容替换为 [REDACTED:label]
@@ -439,82 +479,124 @@ ResultV2<ToolResult> BashTool::execute_sync(
 // execute_background — 后台执行路径
 // ============================================================
 
-ResultV2<ToolResult> BashTool::execute_background(
-    const std::string& command,
-    const std::string& cwd,
-    int timeout_ms,
-    bool disable_sandbox,
-    const ToolContext& ctx
-) const {
+ResultV2<ToolResult> BashTool::execute_background(const std::string& command,
+                                                  const std::string& cwd, int timeout_ms,
+                                                  bool disable_sandbox,
+                                                  const ToolContext& ctx) const {
     // 检查 TaskManager 是否可用
     if (ctx.task_manager_ptr == nullptr) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::ConfigInvalid,
-            "BashTool: run_in_background=true requires TaskManager "
-            "(ctx.task_manager_ptr is null)");
+        return ResultV2<ToolResult>::err(Error::Code::ConfigInvalid,
+                                         "BashTool: run_in_background=true requires TaskManager "
+                                         "(ctx.task_manager_ptr is null)");
     }
 
     // 沙盒配置
-    process::sandbox::SandboxConfig sb_config = disable_sandbox
-        ? process::sandbox::SandboxConfig::permissive()
-        : process::sandbox::SandboxConfig::restrictive(cwd);
+    process::sandbox::SandboxConfig sb_config =
+        disable_sandbox ? process::sandbox::SandboxConfig::permissive()
+                        : process::sandbox::SandboxConfig::restrictive(cwd);
     auto wrapped = process::sandbox::SandboxAdapter::wrap_command(
         shell().cmd, {shell().flag, command}, sb_config);
+
+    // #84：后台路径此前完全没有沙箱状态上报，降级同样静默
+    sandbox_visibility_.report(wrapped, disable_sandbox, name(), ctx);
 
     // M-3 修复：task_name 拼接唯一递增 id，避免不同任务重名
     // 格式：bash:<id>:<command 前 40 字符>
     const size_t task_id = s_task_id_counter.fetch_add(1, std::memory_order_relaxed);
     std::string task_name = "bash:" + std::to_string(task_id) + ":" + command.substr(0, 40);
 
-    auto& tm = ctx.task_manager();
-    auto task = tm.launch(task_name,
-        [command, cwd, timeout_ms, wrapped, task_name](const std::atomic<bool>& should_cancel) {
-            process::ExecOptions opts;
-            opts.cwd = cwd;
-            opts.args = wrapped.args;
-            if (timeout_ms > 0) {
-                opts.timeout = std::chrono::milliseconds(timeout_ms);
-            }
-            opts.is_cancelled = [&should_cancel]() {
-                return should_cancel.load(std::memory_order_acquire);
-            };
+    // #166：后台任务结果回传——启动前登记 pending，任务结束时把结果回传追踪器。
+    // 必须在 launch 之前 add_pending：任务可能瞬间完成，mark_done 先于 add_pending
+    // 到达会让该任务永久停留在 pending，导致 ReActLoop 收尾时无限等待。
+    auto tracker = ctx.background_tracker;
+    if (tracker) {
+        tracker->add_pending(task_name);
+    }
 
-            auto exec_result = process::exec(wrapped.cmd, opts);
-            // M-1 修复：
-            // 1. exec 启动失败（is_err）抛异常 → TaskManager 标记 Failed（发布 TaskFailedEvent）
-            //    原实现 (void)exec_result 会导致 TaskManager 错误地标记 Completed
-            if (exec_result.is_err()) {
-                const auto& err = exec_result.error();
-                throw std::runtime_error(
-                    "Failed to execute command: " + err.message);
-            }
-            // 2. exec 成功（即使非零退出/超时/取消）→ 保存输出到注册表，供 LLM 查询
-            //    非零退出/超时不视为 task 失败（命令执行了，只是结果非成功），符合 cc 行为
-            //    任务被取消（#23 P3）：进程组已被销毁，输出无意义 → 清理注册表
-            auto& out = exec_result.value();
-            if (out.cancelled) {
-                BashOutputRegistry::instance().remove(task_name);
-            } else {
-                BashOutputRegistry::instance().store(task_name, out);
+    auto& tm = ctx.task_manager();
+    auto task = tm.launch(
+        task_name,
+        [command, cwd, timeout_ms, wrapped, task_name, tracker](
+            const std::atomic<bool>& should_cancel) {
+            // 保证恰好回传一次（含启动失败/异常路径），否则追踪器 pending 永久挂起。
+            bool reported = false;
+            auto report = [&](std::string text, bool is_err) {
+                if (tracker && !reported) {
+                    reported = true;
+                    tracker->mark_done(
+                        BackgroundTaskResult{task_name, "Bash", std::move(text), is_err});
+                }
+            };
+            try {
+                process::ExecOptions opts;
+                opts.cwd = cwd;
+                opts.args = wrapped.args;
+                // #84 方案 B：后台路径同样带上进程级约束（超时/取消时连带杀全树）
+                opts.isolation = wrapped.isolation;
+                if (timeout_ms > 0) {
+                    opts.timeout = std::chrono::milliseconds(timeout_ms);
+                }
+                opts.is_cancelled = [&should_cancel]() {
+                    return should_cancel.load(std::memory_order_acquire);
+                };
+
+                auto exec_result = process::exec(wrapped.cmd, opts);
+                // M-1 修复：
+                // 1. exec 启动失败（is_err）抛异常 → TaskManager 标记 Failed（发布 TaskFailedEvent）
+                //    原实现 (void)exec_result 会导致 TaskManager 错误地标记 Completed
+                if (exec_result.is_err()) {
+                    const auto& err = exec_result.error();
+                    report(std::format("Failed to execute command: {}", err.message), true);
+                    throw std::runtime_error("Failed to execute command: " + err.message);
+                }
+                // 2. exec 成功（即使非零退出/超时/取消）→ 保存输出到注册表，供 LLM 查询
+                //    非零退出/超时不视为 task 失败（命令执行了，只是结果非成功），符合 cc 行为
+                //    任务被取消（#23 P3）：进程组已被销毁，输出无意义 → 清理注册表
+                auto& out = exec_result.value();
+                if (out.isolation == process::IsolationOutcome::Failed) {
+                    // #84 方案 B：后台路径拿不到 ctx（本 lambda 可能比调用方存活更久），
+                    // 因此把降级事实写进被持久化的输出本身 —— 之后查询该任务的任何人都看得到，
+                    // 不会像只发进度那样随上下文消失而静默丢失。
+                    out.stderr_text =
+                        "[workx] process isolation unavailable: job object not applied\n" +
+                        out.stderr_text;
+                }
+                if (out.cancelled) {
+                    BashOutputRegistry::instance().remove(task_name);
+                } else {
+                    BashOutputRegistry::instance().store(task_name, out);
+                }
+                // #166：格式化输出（截断 + 脱敏，与同步路径一致）回传追踪器
+                std::string formatted = format_result(out);
+                formatted = truncate_output(std::move(formatted), kMaxOutputChars);
+                formatted = redact_secrets(formatted);
+                report(std::move(formatted), !out.is_success());
+            } catch (...) {
+                // 兜底：任何未预期异常也解除 pending，避免 ReActLoop 收尾时无限等待
+                report("Background command failed to execute.", true);
+                throw;
             }
         },
         TaskType::Background);
 
     if (!task) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InternalError,
-            "BashTool: failed to launch background task");
+        if (tracker) {
+            tracker->remove_pending(task_name);  // 启动失败：撤销登记，避免污染 pending
+        }
+        return ResultV2<ToolResult>::err(Error::Code::InternalError,
+                                         "BashTool: failed to launch background task");
     }
 
-    // 立即返回 task 信息
+    // 立即返回 task 信息（非阻塞）。完成后结果由 ReActLoop 自动回传模型。
     std::string task_name_str = task->getName();
-    std::string result = "Command running in background with ID: " + task_name_str +
-        "\nCommand: " + command +
-        "\nOutput will be available when the task completes.";
+    std::string result = "Command started in background with ID: " + task_name_str +
+                         "\nCommand: " + command +
+                         "\nIt runs without blocking you; its output will be delivered back to "
+                         "you automatically when it completes.";
 
     ctx.report_progress("Background task started: " + task_name_str);
 
     return ResultV2<ToolResult>::ok(ToolResult::ok(std::move(result)));
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

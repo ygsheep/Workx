@@ -26,7 +26,8 @@ TEST_CASE("MessageNode find_tool finds by call_id", "[message_node][find_tool]")
     REQUIRE(m.find_tool("b")->call_id == "b");
 }
 
-TEST_CASE("MessageNode find_tool mutates the matched node (non-const)", "[message_node][find_tool]") {
+TEST_CASE("MessageNode find_tool mutates the matched node (non-const)",
+          "[message_node][find_tool]") {
     MessageNode m;
     m.tool_calls.push_back(ToolCallNode{.call_id = "x"});
     auto* t = m.find_tool("x");

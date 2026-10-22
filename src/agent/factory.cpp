@@ -27,18 +27,22 @@
 #include "agent/api/chat_types.h"
 #include "agent/api/i_backend.h"
 #include "agent/api/i_backend_admin.h"  // C-2：dynamic_cast 到 IBackendAdmin*
-#include "agent/config/app_config.h"  // keys:: / default_config_path()
+#include "agent/config/app_config.h"    // keys:: / default_config_path()
 #include "agent/core/chat_session.h"
 #include "agent/mcp/mcp_client_manager.h"
 #include "agent/model/provider_preset.h"
-#include "agent/prompt/memory.h"  // 项目记忆加载（CLAUDE.md / AGENT.md）
+#include "agent/prompt/environment_probe.h"  // #82：环境探测（目录骨架 / 工具链 / 项目命令）
+#include "agent/prompt/env_setup_hint.h"  // #176：环境自建提示（缺哪些工具 + 后台并行装）
+#include "agent/prompt/memory.h"          // 项目记忆加载（CLAUDE.md / AGENT.md）
 #include "agent/session/session_store.h"  // 项目会话恢复
+#include "core/utils/utf8_path.h"  // #182：路径 → UTF-8（提示词里的 cwd 必须合法 UTF-8）
 #include "agent/tool/AgentTool/agent_tool.h"
 #include "agent/tool/BashTool/bash_tool.h"
 #include "agent/tool/AskUser/AskUserTool.h"
 #include "agent/tool/BriefTool/BriefTool.h"
 #include "agent/tool/PlanMode/enter_plan_mode_tool.h"
 #include "agent/tool/PlanMode/exit_plan_mode_v2_tool.h"
+#include "agent/tool/Task/send_message_tool.h"
 #include "agent/tool/Task/task_output_tool.h"
 #include "agent/tool/Task/task_stop_tool.h"
 #include "agent/tool/FileEditTool/file_edit_tool.h"
@@ -70,9 +74,8 @@ namespace agent {
 // create_backend
 // ============================================================
 
-BackendCreateResult create_backend(IConfigManager& cfg,
-                                   const ProviderPreset* preset,
-                                   IEventBus& event_bus) {
+BackendCreateResult create_backend(IConfigManager& cfg, const ProviderPreset* preset,
+                                   IEventBus& event_bus, const std::string& model_override) {
     BackendCreateResult result;
 
     // URL: cfg(显式设置) > preset > ""
@@ -82,12 +85,13 @@ BackendCreateResult create_backend(IConfigManager& cfg,
         result.remote_url = std::string(preset->default_url);
     }
 
-    // Model: cfg(显式设置) > preset > ""
+    // Model: cfg(显式设置) > preset > ""；#89 model_override 非空时最终覆盖
     if (cfg.has(keys::MODEL_NAME)) {
         result.model_name = cfg.get_or<std::string>(keys::MODEL_NAME, "");
     } else if (preset && !preset->default_model.empty()) {
         result.model_name = std::string(preset->default_model);
     }
+    if (!model_override.empty()) result.model_name = model_override;
 
     // 无 remote_url 时不创建 backend
     if (result.remote_url.empty()) {
@@ -103,7 +107,8 @@ BackendCreateResult create_backend(IConfigManager& cfg,
     backend_config.api_key = cfg.get_or<std::string>(keys::API_KEY, "");
     int default_timeout = preset && preset->timeout_ms > 0 ? preset->timeout_ms : 30000;
     backend_config.timeout_ms = cfg.get_or<int>(keys::TIMEOUT_MS, default_timeout);
-    // DS_CACHE P2：reasoning_content 往返配置（默认 false，仅 DeepSeek-reasoner 等 thinking 模型开启）
+    // DS_CACHE P2：reasoning_content 往返配置（默认 false，仅 DeepSeek-reasoner 等 thinking
+    // 模型开启）
     backend_config.send_reasoning_content = cfg.get_or<bool>(keys::SEND_REASONING, false);
 
     // 创建后端（H-1：显式注入 event_bus 以保留 BackendStatusEvent 发布；
@@ -126,9 +131,9 @@ BackendCreateResult create_backend(IConfigManager& cfg,
 // create_backend_for_entry — 按供应商条目创建后端（/provider 热切换）
 // ============================================================
 
-BackendCreateResult create_backend_for_entry(IConfigManager& cfg,
-                                             const ProviderConfigEntry& entry,
-                                             IEventBus& event_bus) {
+BackendCreateResult create_backend_for_entry(IConfigManager& cfg, const ProviderConfigEntry& entry,
+                                             IEventBus& event_bus,
+                                             const std::string& model_override) {
     BackendCreateResult result;
 
     // 预置默认（可能为空；自定义条目 id 不在预设表返回 nullptr）
@@ -141,7 +146,7 @@ BackendCreateResult create_backend_for_entry(IConfigManager& cfg,
     }
     result.remote_url = effective_url;
 
-    // Model：条目 model > cfg > preset 默认
+    // Model：条目 model > cfg > preset 默认；#89 model_override 非空时最终覆盖
     std::string effective_model = entry.model;
     if (effective_model.empty()) {
         effective_model = cfg.get_or<std::string>(keys::MODEL_NAME, "");
@@ -149,6 +154,7 @@ BackendCreateResult create_backend_for_entry(IConfigManager& cfg,
     if (effective_model.empty() && preset && !preset->default_model.empty()) {
         effective_model = preset->default_model;
     }
+    if (!model_override.empty()) effective_model = model_override;
     result.model_name = effective_model;
 
     // 无 URL 时不创建 backend（ProviderConfigEntry 存在但未配置 base_url）
@@ -184,10 +190,8 @@ BackendCreateResult create_backend_for_entry(IConfigManager& cfg,
     return result;
 }
 
-SessionResult create_session(IConfigManager& cfg,
-                             const ProviderPreset* preset,
-                             ITaskManager& task_manager,
-                             IEventBus& event_bus) {
+SessionResult create_session(IConfigManager& cfg, const ProviderPreset* preset,
+                             ITaskManager& task_manager, IEventBus& event_bus) {
     SessionResult result;
 
     // 复用 create_backend：URL/Model 解析 + 后端创建与初始化
@@ -224,12 +228,27 @@ SessionResult create_session(IConfigManager& cfg,
     // 项目会话恢复：生成 UUID 作为 session_id（替换硬编码 "default"）
     std::string session_id = core::util::generate_uuid();
     int default_retry_delay = preset && preset->retry_delay_ms > 0 ? preset->retry_delay_ms : 1000;
-    result.session = std::make_unique<ChatSession>(
-        std::move(backend_result.provider),
-        task_manager,
-        event_bus,
-        cfg,
-        default_retry_delay, session_id);
+    result.session = std::make_unique<ChatSession>(std::move(backend_result.provider), task_manager,
+                                                   event_bus, cfg, default_retry_delay, session_id);
+
+    // #89：fallback 模型降级工厂 —— 主后端 429/5xx/网络错重试耗尽时，按
+    // backend.fallback_models 顺序换模型重建后端（会话历史保留在 ChatSession 内，
+    // 仅换 provider）。与主装配同样分两条路：preset 解析（create_backend）与
+    // 自定义供应商条目（create_backend_for_entry，主后端 URL 来自条目时）。
+    result.session->set_fallback_provider_factory(
+        [&cfg, preset, &event_bus, active_provider = cfg.get_or<std::string>(keys::PROVIDER, "")](
+            const std::string& model) -> std::unique_ptr<ICompletionProvider> {
+            auto r = create_backend(cfg, preset, event_bus, model);
+            if (!r.provider && !active_provider.empty()) {
+                for (const auto& e : load_provider_configs(cfg)) {
+                    if (e.id == active_provider || e.name == active_provider) {
+                        r = create_backend_for_entry(cfg, e, event_bus, model);
+                        break;
+                    }
+                }
+            }
+            return std::move(r.provider);
+        });
 
     // #45：CLI --bypass-permissions 启动即全权模式（跳过文件/命令确认）
     if (cfg.get_or<bool>(keys::BYPASS_PERMISSIONS, false)) {
@@ -275,7 +294,8 @@ SessionResult create_session(IConfigManager& cfg,
         });
 
     // DS_CACHE H-4：从 provider preset 或 cfg 注入上下文窗口到压缩器
-    // 优先级：cfg.backend.context_length > preset.default_context_length > 0（压缩器内部 fallback 1M）
+    // 优先级：cfg.backend.context_length > preset.default_context_length > 0（压缩器内部 fallback
+    // 1M）
     int32_t context_window = cfg.get_or<int>(keys::CONTEXT_LENGTH, 0);
     if (context_window <= 0 && preset && preset->default_context_length > 0) {
         context_window = preset->default_context_length;
@@ -308,8 +328,8 @@ SessionResult create_session(IConfigManager& cfg,
         if (fs::exists(fs::current_path() / ".git")) {
             git_branch = "unknown";
         }
-        result.session->configure_session_store(
-            project_dir.string(), cwd, result.model_name, git_branch);
+        result.session->configure_session_store(project_dir.string(), cwd, result.model_name,
+                                                git_branch);
     } catch (const std::exception&) {
         // 配置失败不阻断会话启动，仅失去持久化能力
     }
@@ -341,6 +361,8 @@ void register_builtin_tools(tool::ToolRegistry& registry,
     registry.register_tool(std::make_shared<tool::AgentTool>());
     registry.register_tool(std::make_shared<tool::TaskOutputTool>());
     registry.register_tool(std::make_shared<tool::TaskStopTool>());
+    // #52 阶段 C：向运行中后台任务投递补充指令（工具轮边界 drain 生效）
+    registry.register_tool(std::make_shared<tool::SendMessageTool>());
 
     // #24：待办清单（TodoWrite 全量 + TaskV2 细粒度 CRUD）
     registry.register_tool(std::make_shared<tool::TodoWriteTool>());
@@ -389,11 +411,11 @@ std::string get_os_version_string() {
     OSVERSIONINFOEXW osvi{};
     osvi.dwOSVersionInfoSize = sizeof(osvi);
     // RtlGetVersion 不受 manifest 影响，返回真实版本
-    typedef LONG(WINAPI* RtlGetVersionPtr)(OSVERSIONINFOEXW*);
+    typedef LONG(WINAPI * RtlGetVersionPtr)(OSVERSIONINFOEXW*);
     HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
     if (ntdll) {
-        auto pRtlGetVersion = reinterpret_cast<RtlGetVersionPtr>(
-            GetProcAddress(ntdll, "RtlGetVersion"));
+        auto pRtlGetVersion =
+            reinterpret_cast<RtlGetVersionPtr>(GetProcAddress(ntdll, "RtlGetVersion"));
         if (pRtlGetVersion && pRtlGetVersion(&osvi) == 0) {
             // 粗略判定 Windows 版本名
             const char* edition = "Windows";
@@ -454,10 +476,25 @@ bool is_git_repo() {
     return false;
 }
 
+/// @brief 构建 #82 环境探测段（项目骨架 / 工具链 / 构建与测试命令）
+/// @details 省掉 agent 前若干轮用 Bash+Glob 摸索环境的开销，也让 #78 验证门禁有可
+///          引用的命令来源。探测只读且只在启动时做一次；推导不出内容时返回空串，
+///          调用方据此不注入，避免给模型塞一段无意义的空标题。
+prompt::EnvironmentProbe make_project_probe() {
+    namespace fs = std::filesystem;
+    return prompt::EnvironmentProbe{
+        .dir_entries = prompt::probe_directory_skeleton(fs::current_path()),
+        .toolchains = prompt::probe_toolchain(),
+        .commands = prompt::probe_project_commands(fs::current_path()),
+    };
+}
+
 /// @brief 构建环境上下文段（对齐 cc computeEnvInfo 的 <env> 块）
 std::string build_environment_context() {
     namespace fs = std::filesystem;
-    std::string cwd = fs::current_path().string();
+    // #182：cwd 会进 `<env>` 段。path::string() 在中文系统返回 GBK，
+    // 非法 UTF-8 会让后续请求体的 json::dump() 抛 type_error.316（请求发不出去）。
+    std::string cwd = core::util::path_to_utf8(fs::current_path());
     std::string platform = get_platform_string();
     std::string os_version = get_os_version_string();
     std::string shell_line = get_shell_info_line();
@@ -470,9 +507,7 @@ std::string build_environment_context() {
         "- Working directory: {}\n"
         "- Is directory a git repo: {}\n"
         "- Available shells: {}\n",
-        os_version, platform, cwd,
-        git_repo ? "Yes" : "No",
-        shell_line);
+        os_version, platform, cwd, git_repo ? "Yes" : "No", shell_line);
 
     // Windows 平台补充 shell 选择指引
 #ifdef _WIN32
@@ -495,13 +530,28 @@ std::string build_environment_context() {
             "ls/cat/cp/mv/rm. Prefer PowerShell for Unix-style commands on Windows.\n";
     }
 #endif
+
+    const prompt::EnvironmentProbe probe = make_project_probe();
+    const std::string probe_text = prompt::format_environment_probe(probe);
+    if (!probe_text.empty()) {
+        env_block += "\n";
+        env_block += probe_text;
+    }
+
+    // #176：环境自建提示 —— 评测题目镜像常刻意极简（裸 ubuntu:24.04），
+    // 系统依赖要 agent 自己装（官方参考解亦然），实测会吃掉大量墙钟预算。
+    // 这里显式点出「缺哪些常用工具」，并建议把安装/构建放后台、与后续工作重叠。
+    const std::string setup_hint = prompt::format_env_setup_hint(prompt::probe_common_tools());
+    if (!setup_hint.empty()) {
+        env_block += "\n";
+        env_block += setup_hint;
+    }
     return env_block;
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
-std::string build_system_prompt(const std::string& user_prompt,
-                                const tool::ToolRegistry& registry,
+std::string build_system_prompt(const std::string& user_prompt, const tool::ToolRegistry& registry,
                                 tool::SessionMode mode) {
     std::string sys_prompt = user_prompt;
 
@@ -509,9 +559,10 @@ std::string build_system_prompt(const std::string& user_prompt,
     sys_prompt += "\n\n";
     sys_prompt += build_environment_context();
 
-    // 注入项目记忆（CLAUDE.md / AGENT.md，从 CWD 向上遍历）
+    // 注入项目记忆（CLAUDE.md / AGENTS.md / AGENT.md，从 CWD 向上遍历）
     // 放在环境上下文之后、工具 prompt 之前，让项目约定优先级高于工具说明
-    std::string project_memory = prompt::load_and_format_project_memory(std::filesystem::current_path());
+    std::string project_memory =
+        prompt::load_and_format_project_memory(std::filesystem::current_path());
     if (!project_memory.empty()) {
         sys_prompt += "\n\n";
         sys_prompt += project_memory;
@@ -536,4 +587,4 @@ std::string build_system_prompt(const std::string& user_prompt,
     return sys_prompt;
 }
 
-} // namespace agent
+}  // namespace agent

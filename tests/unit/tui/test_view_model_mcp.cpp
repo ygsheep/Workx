@@ -19,9 +19,9 @@ TEST_CASE("ViewModel ActionMcpStatus stores structured server entries", "[view_m
     REQUIRE(vm.sidebar.mcp_servers.empty());
 
     std::vector<McpServerLite> servers = {
-        {"github", "2026-07-28", 3, 1, ""},          // 已连接
-        {"notion", "2025-11-25", 0, 0, ""},          // 连接中
-        {"broken", "", 0, 2, "spawn failed"},        // 失败 + 错误
+        {"github", "2026-07-28", 3, 1, ""},    // 已连接
+        {"notion", "2025-11-25", 0, 0, ""},    // 连接中
+        {"broken", "", 0, 2, "spawn failed"},  // 失败 + 错误
     };
     REQUIRE(vm.apply(ActionMcpStatus{.servers = servers}));
     REQUIRE(vm.sidebar.mcp_servers.size() == 3);

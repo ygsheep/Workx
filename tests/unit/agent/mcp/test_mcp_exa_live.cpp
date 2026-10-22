@@ -61,7 +61,7 @@ std::optional<McpServerConfig> load_exa_config() {
     return std::nullopt;
 }
 
-} // namespace
+}  // namespace
 
 TEST_CASE("Exa MCP 实时：连接协商 + 工具清单 + 真实搜索", "[mcp_exa][live]") {
     auto cfg = load_exa_config();
@@ -73,8 +73,7 @@ TEST_CASE("Exa MCP 实时：连接协商 + 工具清单 + 真实搜索", "[mcp_e
     McpClient client;
     auto ok = client.connect(*cfg, 30000);
     if (ok.is_err()) {
-        FAIL("Exa MCP 连接失败: " << ok.error().message
-             << "（command=" << cfg->command << "）");
+        FAIL("Exa MCP 连接失败: " << ok.error().message << "（command=" << cfg->command << "）");
     }
     REQUIRE(client.is_connected());
     REQUIRE(client.name() == "exa");
@@ -95,9 +94,8 @@ TEST_CASE("Exa MCP 实时：连接协商 + 工具清单 + 真实搜索", "[mcp_e
     REQUIRE(has_fetch);
 
     // 真实搜索调用（numResults=2 控制返回量，避免超时）
-    auto result = client.call_tool("web_search_exa",
-                                   {{"query", "MCP protocol 2026"},
-                                    {"numResults", 2}});
+    auto result =
+        client.call_tool("web_search_exa", {{"query", "MCP protocol 2026"}, {"numResults", 2}});
     REQUIRE(result.is_ok());
     REQUIRE_FALSE(result.value().is_error);
     REQUIRE_FALSE(result.value().content.empty());
@@ -132,10 +130,9 @@ TEST_CASE("Exa MCP 实时：web_fetch_exa 抓取页面", "[mcp_exa][live]") {
     }
 
     // 抓取一个已知 URL（MCP 官方博客），验证 web_fetch_exa
-    auto result = client.call_tool("web_fetch_exa",
-                                   {{"urls", nlohmann::json::array(
-                                        {"https://modelcontextprotocol.io"})},
-                                    {"maxCharacters", 2000}});
+    auto result = client.call_tool(
+        "web_fetch_exa", {{"urls", nlohmann::json::array({"https://modelcontextprotocol.io"})},
+                          {"maxCharacters", 2000}});
     REQUIRE(result.is_ok());
     REQUIRE_FALSE(result.value().is_error);
     REQUIRE_FALSE(result.value().content.empty());

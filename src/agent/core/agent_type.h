@@ -17,18 +17,18 @@ namespace agent {
 
 /// @brief Agent 类型（里程碑 0.6.x：有类型/目标/环境感知的多模式体系）
 enum class AgentType {
-    Unknown = 0,      ///< 未识别 / 空
-    ReAct,            ///< 通用交互对话（现状，默认）
-    GoalGuarded,      ///< #31 目标驱动，验到成功为止（别名：goal-guarded / verify）
-    Planner,          ///< #33 只读规划
-    Executor,         ///< #33 方案确认后执行
-    Coordinator,      ///< #33 任务编排（依赖 AgentTool）
-    Researcher,       ///< #33 收集→对比→总结
-    Reviewer,         ///< #33 只读审查
-    Batch,            ///< #32 同构输入并行
-    Watch,            ///< #32 文件/事件监控
-    Script,           ///< #32 确定性脚本执行（无需 LLM）
-    Background,       ///< 长时运行：整条请求转后台，不阻塞主对话，事件通知
+    Unknown = 0,  ///< 未识别 / 空
+    ReAct,        ///< 通用交互对话（现状，默认）
+    GoalGuarded,  ///< #31 目标驱动，验到成功为止（别名：goal-guarded / verify）
+    Planner,      ///< #33 只读规划
+    Executor,     ///< #33 方案确认后执行
+    Coordinator,  ///< #33 任务编排（依赖 AgentTool）
+    Researcher,   ///< #33 收集→对比→总结
+    Reviewer,     ///< #33 只读审查
+    Batch,        ///< #32 同构输入并行
+    Watch,        ///< #32 文件/事件监控
+    Script,       ///< #32 确定性脚本执行（无需 LLM）
+    Background,   ///< 长时运行：整条请求转后台，不阻塞主对话，事件通知
 };
 
 /// @brief 将 agent.active 字符串解析为 AgentType
@@ -53,4 +53,4 @@ std::string_view to_string(AgentType type) noexcept;
 /// @details 仅用于日志提示，不参与路由正确性
 bool is_implemented(AgentType type) noexcept;
 
-} // namespace agent
+}  // namespace agent

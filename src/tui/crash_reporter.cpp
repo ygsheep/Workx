@@ -58,9 +58,8 @@ void WriteBacktrace(std::FILE* out) {
 #if defined(_WIN32)
     if (!out) return;
     void* frames[40];
-    const USHORT n =
-        CaptureStackBackTrace(1, static_cast<DWORD>(sizeof(frames) / sizeof(frames[0])),
-                              frames, nullptr);
+    const USHORT n = CaptureStackBackTrace(
+        1, static_cast<DWORD>(sizeof(frames) / sizeof(frames[0])), frames, nullptr);
     for (USHORT i = 0; i < n; ++i) {
         DWORD64 addr = reinterpret_cast<DWORD64>(frames[i]);
         char sym_name[sizeof(SYMBOL_INFO) + 255];
@@ -70,8 +69,7 @@ void WriteBacktrace(std::FILE* out) {
         DWORD64 displ = 0;
         std::fprintf(out, "  #%02u 0x%08I64X", i, addr);
         if (SymFromAddr(GetCurrentProcess(), addr, &displ, sym)) {
-            std::fprintf(out, "  %s+0x%llX", sym->Name,
-                         static_cast<unsigned long long>(displ));
+            std::fprintf(out, "  %s+0x%llX", sym->Name, static_cast<unsigned long long>(displ));
             DWORD line = 0;
             IMAGEHLP_LINE64 li{};
             li.SizeOfStruct = sizeof(li);
@@ -106,8 +104,7 @@ void Dump(const char* title, const char* extra) {
 #if defined(_WIN32)
 LONG WINAPI SehHandler(EXCEPTION_POINTERS* info) {
     char buf[96];
-    std::snprintf(buf, sizeof(buf), "SEH 0x%08lX",
-                  info->ExceptionRecord->ExceptionCode);
+    std::snprintf(buf, sizeof(buf), "SEH 0x%08lX", info->ExceptionRecord->ExceptionCode);
     Dump("seh", buf);
     return EXCEPTION_EXECUTE_HANDLER;
 }
@@ -119,17 +116,15 @@ LONG __stdcall VectoredHandler(EXCEPTION_POINTERS* info) {
     if (code == EXCEPTION_ACCESS_VIOLATION || code == EXCEPTION_ILLEGAL_INSTRUCTION ||
         code == EXCEPTION_INT_DIVIDE_BY_ZERO || code == EXCEPTION_STACK_OVERFLOW) {
         char buf[96];
-        std::snprintf(buf, sizeof(buf), "first-chance SEH 0x%08lX @0x%p",
-                      code, info->ExceptionRecord->ExceptionAddress);
+        std::snprintf(buf, sizeof(buf), "first-chance SEH 0x%08lX @0x%p", code,
+                      info->ExceptionRecord->ExceptionAddress);
         Dump("vectored", buf);
     }
     return EXCEPTION_CONTINUE_SEARCH;
 }
 #endif
 
-void SigAbortHandler(int /*sig*/) {
-    Dump("abort/sigabrt", "assert() failed or std::abort()");
-}
+void SigAbortHandler(int /*sig*/) { Dump("abort/sigabrt", "assert() failed or std::abort()"); }
 
 void TerminateHandler() noexcept {
     std::string what = "unknown";
@@ -155,8 +150,8 @@ void TerminateHandler() noexcept {
 }
 
 #if defined(_WIN32)
-void InvalidParamHandler(const wchar_t* expr, const wchar_t* func,
-                         const wchar_t* file, unsigned line, uintptr_t) {
+void InvalidParamHandler(const wchar_t* expr, const wchar_t* func, const wchar_t* file,
+                         unsigned line, uintptr_t) {
     char buf[512];
     std::snprintf(buf, sizeof(buf), "invalid_parameter expr=%ls func=%ls file=%ls line=%u",
                   expr ? expr : L"", func ? func : L"", file ? file : L"", line);

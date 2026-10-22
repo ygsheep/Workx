@@ -32,9 +32,7 @@ std::string trim(std::string_view s) {
 }
 
 /// @brief 是否为 `---` 分隔行
-bool is_fence(std::string_view line) {
-    return trim(line) == "---";
-}
+bool is_fence(std::string_view line) { return trim(line) == "---"; }
 
 /// @brief 解析布尔值；无法识别时返回 fallback
 bool parse_bool(std::string_view value, bool fallback) {
@@ -47,8 +45,7 @@ bool parse_bool(std::string_view value, bool fallback) {
 /// @brief 剥离成对引号（YAML 字符串字面量）
 std::string strip_quotes(std::string_view v) {
     if (v.size() >= 2 &&
-        ((v.front() == '"' && v.back() == '"') ||
-         (v.front() == '\'' && v.back() == '\''))) {
+        ((v.front() == '"' && v.back() == '"') || (v.front() == '\'' && v.back() == '\''))) {
         return std::string(v.substr(1, v.size() - 2));
     }
     return std::string(v);
@@ -64,7 +61,8 @@ std::vector<std::string> parse_aliases(std::string_view value) {
     size_t pos = 0;
     while (pos <= v.size()) {
         const size_t comma = v.find(',', pos);
-        const auto item = trim(v.substr(pos, comma == std::string_view::npos ? v.size() - pos : comma - pos));
+        const auto item =
+            trim(v.substr(pos, comma == std::string_view::npos ? v.size() - pos : comma - pos));
         if (!item.empty()) aliases.push_back(strip_quotes(item));
         if (comma == std::string_view::npos) break;
         pos = comma + 1;
@@ -73,9 +71,7 @@ std::vector<std::string> parse_aliases(std::string_view value) {
 }
 
 /// @brief 解析 paths：同 aliases 的列表形式（引号剥离已在 parse_aliases 内完成）
-std::vector<std::string> parse_paths(std::string_view value) {
-    return parse_aliases(value);
-}
+std::vector<std::string> parse_paths(std::string_view value) { return parse_aliases(value); }
 
 /// @brief 从正文首行派生描述（去掉 # 前缀与空白）
 std::string derive_description(const std::string& body) {
@@ -98,7 +94,8 @@ std::string yaml_objects_to_json(const std::vector<std::string>& blocks) {
         size_t pos = 0;
         while (pos <= block.size()) {
             const size_t nl = block.find('\n', pos);
-            const auto raw = block.substr(pos, nl == std::string::npos ? block.size() - pos : nl - pos);
+            const auto raw =
+                block.substr(pos, nl == std::string::npos ? block.size() - pos : nl - pos);
             pos = nl == std::string::npos ? block.size() + 1 : nl + 1;
             const auto line = trim(raw);
             if (line.empty() || line.front() == '#') continue;
@@ -114,9 +111,13 @@ std::string yaml_objects_to_json(const std::vector<std::string>& blocks) {
             } else {
                 bool is_int = !value.empty();
                 for (char c : value) {
-                    if (c < '0' || c > '9') { is_int = false; break; }
+                    if (c < '0' || c > '9') {
+                        is_int = false;
+                        break;
+                    }
                 }
-                obj[key] = is_int ? nlohmann::json(std::stol(value)) : nlohmann::json(std::move(value));
+                obj[key] =
+                    is_int ? nlohmann::json(std::stol(value)) : nlohmann::json(std::move(value));
             }
         }
         arr.push_back(std::move(obj));
@@ -124,14 +125,16 @@ std::string yaml_objects_to_json(const std::vector<std::string>& blocks) {
     return arr.dump();
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 ParsedSkill parse_skill_content(const std::string& content, const std::string& default_name) {
     ParsedSkill result;
     result.frontmatter.name = default_name;
 
     // 无 frontmatter：全部为正文
-    if (content.empty() || !is_fence(std::string_view(content).substr(0, content.find('\n') == std::string::npos ? content.size() : content.find('\n')))) {
+    if (content.empty() ||
+        !is_fence(std::string_view(content).substr(
+            0, content.find('\n') == std::string::npos ? content.size() : content.find('\n')))) {
         result.body = content;
         result.frontmatter.description = derive_description(result.body);
         return result;
@@ -155,7 +158,7 @@ ParsedSkill parse_skill_content(const std::string& content, const std::string& d
             return result;
         }
         front_part = rest.substr(0, second_fence);
-        size_t body_start = second_fence + 4;  // 跳过 "\n---"
+        size_t body_start = second_fence + 4;                                    // 跳过 "\n---"
         if (body_start < rest.size() && rest[body_start] == '\r') ++body_start;  // CRLF
         if (body_start < rest.size() && rest[body_start] == '\n') ++body_start;
         body_part = rest.substr(body_start);
@@ -165,13 +168,14 @@ ParsedSkill parse_skill_content(const std::string& content, const std::string& d
 
     // 逐行解析 key: value
     size_t pos = 0;
-    std::string last_list_key;             // 最近一个列表 key（支持多行 `- item` 追加）
-    bool obj_hook_open = false;            // 当前是否在收集一个对象式 hook
-    std::vector<std::string> obj_blocks;   // 已完成的原始对象块（每块为多行 `key: value`）
-    std::string cur_obj_block;             // 正在收集的原始对象块
+    std::string last_list_key;   // 最近一个列表 key（支持多行 `- item` 追加）
+    bool obj_hook_open = false;  // 当前是否在收集一个对象式 hook
+    std::vector<std::string> obj_blocks;  // 已完成的原始对象块（每块为多行 `key: value`）
+    std::string cur_obj_block;            // 正在收集的原始对象块
     while (pos <= front_part.size()) {
         const size_t nl = front_part.find('\n', pos);
-        const auto line = front_part.substr(pos, nl == std::string_view::npos ? front_part.size() - pos : nl - pos);
+        const auto line = front_part.substr(
+            pos, nl == std::string_view::npos ? front_part.size() - pos : nl - pos);
         pos = nl == std::string_view::npos ? front_part.size() + 1 : nl + 1;
 
         const auto trimmed = trim(line);
@@ -201,7 +205,8 @@ ParsedSkill parse_skill_content(const std::string& content, const std::string& d
                         cur_obj_block.clear();
                         obj_hook_open = false;
                     }
-                    if (!item_text.empty()) result.frontmatter.hooks.push_back(strip_quotes(item_text));
+                    if (!item_text.empty())
+                        result.frontmatter.hooks.push_back(strip_quotes(item_text));
                 }
                 continue;
             }
@@ -222,8 +227,10 @@ ParsedSkill parse_skill_content(const std::string& content, const std::string& d
         // 多行列表项：`- item` 追加到上一个列表 key（aliases / paths）
         if (!last_list_key.empty() && starts_dash) {
             if (!item_text.empty()) {
-                if (last_list_key == "paths") result.frontmatter.paths.push_back(strip_quotes(item_text));
-                else if (last_list_key == "aliases") result.frontmatter.aliases.push_back(strip_quotes(item_text));
+                if (last_list_key == "paths")
+                    result.frontmatter.paths.push_back(strip_quotes(item_text));
+                else if (last_list_key == "aliases")
+                    result.frontmatter.aliases.push_back(strip_quotes(item_text));
             }
             continue;
         }
@@ -295,4 +302,4 @@ ParsedSkill parse_skill_content(const std::string& content, const std::string& d
     return result;
 }
 
-} // namespace agent::skill
+}  // namespace agent::skill

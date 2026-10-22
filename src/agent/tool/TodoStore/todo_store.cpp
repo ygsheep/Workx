@@ -97,11 +97,14 @@ bool TodoStore::delete_todo(const std::string& session_id, const std::string& id
         auto it = m_sessions.find(session_id);
         if (it == m_sessions.end()) return false;
         auto& todos = it->second.todos;
-        auto new_end = std::remove_if(todos.begin(), todos.end(),
-                                      [&](const core::todo::TodoItem& t) {
-                                          if (t.id == id) { found = true; return true; }
-                                          return false;
-                                      });
+        auto new_end =
+            std::remove_if(todos.begin(), todos.end(), [&](const core::todo::TodoItem& t) {
+                if (t.id == id) {
+                    found = true;
+                    return true;
+                }
+                return false;
+            });
         if (found) todos.erase(new_end, todos.end());
         snapshot = todos;
     }
@@ -123,7 +126,8 @@ std::vector<core::todo::TodoItem> TodoStore::replace_todos(
         std::lock_guard<std::mutex> lock(m_mutex);
         auto& st = m_sessions[session_id];
         // 全部 completed 时置空（对齐 cc allDone ? [] : todos）
-        const bool all_done = !todos.empty() &&
+        const bool all_done =
+            !todos.empty() &&
             std::all_of(todos.begin(), todos.end(), [](const core::todo::TodoItem& t) {
                 return t.status == core::todo::TodoStatus::Completed;
             });
@@ -150,8 +154,10 @@ void TodoStore::restore_todos(const std::string& session_id,
         // 恢复后 next_id 需超过现有最大 id，避免 id 复用
         int max_id = 0;
         for (const auto& t : st.todos) {
-            try { max_id = std::max(max_id, std::stoi(t.id)); }
-            catch (...) {}
+            try {
+                max_id = std::max(max_id, std::stoi(t.id));
+            } catch (...) {
+            }
         }
         st.next_id = max_id + 1;
     }
@@ -176,4 +182,4 @@ void TodoStore::clear_for_test() {
     m_event_bus = nullptr;
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

@@ -26,8 +26,8 @@ namespace {
 
 /// @brief 把 Element 渲染到固定尺寸 Screen，返回逐行拼接的文本（用于子串断言）
 std::string render_text(const ftxui::Element& e, int cols = 240, int rows = 80) {
-    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(cols),
-                                        ftxui::Dimension::Fixed(rows));
+    auto screen =
+        ftxui::Screen::Create(ftxui::Dimension::Fixed(cols), ftxui::Dimension::Fixed(rows));
     ftxui::Render(screen, e);
     std::string out;
     for (int y = 0; y < rows; ++y) {
@@ -78,8 +78,7 @@ TEST_CASE("build_markdown renders ordered list", "[markdown][block]") {
 }
 
 TEST_CASE("build_markdown renders code block with language tag", "[markdown][block]") {
-    auto text = render_text(
-        build_markdown("```cpp\nint main() {}\n```", 100));
+    auto text = render_text(build_markdown("```cpp\nint main() {}\n```", 100));
     REQUIRE(text.find("cpp") != std::string::npos);
     REQUIRE(text.find("int main()") != std::string::npos);
 }
@@ -95,11 +94,12 @@ TEST_CASE("build_markdown degrades table row to inline text", "[markdown][block]
 }
 
 TEST_CASE("build_markdown renders table block with box-drawing borders", "[markdown][block]") {
-    auto text = render_text(build_markdown(
-        "| 场景 | 复杂度 |\n"
-        "| --- | --- |\n"
-        "| 平均 | O(n log n) |\n"
-        "| 最坏 | O(n^2) |", 100));
+    auto text =
+        render_text(build_markdown("| 场景 | 复杂度 |\n"
+                                   "| --- | --- |\n"
+                                   "| 平均 | O(n log n) |\n"
+                                   "| 最坏 | O(n^2) |",
+                                   100));
     // 边框字符（┌ ┬ ┐ ├ ┼ ┤ └ ┴ ┘ │）
     REQUIRE(text.find("\u250c") != std::string::npos);
     REQUIRE(text.find("\u251c") != std::string::npos);
@@ -116,21 +116,23 @@ TEST_CASE("build_markdown renders table block with box-drawing borders", "[markd
 }
 
 TEST_CASE("build_markdown renders table alignment separators", "[markdown][block]") {
-    auto text = render_text(build_markdown(
-        "| a | b | c |\n"
-        "| :--- | :---: | ---: |\n"
-        "| 1 | 2 | 3 |", 100));
+    auto text =
+        render_text(build_markdown("| a | b | c |\n"
+                                   "| :--- | :---: | ---: |\n"
+                                   "| 1 | 2 | 3 |",
+                                   100));
     REQUIRE(text.find("a") != std::string::npos);
     REQUIRE(text.find("1") != std::string::npos);
     REQUIRE(text.find("---") == std::string::npos);
 }
 
 TEST_CASE("build_markdown renders bold inside table cells", "[markdown][block]") {
-    auto text = render_text(build_markdown(
-        "| 状态 | 说明 |\n"
-        "| --- | --- |\n"
-        "| **成功** | 一切正常 |\n"
-        "| 失败 | **重试** 即可 |", 100));
+    auto text =
+        render_text(build_markdown("| 状态 | 说明 |\n"
+                                   "| --- | --- |\n"
+                                   "| **成功** | 一切正常 |\n"
+                                   "| 失败 | **重试** 即可 |",
+                                   100));
     // 单元格行内解析：** 被消费，文字保留（对齐 src/tui render_inline 行为）
     REQUIRE(text.find("**") == std::string::npos);
     REQUIRE(text.find("成功") != std::string::npos);
@@ -139,11 +141,12 @@ TEST_CASE("build_markdown renders bold inside table cells", "[markdown][block]")
 }
 
 TEST_CASE("build_markdown table borders align with styled cells", "[markdown][block]") {
-    auto text = render_text(build_markdown(
-        "| 状态 | 说明 |\n"
-        "| --- | --- |\n"
-        "| **成功** | 一切正常 |\n"
-        "| 失败 | **重试** 即可 |", 100));
+    auto text =
+        render_text(build_markdown("| 状态 | 说明 |\n"
+                                   "| --- | --- |\n"
+                                   "| **成功** | 一切正常 |\n"
+                                   "| 失败 | **重试** 即可 |",
+                                   100));
     // 每行 box-drawing 竖线（│ U+2502，UTF-8 0xE2 0x94 0x82）的显示列位置必须完全一致 → 边框对齐。
     // 位置按整行前缀的显示宽度（ftxui::string_width，CJK 记 1 字符=2 列）统计，
     // 而非字节偏移：中文为 3 字节/1 字符，字节偏移会随各行内容改变。
@@ -205,11 +208,11 @@ MessageNode make_tool_message(const char* tool, const char* result) {
 TEST_CASE("build_message renders Read preview with line numbers and metadata",
           "[markdown][toolcard]") {
     auto msg = make_tool_message("Read",
-        "  1\u2192int main() {\n"
-        "  2\u2192    return 0;\n"
-        "  3\u2192}\n"
-        "\n"
-        "(read lines 1-3, total 3, truncated)");
+                                 "  1\u2192int main() {\n"
+                                 "  2\u2192    return 0;\n"
+                                 "  3\u2192}\n"
+                                 "\n"
+                                 "(read lines 1-3, total 3, truncated)");
     auto text = render_text(build_message(msg, 100));
     // 状态行 + 行号前缀（│1）+ 代码内容 + 元数据行
     REQUIRE(text.find("has been read successfully") != std::string::npos);
@@ -221,14 +224,14 @@ TEST_CASE("build_message renders Read preview with line numbers and metadata",
 TEST_CASE("build_message renders Write diff with status text and bg prefix",
           "[markdown][toolcard]") {
     auto msg = make_tool_message("Write",
-        "File updated.\n"
-        "\n"
-        "--- a/src/main.cpp\n"
-        "+++ b/src/main.cpp\n"
-        "@@ -1,3 +1,3 @@\n"
-        "-int main() {\n"
-        "+int main() {\n"
-        "     return 0;\n");
+                                 "File updated.\n"
+                                 "\n"
+                                 "--- a/src/main.cpp\n"
+                                 "+++ b/src/main.cpp\n"
+                                 "@@ -1,3 +1,3 @@\n"
+                                 "-int main() {\n"
+                                 "+int main() {\n"
+                                 "     return 0;\n");
     auto text = render_text(build_message(msg, 100));
     // 状态文本可见；diff 头行（---/+++/@@）不泄漏；+ 行内容与序号可见
     REQUIRE(text.find("File updated.") != std::string::npos);
@@ -239,11 +242,9 @@ TEST_CASE("build_message renders Write diff with status text and bg prefix",
     REQUIRE(text.find("\u25021") != std::string::npos);
 }
 
-TEST_CASE("build_message truncates long Read results at 60 lines",
-          "[markdown][toolcard]") {
+TEST_CASE("build_message truncates long Read results at 60 lines", "[markdown][toolcard]") {
     std::string result;
-    for (int i = 1; i <= 62; ++i)
-        result += std::format("{:>2}\u2192line{}\n", i, i);
+    for (int i = 1; i <= 62; ++i) result += std::format("{:>2}\u2192line{}\n", i, i);
     auto msg = make_tool_message("Read", result.c_str());
     auto text = render_text(build_message(msg, 100), 240, 100);
     REQUIRE(text.find("(... truncated") != std::string::npos);
@@ -287,14 +288,13 @@ TEST_CASE("build_message shows copy/retry only on normal reply", "[markdown][but
     REQUIRE(tool_text.find("重试") == std::string::npos);
 }
 
-TEST_CASE("estimate_message_height syncs with Read tool result layout",
-          "[markdown][toolcard]") {
+TEST_CASE("estimate_message_height syncs with Read tool result layout", "[markdown][toolcard]") {
     auto msg = make_tool_message("Read",
-        "  1\u2192int main() {\n"
-        "  2\u2192    return 0;\n"
-        "  3\u2192}\n"
-        "\n"
-        "(read lines 1-3, total 3, truncated)");
+                                 "  1\u2192int main() {\n"
+                                 "  2\u2192    return 0;\n"
+                                 "  3\u2192}\n"
+                                 "\n"
+                                 "(read lines 1-3, total 3, truncated)");
     // 与 render 对齐：前空1 + 边框2 + 头1 + 标题1 + 标题下空1 + fpath1 +
     //  状态1 + 代码3 + 代码区vPad2 + 元数据2 + 末卡后空1 = 16
     REQUIRE(estimate_message_height(msg, 240) == 16);
@@ -317,8 +317,8 @@ TEST_CASE("build_markdown code block keeps vertical padding", "[markdown][block]
     int visible = 0;
     for (const auto& row : text | std::views::split('\n')) {
         std::string_view sv(row.begin(), row.end());
-        if (!sv.empty() && std::any_of(sv.begin(), sv.end(),
-            [](char c) { return c != ' '; })) ++visible;
+        if (!sv.empty() && std::any_of(sv.begin(), sv.end(), [](char c) { return c != ' '; }))
+            ++visible;
     }
     REQUIRE(visible == 2);
     REQUIRE(text.find("```") == std::string::npos);

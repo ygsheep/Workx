@@ -37,10 +37,8 @@ std::string normalize_quotes(std::string_view s);
 /// @param file_content 文件内容
 /// @param search_string 待查找的字符串（可能含直引号）
 /// @return 文件中的实际子串；未找到返回 nullopt
-std::optional<std::string> find_actual_string(
-    std::string_view file_content,
-    std::string_view search_string
-);
+std::optional<std::string> find_actual_string(std::string_view file_content,
+                                              std::string_view search_string);
 
 /// @brief 统计文件内容中匹配字符串的出现次数（支持引号规范化）
 /// @details 使用 find_actual_string 获取实际子串后统计非重叠出现次数。
@@ -48,10 +46,7 @@ std::optional<std::string> find_actual_string(
 /// @param file_content 文件内容
 /// @param search_string 待统计的字符串
 /// @return 非重叠出现次数
-size_t count_actual_occurrences(
-    std::string_view file_content,
-    std::string_view search_string
-);
+size_t count_actual_occurrences(std::string_view file_content, std::string_view search_string);
 
 /// @brief 保留原文件引号风格，将 new_string 中的直引号转换为弯引号
 /// @details 流程（对齐 CC utils.ts#preserveQuoteStyle）：
@@ -68,10 +63,7 @@ size_t count_actual_occurrences(
 /// @param actual_old_string 文件中的实际子串（可能含弯引号）
 /// @param new_string LLM 提供的 new_string（含直引号）
 /// @return 风格保留后的 new_string（按原文件风格还原弯引号）
-std::string preserve_quote_style(
-    std::string_view old_string,
-    std::string_view actual_old_string,
-    std::string_view new_string
-);
+std::string preserve_quote_style(std::string_view old_string, std::string_view actual_old_string,
+                                 std::string_view new_string);
 
-} // namespace agent::tool
+}  // namespace agent::tool

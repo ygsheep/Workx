@@ -22,8 +22,8 @@ namespace {
 
 struct ForbiddenInclude {
     const char* pattern;
-    const char* dir;      ///< 被扫描层
-    const char* owner;    ///< 禁止 include 的目标层
+    const char* dir;    ///< 被扫描层
+    const char* owner;  ///< 禁止 include 的目标层
 };
 
 /// @brief 读取文件为字符串（按二进制读，避免编码问题）
@@ -52,7 +52,7 @@ std::vector<fs::path> check_rule(const fs::path& layer_dir, const char* forbidde
     return violations;
 }
 
-} // namespace
+}  // namespace
 
 // ============================================================
 // agent 层：禁止 include tui/app/example

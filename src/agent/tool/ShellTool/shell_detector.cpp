@@ -28,11 +28,11 @@ namespace {
 /// @brief 宽字符串转 UTF-8
 std::string wide_to_utf8(std::wstring_view w) {
     if (w.empty()) return {};
-    int len = WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()),
-                                  nullptr, 0, nullptr, nullptr);
+    int len = WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), nullptr, 0,
+                                  nullptr, nullptr);
     std::string out(static_cast<size_t>(len), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()),
-                        out.data(), len, nullptr, nullptr);
+    WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), out.data(), len, nullptr,
+                        nullptr);
     return out;
 }
 
@@ -97,7 +97,7 @@ std::string find_git_bash() {
     return {};
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 ShellInfo detect_shell_windows() {
     std::string bash = find_git_bash();
@@ -107,7 +107,7 @@ ShellInfo detect_shell_windows() {
     return {"cmd.exe", "/c", ShellType::CmdExe, false};
 }
 
-#endif // _WIN32
+#endif  // _WIN32
 
 const ShellInfo& detect() {
     static ShellInfo info = []() -> ShellInfo {
@@ -120,4 +120,4 @@ const ShellInfo& detect() {
     return info;
 }
 
-} // namespace agent::tool::shell_detect
+}  // namespace agent::tool::shell_detect

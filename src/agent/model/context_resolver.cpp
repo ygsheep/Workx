@@ -10,13 +10,11 @@
 
 namespace agent {
 
-ContextLengthResolution resolve_context_length(
-    std::string_view model_name,
-    int32_t sel_context_length,
-    int32_t cfg_context_length,
-    const ProviderPreset* preset,
-    std::shared_ptr<const ModelCatalog> catalog)
-{
+ContextLengthResolution resolve_context_length(std::string_view model_name,
+                                               int32_t sel_context_length,
+                                               int32_t cfg_context_length,
+                                               const ProviderPreset* preset,
+                                               std::shared_ptr<const ModelCatalog> catalog) {
     ContextLengthResolution result;
 
     // 1. Provider list_models() 返回值（动态，最准确）
@@ -65,4 +63,4 @@ ContextLengthResolution resolve_context_length(
     return result;
 }
 
-} // namespace agent
+}  // namespace agent

@@ -23,7 +23,7 @@ std::string normalized(std::string_view s) {
     return out;
 }
 
-} // namespace
+}  // namespace
 
 AgentType parse_agent_type(std::string_view s) noexcept {
     const std::string v = normalized(s);
@@ -47,19 +47,31 @@ AgentType parse_agent_type(std::string_view s) noexcept {
 
 std::string_view to_string(AgentType type) noexcept {
     switch (type) {
-        case AgentType::ReAct:       return "react";
-        case AgentType::GoalGuarded: return "goal-guarded";
-        case AgentType::Planner:     return "planner";
-        case AgentType::Executor:    return "executor";
-        case AgentType::Coordinator: return "coordinator";
-        case AgentType::Researcher:  return "researcher";
-        case AgentType::Reviewer:    return "reviewer";
-        case AgentType::Batch:       return "batch";
-        case AgentType::Watch:       return "watch";
-        case AgentType::Script:      return "script";
-        case AgentType::Background:  return "background";
+        case AgentType::ReAct:
+            return "react";
+        case AgentType::GoalGuarded:
+            return "goal-guarded";
+        case AgentType::Planner:
+            return "planner";
+        case AgentType::Executor:
+            return "executor";
+        case AgentType::Coordinator:
+            return "coordinator";
+        case AgentType::Researcher:
+            return "researcher";
+        case AgentType::Reviewer:
+            return "reviewer";
+        case AgentType::Batch:
+            return "batch";
+        case AgentType::Watch:
+            return "watch";
+        case AgentType::Script:
+            return "script";
+        case AgentType::Background:
+            return "background";
         case AgentType::Unknown:
-        default:                     return "unknown";
+        default:
+            return "unknown";
     }
 }
 
@@ -67,19 +79,19 @@ bool is_implemented(AgentType type) noexcept {
     switch (type) {
         case AgentType::ReAct:
         case AgentType::GoalGuarded:
-        case AgentType::Batch:    // #32 多模式已实现
+        case AgentType::Batch:  // #32 多模式已实现
         case AgentType::Watch:
         case AgentType::Script:
-        case AgentType::Planner:      // #33 角色 Agent 已实现
+        case AgentType::Planner:  // #33 角色 Agent 已实现
         case AgentType::Executor:
         case AgentType::Coordinator:
         case AgentType::Researcher:
         case AgentType::Reviewer:
-        case AgentType::Background:   // 后台分发（包装默认底层 Agent）
+        case AgentType::Background:  // 后台分发（包装默认底层 Agent）
             return true;
         default:
             return false;
     }
 }
 
-} // namespace agent
+}  // namespace agent

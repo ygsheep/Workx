@@ -20,9 +20,9 @@
 
 namespace ftxtui {
 
+using ftxui::Color;
 using ftxui::Element;
 using ftxui::Elements;
-using ftxui::Color;
 
 namespace {
 
@@ -43,7 +43,7 @@ std::size_t rune_byte_len(std::string_view s) {
 
 /// @brief 折行后的一段（保留在原逻辑行中的字节区间，供 span 着色定位）
 struct WrappedSeg {
-    std::string text;  ///< 本段文本
+    std::string text;    ///< 本段文本
     uint32_t start = 0;  ///< 在原逻辑行中的字节起点（含）
     uint32_t end = 0;    ///< 在原逻辑行中的字节终点（不含）
 };
@@ -64,15 +64,13 @@ std::vector<WrappedSeg> wrap_line(std::string_view line, int width) {
     uint32_t seg_start = 0;
     std::size_t i = 0;
     while (i < n) {
-        const std::size_t rune_len =
-            std::min(rune_byte_len(line.substr(i)), n - i);
+        const std::size_t rune_len = std::min(rune_byte_len(line.substr(i)), n - i);
         const std::string_view rune = line.substr(i, rune_len);
         const std::size_t rune_i = i;
         i += rune_len;
         const int rw = ftxui::string_width(rune);
         if (seg_w + rw > width && !seg.empty()) {
-            out.push_back({std::move(seg), seg_start,
-                           static_cast<uint32_t>(rune_i)});
+            out.push_back({std::move(seg), seg_start, static_cast<uint32_t>(rune_i)});
             seg.clear();
             seg_w = 0;
             seg_start = static_cast<uint32_t>(rune_i);
@@ -86,8 +84,8 @@ std::vector<WrappedSeg> wrap_line(std::string_view line, int width) {
 
 /// @brief 扁平可视行（折行后；scroll 以该序列为索引）
 struct FlatRow {
-    int disp_no = 0;      ///< 展示行号（0=续行/无行号）
-    std::string text;     ///< 本行文本
+    int disp_no = 0;          ///< 展示行号（0=续行/无行号）
+    std::string text;         ///< 本行文本
     Color bg = Color::Black;  ///< 背景色（Black=无）
     uint32_t seg_start = 0;  ///< 本段在原逻辑行中的字节起点（语法高亮定位用）
     uint32_t seg_end = 0;    ///< 本段在原逻辑行中的字节终点
@@ -106,9 +104,8 @@ int row_content_width(int avail_width, int num_width) {
 /// @param[out] num_w 行号列宽度
 /// @param[out] line_spans 逐逻辑行语法高亮 span（可为空，仅统计行数时跳过高亮）。
 ///             FlatRow::spans 指向该数组，调用方须保证其生命周期覆盖返回的 flat。
-static std::vector<FlatRow> build_flat_rows(
-    const FileViewState& file, int avail_width, int* num_w,
-    std::vector<std::vector<HighlightSpan>>* line_spans) {
+static std::vector<FlatRow> build_flat_rows(const FileViewState& file, int avail_width, int* num_w,
+                                            std::vector<std::vector<HighlightSpan>>* line_spans) {
     std::vector<FlatRow> flat;
     const bool is_diff = codecard::looks_like_diff(file.lines);
 
@@ -127,18 +124,16 @@ static std::vector<FlatRow> build_flat_rows(
         int max_no = 0;
         for (const auto& dl : diff) max_no = std::max(max_no, std::max(dl.old_no, dl.new_no));
         *num_w = codecard::calc_line_num_width(max_no);
-        const int cw =
-            avail_width > 0 ? row_content_width(avail_width, *num_w) : (1 << 20);
+        const int cw = avail_width > 0 ? row_content_width(avail_width, *num_w) : (1 << 20);
         for (const codecard::DiffLine& dl : diff) {
-            const int disp_no = (dl.prefix == codecard::DiffPrefix::Add) ? dl.new_no
+            const int disp_no = (dl.prefix == codecard::DiffPrefix::Add)   ? dl.new_no
                                 : (dl.prefix == codecard::DiffPrefix::Del) ? dl.old_no
-                                : dl.new_no;
+                                                                           : dl.new_no;
             const Color bg = codecard::diff_row_background(dl.prefix);
             const auto segs = wrap_line(dl.content, cw);
             for (std::size_t k = 0; k < segs.size(); ++k) {
                 const WrappedSeg& s = segs[k];
-                flat.push_back({k == 0 ? disp_no : 0, s.text, bg,
-                                s.start, s.end, 0, nullptr});
+                flat.push_back({k == 0 ? disp_no : 0, s.text, bg, s.start, s.end, 0, nullptr});
             }
         }
         return flat;
@@ -146,15 +141,13 @@ static std::vector<FlatRow> build_flat_rows(
 
     // ---- 普通代码文件 ----
     *num_w = codecard::calc_line_num_width(static_cast<int>(file.lines.size()));
-    const int cw =
-        avail_width > 0 ? row_content_width(avail_width, *num_w) : (1 << 20);
+    const int cw = avail_width > 0 ? row_content_width(avail_width, *num_w) : (1 << 20);
 
     std::map<int, agent::DiffKind> diff_mark;
     for (const auto& ch : file.changes) {
         if (ch.new_start <= 0) continue;
         for (const auto& d : ch.diff)
-            if (d.kind != agent::DiffKind::Equal)
-                diff_mark[ch.new_start + d.line_no - 1] = d.kind;
+            if (d.kind != agent::DiffKind::Equal) diff_mark[ch.new_start + d.line_no - 1] = d.kind;
     }
     const Color mod_bg = codecard::diff_row_background(codecard::DiffPrefix::Add);
 
@@ -169,8 +162,7 @@ static std::vector<FlatRow> build_flat_rows(
         const auto segs = wrap_line(file.lines[i], cw);
         for (std::size_t k = 0; k < segs.size(); ++k) {
             const WrappedSeg& s = segs[k];
-            flat.push_back({k == 0 ? disp_no : 0, s.text, bg, s.start, s.end,
-                            static_cast<int>(i),
+            flat.push_back({k == 0 ? disp_no : 0, s.text, bg, s.start, s.end, static_cast<int>(i),
                             has_spans ? &(*line_spans)[i] : nullptr});
         }
     }
@@ -182,10 +174,9 @@ namespace {
 /// @brief 单行渲染：2 空格 + 行号/空列 + 语法高亮内容（自动折行续行对齐）
 Element row_element(const FlatRow& r, int num_w, const FileViewState& file) {
     Element content;
-    if (r.spans && !r.spans->empty() && r.seg_end > r.seg_start &&
-        r.line_idx >= 0 && r.line_idx < static_cast<int>(file.lines.size())) {
-        content = render_spans_range(file.lines[r.line_idx], r.seg_start,
-                                     r.seg_end, *r.spans);
+    if (r.spans && !r.spans->empty() && r.seg_end > r.seg_start && r.line_idx >= 0 &&
+        r.line_idx < static_cast<int>(file.lines.size())) {
+        content = render_spans_range(file.lines[r.line_idx], r.seg_start, r.seg_end, *r.spans);
     } else {
         content = highlight_code_line(r.text, file.lang);
     }
@@ -197,8 +188,7 @@ Element row_element(const FlatRow& r, int num_w, const FileViewState& file) {
             const std::string num_str = std::to_string(r.disp_no);
             const int pad = std::max(0, num_w - static_cast<int>(num_str.size()));
             prefix = ftxui::color(theme::T::TextDim)(
-                ftxui::text(std::string("\u2502") + "+" +
-                            std::string(pad, ' ') + num_str + " "));
+                ftxui::text(std::string("\u2502") + "+" + std::string(pad, ' ') + num_str + " "));
         } else {
             prefix = codecard::line_num_prefix(r.disp_no, num_w);
         }
@@ -216,15 +206,13 @@ Element row_element(const FlatRow& r, int num_w, const FileViewState& file) {
 
 }  // namespace
 
-Element build_file_viewer(const FileViewState& file, int avail_width,
-                          int avail_height) {
+Element build_file_viewer(const FileViewState& file, int avail_width, int avail_height) {
     if (file.path.empty()) {
         return ftxui::vbox({
             ftxui::text(" "),
             ftxui::hbox({
                 ftxui::text("  "),
-                ftxui::text(std::string(str::kTabFilesEmpty))
-                    | ftxui::color(theme::T::TextFaint),
+                ftxui::text(std::string(str::kTabFilesEmpty)) | ftxui::color(theme::T::TextFaint),
             }),
         });
     }
@@ -232,20 +220,15 @@ Element build_file_viewer(const FileViewState& file, int avail_width,
     // —— 图片预览模式（/view 或项目树点击图片）——
     if (file.image) {
         const int avail_w =
-            avail_width > 0 ? avail_width
-                            : std::max(40, ftxui::Terminal::Size().dimx - 4);
-        const int avail_h = avail_height > 0 ? avail_height
-                                             : visible_line_count();
+            avail_width > 0 ? avail_width : std::max(40, ftxui::Terminal::Size().dimx - 4);
+        const int avail_h = avail_height > 0 ? avail_height : visible_line_count();
         const int rows = image_view_rows(*file.image, avail_w, avail_h);
-        const int scroll =
-            std::clamp(file.scroll, 0, std::max(0, rows - avail_h));
+        const int scroll = std::clamp(file.scroll, 0, std::max(0, rows - avail_h));
 
         const std::string meta =
-            std::to_string(file.image->width) + "x" +
-            std::to_string(file.image->height);
+            std::to_string(file.image->width) + "x" + std::to_string(file.image->height);
         const std::string hint =
-            rows > avail_h ? std::string(str::kViewScrollHint)
-                           : std::string(str::kViewImageHint);
+            rows > avail_h ? std::string(str::kViewScrollHint) : std::string(str::kViewImageHint);
 
         return ftxui::vbox({
             ftxui::hbox({
@@ -256,8 +239,8 @@ Element build_file_viewer(const FileViewState& file, int avail_width,
                 ftxui::text(" "),
             }),
             ftxui::separator() | ftxui::color(theme::T::TextFaint),
-            build_image_content(*file.image, avail_w, avail_h, scroll)
-                | ftxui::bgcolor(theme::T::Panel),
+            build_image_content(*file.image, avail_w, avail_h, scroll) |
+                ftxui::bgcolor(theme::T::Panel),
             ftxui::separator() | ftxui::color(theme::T::TextFaint),
             ftxui::hbox({
                 ftxui::text("  "),
@@ -268,11 +251,10 @@ Element build_file_viewer(const FileViewState& file, int avail_width,
 
     int num_w = 1;
     std::vector<std::vector<HighlightSpan>> line_spans;
-    std::vector<FlatRow> flat =
-        build_flat_rows(file, avail_width, &num_w, &line_spans);
+    std::vector<FlatRow> flat = build_flat_rows(file, avail_width, &num_w, &line_spans);
     const int visible = avail_height > 0 ? avail_height : visible_line_count();
-    const int scroll = std::clamp(file.scroll, 0,
-                                  std::max(0, static_cast<int>(flat.size()) - visible));
+    const int scroll =
+        std::clamp(file.scroll, 0, std::max(0, static_cast<int>(flat.size()) - visible));
 
     const bool is_diff = codecard::looks_like_diff(file.lines);
     Elements line_els;
@@ -286,10 +268,8 @@ Element build_file_viewer(const FileViewState& file, int avail_width,
         line_els.push_back(row_element(flat[idx], num_w, file));
     }
 
-    std::string meta =
-        std::to_string(file.lines.size()) + std::string(str::kViewLineSuffix);
-    if (!file.lang.empty())
-        meta += std::string(str::kViewLangSep) + file.lang;
+    std::string meta = std::to_string(file.lines.size()) + std::string(str::kViewLineSuffix);
+    if (!file.lang.empty()) meta += std::string(str::kViewLangSep) + file.lang;
 
     return ftxui::vbox({
         ftxui::hbox({
@@ -305,8 +285,8 @@ Element build_file_viewer(const FileViewState& file, int avail_width,
         ftxui::hbox({
             ftxui::text("  "),
             ftxui::text(is_diff ? std::string(str::kViewDiffHint)
-                                : std::string(str::kViewScrollHint))
-                | ftxui::color(theme::T::TextFaint),
+                                : std::string(str::kViewScrollHint)) |
+                ftxui::color(theme::T::TextFaint),
         }),
     });
 }
@@ -314,7 +294,7 @@ Element build_file_viewer(const FileViewState& file, int avail_width,
 /// @brief 文件查看 tab 可聚焦组件：↑↓/PgUp/PgDn/滚轮滚动（含自动折行后行数）
 namespace {
 class FileViewer : public ftxui::ComponentBase {
-public:
+   public:
     explicit FileViewer(FileViewState* file) : m_file(file) {}
 
     bool OnEvent(ftxui::Event event) override {
@@ -326,17 +306,12 @@ public:
         // 滚动上限：图片按缩放后行数，文本按折行后扁平行数
         int max_scroll = 0;
         if (m_file->image) {
-            const int w =
-                avail > 0 ? avail
-                          : std::max(40, ftxui::Terminal::Size().dimx - 4);
-            max_scroll = std::max(
-                0, image_view_rows(*m_file->image, w, visible) - visible);
+            const int w = avail > 0 ? avail : std::max(40, ftxui::Terminal::Size().dimx - 4);
+            max_scroll = std::max(0, image_view_rows(*m_file->image, w, visible) - visible);
         } else {
             int num_w = 1;
-            const std::size_t flat_size =
-                build_flat_rows(*m_file, avail, &num_w, nullptr).size();
-            max_scroll =
-                std::max(0, static_cast<int>(flat_size) - visible);
+            const std::size_t flat_size = build_flat_rows(*m_file, avail, &num_w, nullptr).size();
+            max_scroll = std::max(0, static_cast<int>(flat_size) - visible);
         }
 
         if (event == ftxui::Event::ArrowUp) {
@@ -376,20 +351,17 @@ public:
         const int avail_h = m_box.IsEmpty() ? 0 : (m_box.y_max - m_box.y_min + 1);
         // 图片模式需传入实际可视高度以做缩放与滚动钳制；文本模式保持原调用
         if (m_file->image)
-            return build_file_viewer(*m_file, avail, avail_h)
-                   | ftxui::reflect(m_box);
+            return build_file_viewer(*m_file, avail, avail_h) | ftxui::reflect(m_box);
         return build_file_viewer(*m_file, avail) | ftxui::reflect(m_box);
     }
 
-private:
+   private:
     FileViewState* m_file;
     ftxui::Box m_box;  ///< 文件查看器渲染区域（滚轮命中 + 可用宽度）
 };
 
 }  // namespace
 
-ftxui::Component make_file_viewer(FileViewState* file) {
-    return ftxui::Make<FileViewer>(file);
-}
+ftxui::Component make_file_viewer(FileViewState* file) { return ftxui::Make<FileViewer>(file); }
 
 }  // namespace ftxtui

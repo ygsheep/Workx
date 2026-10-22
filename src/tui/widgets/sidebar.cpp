@@ -28,17 +28,14 @@ const Color kInfoText = theme::T::Text;
 std::string truncate_utf8(std::string s, std::size_t max) {
     if (s.size() <= max) return s;
     s.resize(max);
-    while (!s.empty() && (static_cast<unsigned char>(s.back()) & 0xC0) == 0x80)
-        s.pop_back();
-    if (!s.empty() && (static_cast<unsigned char>(s.back()) & 0xC0) == 0xC0)
-        s.pop_back();
+    while (!s.empty() && (static_cast<unsigned char>(s.back()) & 0xC0) == 0x80) s.pop_back();
+    if (!s.empty() && (static_cast<unsigned char>(s.back()) & 0xC0) == 0xC0) s.pop_back();
     s += "…";
     return s;
 }
 
 /// @brief 键值行；默认键灰暗、值默认色；传入 text 时整行（键+值）用该颜色
-Element kv(const std::string& key, const std::string& value,
-           Color text = Color::Default) {
+Element kv(const std::string& key, const std::string& value, Color text = Color::Default) {
     auto key_el = ftxui::text(key);
     auto val_el = ftxui::text(value);
     if (text == Color::Default) {
@@ -103,15 +100,13 @@ Element context_bar(int used, int limit) {
 void append_context_info(Elements& rows, const SidebarModel& s) {
     bool has_limit = s.context_limit > 0;
     int limit = has_limit ? s.context_limit : 0;
-    double pct_d = has_limit
-        ? std::min(static_cast<double>(s.context_used) * 100.0 / limit, 100.0)
-        : 0.0;
+    double pct_d =
+        has_limit ? std::min(static_cast<double>(s.context_used) * 100.0 / limit, 100.0) : 0.0;
     int pct = static_cast<int>(pct_d);
 
     // 上下文行：`上下文 ▓▓▓▓▓░░░░░ 6% 12k/200k`
-    std::string ctx_abs = has_limit
-        ? (fmt_k(s.context_used) + "/" + fmt_k(limit))
-        : ("~" + fmt_k(s.context_used));
+    std::string ctx_abs =
+        has_limit ? (fmt_k(s.context_used) + "/" + fmt_k(limit)) : ("~" + fmt_k(s.context_used));
     char pct_buf[16];
     if (has_limit) {
         if (pct_d < 1.0 && s.context_used > 0)
@@ -132,8 +127,7 @@ void append_context_info(Elements& rows, const SidebarModel& s) {
 
     // Token + 缓存行：`Token 12k · cache 8k`
     std::string cache_str;
-    if (s.cache_read_tokens > 0)
-        cache_str = " · cache " + fmt_k(s.cache_read_tokens);
+    if (s.cache_read_tokens > 0) cache_str = " · cache " + fmt_k(s.cache_read_tokens);
     rows.push_back(ftxui::hbox({
         ftxui::text(std::string(str::kSidebarToken)) | ftxui::color(kInfoText),
         ftxui::text(" "),
@@ -149,8 +143,8 @@ void append_context_info(Elements& rows, const SidebarModel& s) {
         char hit_buf[16];
         snprintf(hit_buf, sizeof(hit_buf), "%d%%", hit_pct);
         const std::string hit_str = std::string(str::kSidebarHitRate) + " " + hit_buf;
-        const std::string detail_str = " (" + fmt_k(s.cache_hit_tokens) + "/"
-                                       + fmt_k(static_cast<int32_t>(cache_total)) + ")";
+        const std::string detail_str =
+            " (" + fmt_k(s.cache_hit_tokens) + "/" + fmt_k(static_cast<int32_t>(cache_total)) + ")";
         rows.push_back(ftxui::hbox({
             ftxui::text(std::string(str::kSidebarCache)) | ftxui::color(kInfoText),
             ftxui::text(" "),
@@ -176,12 +170,12 @@ void append_context_info(Elements& rows, const SidebarModel& s) {
 /// @brief 可折叠区块（MCP）：chevron 标题行可点击，展开显示条目
 /// @details 每台 server 前带状态点（绿=已连接 / 红=失败 / 灰=连接中），
 ///          失败时在下方追加红色错误信息行。
-void append_mcp_section(Elements& rows, const std::vector<McpServerEntry>& servers,
-                        bool expanded, SectionHit* hit) {
+void append_mcp_section(Elements& rows, const std::vector<McpServerEntry>& servers, bool expanded,
+                        SectionHit* hit) {
     Element header = ftxui::hbox({
-        ftxui::text(std::string(expanded ? theme::icon_chevron_down()
-                                         : theme::icon_chevron_right()))
-            | ftxui::color(theme::T::TextFaint),
+        ftxui::text(
+            std::string(expanded ? theme::icon_chevron_down() : theme::icon_chevron_right())) |
+            ftxui::color(theme::T::TextFaint),
         ftxui::text(" "),
         ftxui::text(std::string(str::kSidebarMCP)) | ftxui::color(kInfoText),
     });
@@ -198,8 +192,10 @@ void append_mcp_section(Elements& rows, const std::vector<McpServerEntry>& serve
     for (const auto& s : servers) {
         // 状态点：1=已连接(绿) 2=失败(红) 0=连接中(灰)
         Color dot_color = theme::T::TextFaint;
-        if (s.state == 1) dot_color = theme::T::DiffAdd;
-        else if (s.state == 2) dot_color = theme::T::DiffDel;
+        if (s.state == 1)
+            dot_color = theme::T::DiffAdd;
+        else if (s.state == 2)
+            dot_color = theme::T::DiffDel;
         std::string line = s.name;
         if (!s.protocol.empty()) line += " · " + s.protocol;
         if (s.tool_count > 0) line += " · " + std::to_string(s.tool_count) + " 工具";
@@ -213,8 +209,8 @@ void append_mcp_section(Elements& rows, const std::vector<McpServerEntry>& serve
         if (s.state == 2 && !s.error.empty()) {
             rows.push_back(ftxui::hbox({
                 ftxui::text("    "),
-                ftxui::flex(ftxui::text(truncate_utf8(s.error, 48))
-                            | ftxui::color(theme::T::DiffDel)),
+                ftxui::flex(ftxui::text(truncate_utf8(s.error, 48)) |
+                            ftxui::color(theme::T::DiffDel)),
             }));
         }
     }
@@ -224,11 +220,11 @@ void append_mcp_section(Elements& rows, const std::vector<McpServerEntry>& serve
 std::pair<std::string_view, Color> todo_status_icon(core::todo::TodoStatus s) {
     switch (s) {
         case core::todo::TodoStatus::Completed:
-            return {"✓", theme::T::DiffAdd};       // 绿
+            return {"✓", theme::T::DiffAdd};  // 绿
         case core::todo::TodoStatus::InProgress:
-            return {"▶", theme::T::Accent};        // 蓝
+            return {"▶", theme::T::Accent};  // 蓝
         default:
-            return {"○", theme::T::TextFaint};     // 灰
+            return {"○", theme::T::TextFaint};  // 灰
     }
 }
 
@@ -236,9 +232,9 @@ std::pair<std::string_view, Color> todo_status_icon(core::todo::TodoStatus s) {
 void append_todo_section(Elements& rows, const std::vector<core::todo::TodoItem>& todos,
                          bool expanded, SectionHit* hit) {
     Element header = ftxui::hbox({
-        ftxui::text(std::string(expanded ? theme::icon_chevron_down()
-                                         : theme::icon_chevron_right()))
-            | ftxui::color(theme::T::TextFaint),
+        ftxui::text(
+            std::string(expanded ? theme::icon_chevron_down() : theme::icon_chevron_right())) |
+            ftxui::color(theme::T::TextFaint),
         ftxui::text(" "),
         ftxui::text(std::string(str::kSidebarTODO)) | ftxui::color(kInfoText),
     });
@@ -277,8 +273,7 @@ void append_sidebar_info(Elements& rows, const SidebarModel& s,
     // 基础信息：项目 / 分支 / 模型（Agent 已按用户要求移除）
     inner.push_back(kv(std::string(str::kSidebarProject),
                        s.project.empty() ? std::string(str::kDash) : s.project, kInfoText));
-    if (!s.branch.empty())
-        inner.push_back(kv(std::string(str::kSidebarBranch), s.branch));
+    if (!s.branch.empty()) inner.push_back(kv(std::string(str::kSidebarBranch), s.branch));
     inner.push_back(kv(std::string(str::kSidebarModel),
                        s.model.empty() ? std::string(str::kDash) : s.model, kInfoText));
 

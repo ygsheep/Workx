@@ -1,10 +1,10 @@
-# WorkX
+# Workx
 
 <div align="center">
 
 <img src="src/icon.png" alt="Workx Icon" width="128" height="128"/>
 
-**WorkX** 是一个用纯 C++20 编写的高性能、轻量级终端 AI 编码与任务编排助手，具备普通用户可用的终端 TUI 界面以及可复用的 C++ `workx::agent` 库。
+**Workx** 是一个用纯 C++20 编写的高性能、轻量级终端 AI 编码与任务编排助手，具备普通用户可用的终端 TUI 界面以及可复用的 C++ `workx::agent` 库。
 
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](https://en.cppreference.com/w/cpp/20)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20NixOS-2ea44f.svg)](#构建)
@@ -12,6 +12,10 @@
 [![CI](https://github.com/ygsheep/WorkX/actions/workflows/code-quality.yml/badge.svg)](https://github.com/ygsheep/WorkX/actions/workflows/code-quality.yml)
 
 [特性](#-特性总览why-workx) • [终端工具](#-作为终端工具使用for-end-users) • [Harness 库](#-作为-agent-harness-库嵌入for-c-developers) • [构建](#构建) • [测试](#测试)
+
+[![Workx 宣传 CG：可嵌入 · 缓存友好 · 默认拒绝 · 验证闭环](docs/img/workx-cg-poster.jpg)](docs/img/workx-cg.mp4)
+
+**▶ Workx 宣传 CG** ｜ 1 分 42 秒 · 1080p · 含音轨 —— 点击封面播放
 
 </div>
 
@@ -119,7 +123,7 @@ ctest --test-dir build -C Release -j 8 --output-on-failure
 
 ## 协议支持
 
-WorkX 底层实现两种 LLM 协议适配器，所有模型均通过这两种协议接入，无需为每个厂商单独适配：
+Workx 底层实现两种 LLM 协议适配器，所有模型均通过这两种协议接入，无需为每个厂商单独适配：
 
 | 协议                     | 对应适配器               | 说明                                                                   |
 | ---------------------- | ------------------- | -------------------------------------------------------------------- |

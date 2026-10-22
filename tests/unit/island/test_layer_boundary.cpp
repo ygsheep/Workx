@@ -41,7 +41,7 @@ std::vector<fs::path> check_rule(const fs::path& layer_dir, const char* forbidde
     return violations;
 }
 
-} // namespace
+}  // namespace
 
 TEST_CASE("island layer must not include tui/app/example", "[layer_boundary]") {
     const fs::path island_dir = fs::path(SOURCE_DIR) / "src" / "island";

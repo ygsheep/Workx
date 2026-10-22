@@ -35,27 +35,19 @@ FileHistory::FileHistory() = default;
 // 公共接口实现
 // ============================================================
 
-std::string FileHistory::save_version(
-    const std::string& file_path,
-    const std::string& content,
-    const std::string& operation
-) {
+std::string FileHistory::save_version(const std::string& file_path, const std::string& content,
+                                      const std::string& operation) {
     std::lock_guard<std::mutex> lock(mutex_);
 
     const auto now = std::chrono::system_clock::now();
-    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        now.time_since_epoch()
-    ).count();
+    const auto ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
 
     // 生成版本 ID：<timestamp_ms>_<seq>
     const std::string version_id = std::format("{}_{}", ms, next_id_++);
 
     FileVersion version{
-        .version_id = version_id,
-        .timestamp = now,
-        .content = content,
-        .operation = operation
-    };
+        .version_id = version_id, .timestamp = now, .content = content, .operation = operation};
 
     // 插入到列表头部（最新在前）
     auto& versions = history_[file_path];
@@ -74,10 +66,8 @@ std::vector<FileVersion> FileHistory::get_versions(const std::string& file_path)
     return it->second;
 }
 
-std::optional<FileVersion> FileHistory::get_version(
-    const std::string& file_path,
-    const std::string& version_id
-) const {
+std::optional<FileVersion> FileHistory::get_version(const std::string& file_path,
+                                                    const std::string& version_id) const {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = history_.find(file_path);
     if (it == history_.end()) return std::nullopt;
@@ -125,4 +115,4 @@ void FileHistory::prune_old_versions_locked(const std::string& file_path) {
     versions.erase(versions.end() - static_cast<std::ptrdiff_t>(to_remove), versions.end());
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

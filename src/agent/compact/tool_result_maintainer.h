@@ -26,17 +26,17 @@ namespace agent::compact {
 /// @brief snip/prune 策略
 /// @details head/tail 为保留的行数；head_chars/tail_chars 为保留的字符数（行数 fallback）
 struct SnipStrategy {
-    int head_lines = 80;       ///< 保留头部行数
-    int tail_lines = 12;       ///< 保留尾部行数
-    int head_chars = 10'000;   ///< 头部字符上限（行数 fallback 时使用）
-    int tail_chars = 2'000;    ///< 尾部字符上限
+    int head_lines = 80;      ///< 保留头部行数
+    int tail_lines = 12;      ///< 保留尾部行数
+    int head_chars = 10'000;  ///< 头部字符上限（行数 fallback 时使用）
+    int tail_chars = 2'000;   ///< 尾部字符上限
 };
 
 /// @brief snip/prune 操作统计
 struct SnipStats {
-    int results = 0;       ///< 处理的 tool_result 数
-    int saved_chars = 0;   ///< 节省的字符数
-    std::string archive;   ///< 归档路径（暂未使用，预留）
+    int results = 0;      ///< 处理的 tool_result 数
+    int saved_chars = 0;  ///< 节省的字符数
+    std::string archive;  ///< 归档路径（暂未使用，预留）
 };
 
 /// @brief 默认只读工具 snip 策略（对齐 Reasonix defaultReadOnlySnip）
@@ -81,14 +81,12 @@ int prune_tool_result(ChatMessage& msg, const std::string& archive_dir = "");
 /// @param tail_start 尾部边界（不含）
 /// @param strategy_getter 策略选择器（按 tool_name 返回策略），传 nullptr 用默认
 /// @return 操作统计
-SnipStats snip_range(std::vector<ChatMessage>& messages,
-                     size_t head_end, size_t tail_start,
+SnipStats snip_range(std::vector<ChatMessage>& messages, size_t head_end, size_t tail_start,
                      const std::string& archive_dir = "");
 
 /// @brief 批量 prune：对 [head_end, tail_start) 区间内的所有 tool_result 执行 prune
 /// @details 比 snip 更激进，仅在 force 水位时使用
-SnipStats prune_range(std::vector<ChatMessage>& messages,
-                      size_t head_end, size_t tail_start,
+SnipStats prune_range(std::vector<ChatMessage>& messages, size_t head_end, size_t tail_start,
                       const std::string& archive_dir = "");
 
-} // namespace agent::compact
+}  // namespace agent::compact

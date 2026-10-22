@@ -9,18 +9,23 @@
 #include <catch2/catch_test_macros.hpp>
 #include <atomic>
 #include <chrono>
+#include <cstdlib>  // #137：apply_react_knobs env 兜底用例（getenv/_putenv_s/setenv）
+#include <filesystem>
+#include <fstream>
 #include <thread>
 #include <vector>
 #include <string>
+#include <string_view>
 #include <memory>
 #include <deque>
 #include <optional>
 
 #include "agent/core/react_loop.h"
+#include "agent/config/app_config.h"  // #78：agent::keys::AGENT_GOAL 等门禁键
 #include "agent/api/i_completion_provider.h"
 #include "agent/api/i_stream_reader.h"
 #include "agent/api/chat_types.h"
-#include "agent/hook/hook_manager.h"       // Issue #50：通用 Hook 事件系统
+#include "agent/hook/hook_manager.h"  // Issue #50：通用 Hook 事件系统
 #include "agent/tool/registry.h"
 #include "agent/tool/itool.h"
 #include "agent/tool/context.h"
@@ -29,8 +34,9 @@
 #include "agent/tool/PlanMode/exit_plan_mode_v2_tool.h"
 #include "core/config/config_manager.h"
 #include "core/events/agent_events.h"  // AskUserRequestEvent（ExitPlanModeV2 批准确认流）
+#include "helpers/mock_config_manager.h"  // #78 VF-04：门禁装配按入口做差异化默认值
 #include "helpers/mock_provider.h"
-#include "helpers/mock_event_bus.h"    // H-1：ExitPlanModeV2 批准确认通道
+#include "helpers/mock_event_bus.h"  // H-1：ExitPlanModeV2 批准确认通道
 
 using namespace agent;
 using namespace agent::tool;
@@ -44,7 +50,7 @@ namespace {
 // ============================================================
 
 class EchoTool : public ITool {
-public:
+   public:
     mutable int call_count = 0;
     mutable std::string last_input;
 
@@ -61,15 +67,12 @@ public:
         return p;
     }
     nlohmann::json input_schema() const override {
-        return {
-            {"type", "object"},
-            {"properties", {
-                {"text", {{"type", "string"}}}
-            }},
-            {"required", {"text"}}
-        };
+        return {{"type", "object"},
+                {"properties", {{"text", {{"type", "string"}}}}},
+                {"required", {"text"}}};
     }
-    ResultV2<ToolResult> call(const nlohmann::json& input, const ToolContext& /*ctx*/) const override {
+    ResultV2<ToolResult> call(const nlohmann::json& input,
+                              const ToolContext& /*ctx*/) const override {
         call_count++;
         last_input = input.value("text", "");
         return ResultV2<ToolResult>::ok(ToolResult::ok(std::string("echo: ") + last_input));
@@ -81,7 +84,7 @@ public:
 // ============================================================
 
 class FailingTool : public ITool {
-public:
+   public:
     const std::string& name() const override {
         static const std::string n = "Failing";
         return n;
@@ -107,7 +110,7 @@ public:
 // ============================================================
 
 class DeniedTool : public ITool {
-public:
+   public:
     const std::string& name() const override {
         static const std::string n = "Denied";
         return n;
@@ -147,9 +150,8 @@ struct CapturedContext {
 
 /// @brief 接收工具的 ToolContext 并写入外部共享结构
 class ContextCaptureTool : public ITool {
-public:
-    explicit ContextCaptureTool(std::shared_ptr<CapturedContext> out)
-        : m_out(std::move(out)) {}
+   public:
+    explicit ContextCaptureTool(std::shared_ptr<CapturedContext> out) : m_out(std::move(out)) {}
 
     const std::string& name() const override {
         static const std::string n = "Capture";
@@ -175,7 +177,7 @@ public:
         return ResultV2<ToolResult>::ok(ToolResult::ok(std::string("captured")));
     }
 
-private:
+   private:
     std::shared_ptr<CapturedContext> m_out;
 };
 
@@ -184,7 +186,12 @@ private:
 // ============================================================
 
 class CooperativeSlowTool : public ITool {
-public:
+   public:
+    /// @brief 工具是否已被真正调用（供测试等待"进入执行"再触发取消）
+    /// @details 取消时机不能再用固定 sleep：run 启动阶段含 git 基线捕获（#81），
+    ///          耗时随机器/仓库大小变化，固定窗口会让取消落在工具执行之前。
+    bool started() const { return started_.load(); }
+
     const std::string& name() const override {
         static const std::string n = "Slow";
         return n;
@@ -201,17 +208,20 @@ public:
         return {{"type", "object"}, {"properties", {}}};
     }
     ResultV2<ToolResult> call(const nlohmann::json&, const ToolContext& ctx) const override {
+        started_.store(true);
         // 协作式取消：每 50ms 轮询一次；无取消则 1s 后正常完成
         constexpr int kTicks = 20;
         for (int i = 0; i < kTicks; ++i) {
             if (ctx.is_cancelled()) {
-                return ResultV2<ToolResult>::err(
-                    Error::Code::Cancelled, "Slow tool cancelled");
+                return ResultV2<ToolResult>::err(Error::Code::Cancelled, "Slow tool cancelled");
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
         return ResultV2<ToolResult>::ok(ToolResult::ok(std::string("slow done")));
     }
+
+   private:
+    mutable std::atomic<bool> started_{false};
 };
 
 // ============================================================
@@ -247,11 +257,9 @@ struct ReActLoopFixture {
     }
 
     /// @brief 创建一个返回工具调用的 reader
-    std::shared_ptr<MockStreamReader> make_tool_call_reader(
-        const std::string& tool_id,
-        const std::string& tool_name,
-        const std::string& input_json)
-    {
+    std::shared_ptr<MockStreamReader> make_tool_call_reader(const std::string& tool_id,
+                                                            const std::string& tool_name,
+                                                            const std::string& input_json) {
         auto reader = std::make_shared<MockStreamReader>();
         reader->add_content_chunk("Let me use the tool.");
         reader->add_tool_use_start(tool_id, tool_name);
@@ -269,15 +277,26 @@ struct ReActLoopFixture {
         provider->set_next_reader(reader);
         return reader;
     }
+
+    /// @brief #144：创建带 HTTP 状态码的流式错误 reader（可不可重试由 status 决定）
+    std::shared_ptr<MockStreamReader> make_error_reader(int http_status, std::string message) {
+        auto reader = std::make_shared<MockStreamReader>();
+        reader->add_content_chunk("partial");
+        reader->set_error_at(1);
+        reader->set_error_payload(http_status, std::move(message));
+        provider->set_next_reader(reader);
+        return reader;
+    }
 };
 
-} // namespace
+}  // namespace
 
 // ============================================================================
 // Thought 阶段 — FinalAnswer 终止
 // ============================================================================
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop returns FinalAnswer when no tool_use", "[react_loop][thought]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop returns FinalAnswer when no tool_use",
+                 "[react_loop][thought]") {
     auto reader = make_text_reader("Hello, world!");
 
     std::vector<ChatMessage> messages = {ChatMessage::user("hi")};
@@ -294,7 +313,8 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop returns FinalAnswer when no tool_u
     REQUIRE(messages[1].content == "Hello, world!");
 }
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop captures reasoning content", "[react_loop][thought]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop captures reasoning content",
+                 "[react_loop][thought]") {
     auto reader = std::make_shared<MockStreamReader>();
     reader->add_reasoning_chunk("thinking...");
     reader->add_content_chunk("answer");
@@ -330,7 +350,8 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop captures token statistics", "[reac
 // Action + Observation 阶段 — 工具调用
 // ============================================================================
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop executes tool and feeds result back", "[react_loop][action]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop executes tool and feeds result back",
+                 "[react_loop][action]") {
     // 第一次：tool_use
     make_tool_call_reader("tu_01", "Echo", R"({"text":"hello"})");
 
@@ -371,11 +392,11 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop PreToolUse hook blocks Echo", "[re
     def.prompt = "gate echo to prove blocking path";
     hooks->register_hook(def);
 
-    make_tool_call_reader("tu_01", "Echo", R"({"text":"hello"})"); // reader[0]：循环请求 Echo
+    make_tool_call_reader("tu_01", "Echo", R"({"text":"hello"})");  // reader[0]：循环请求 Echo
     auto hook_reader = std::make_shared<MockStreamReader>();
     hook_reader->add_content_chunk(R"({"blockingError":"blocked-by-hook"})");
-    provider->set_next_reader(hook_reader);                       // reader[1]：hook 判定阻断
-    make_text_reader("Done after blocked");                       // reader[2]：收尾
+    provider->set_next_reader(hook_reader);  // reader[1]：hook 判定阻断
+    make_text_reader("Done after blocked");  // reader[2]：收尾
 
     ReActLoop::Config config;
     config.hooks = hooks;
@@ -400,7 +421,8 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop PreToolUse hook blocks Echo", "[re
     REQUIRE(found_blocked);
 }
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop tool not found returns error result", "[react_loop][action]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop tool not found returns error result",
+                 "[react_loop][action]") {
     // 调用不存在的工具
     auto reader = std::make_shared<MockStreamReader>();
     reader->add_content_chunk("calling unknown tool");
@@ -420,7 +442,8 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop tool not found returns error resul
     REQUIRE(messages[2].content.find("Tool not found") != std::string::npos);
 }
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop tool exception is caught and reported", "[react_loop][action]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop tool exception is caught and reported",
+                 "[react_loop][action]") {
     auto failing_tool = std::make_shared<FailingTool>();
     registry->register_tool(failing_tool);
 
@@ -436,7 +459,8 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop tool exception is caught and repor
     REQUIRE(messages[2].content.find("intentional tool failure") != std::string::npos);
 }
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop tool permission denied is reported", "[react_loop][action]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop tool permission denied is reported",
+                 "[react_loop][action]") {
     auto denied_tool = std::make_shared<DeniedTool>();
     registry->register_tool(denied_tool);
 
@@ -480,7 +504,8 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop stops at max_iterations", "[react_
 // should_cancel 中断
 // ============================================================================
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop cancels during Thought phase", "[react_loop][cancel]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop cancels during Thought phase",
+                 "[react_loop][cancel]") {
     auto reader = std::make_shared<MockStreamReader>();
     reader->add_content_chunk("partial");
     reader->set_cancel_after(1);  // 消费第一个 chunk 后返回 Cancelled
@@ -496,7 +521,9 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop cancels during Thought phase", "[r
     REQUIRE(result.partial_content == "partial");
 }
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop cooperative cancel during tool execution preserves tool messages", "[react_loop][cancel]") {
+TEST_CASE_METHOD(ReActLoopFixture,
+                 "ReActLoop cooperative cancel during tool execution preserves tool messages",
+                 "[react_loop][cancel]") {
     // #23 P1：工具执行期间置位 should_cancel（等价于用户 Ctrl+C），
     // ReActLoop 应等待工具协作退出后仍生成 Observation（消息不丢），
     // 再在下一轮 Thought 走 was_interrupted 分支。
@@ -511,9 +538,11 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop cooperative cancel during tool exe
     std::vector<ChatMessage> messages = {ChatMessage::user("slow tool")};
     auto loop = make_loop();
 
-    // 模拟工具执行中途用户打断
-    std::thread canceler([&should_cancel = this->should_cancel]() {
-        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    // 模拟工具执行中途用户打断：等工具真正开始执行后再置位（不依赖 run 启动耗时）
+    std::thread canceler([&should_cancel = this->should_cancel, &slow_tool]() {
+        for (int i = 0; i < 400 && !slow_tool->started(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));  // 最多等 2s
+        }
         should_cancel = true;
     });
     auto result = loop->run(messages, "", registry->get_all_schemas(), should_cancel);
@@ -534,7 +563,8 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop cooperative cancel during tool exe
 // #30 环境感知注入
 // ============================================================================
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop injects environment fields into ToolContext (#30)", "[react_loop][env]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop injects environment fields into ToolContext (#30)",
+                 "[react_loop][env]") {
     // #30：工具执行时应能读到 request_id / session_id / history_summary / git 环境。
     //      git 字段依赖 cwd 是否在 git 仓库，本测试不担保其值，仅校验注入通道存在
     //      （能读到 request_id、历史摘要、模型名即可）。
@@ -544,7 +574,8 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop injects environment fields into To
     make_tool_call_reader("tu_01", "Capture", R"({})");
     make_text_reader("done");  // 第二轮无工具调用 → FinalAnswer 结束
 
-    std::vector<ChatMessage> messages = {ChatMessage::user("记住：本项目用 nlohmann/json，不要用 rapidjson")};
+    std::vector<ChatMessage> messages = {
+        ChatMessage::user("记住：本项目用 nlohmann/json，不要用 rapidjson")};
     auto loop = make_loop();
     auto result = loop->run(messages, "", registry->get_all_schemas(), should_cancel);
 
@@ -583,21 +614,86 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop handles null reader", "[react_loop
     auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
 
     REQUIRE(result.was_error);
-    REQUIRE(result.error_message.find("Stream error") != std::string::npos);
+    // #89：提交失败与流式错误此前共用同一条固定串，无法区分；现在给出具体详情。
+    // 无 HTTP 响应，状态码应为 0（不是 500/502 之类编造值）。
+    REQUIRE(result.error_message.find("submit_completion") != std::string::npos);
+    REQUIRE(result.http_status == 0);
+}
+
+// ============================================================
+// #89：HTTP 状态码透传（此前在流层被丢弃，上层只能拿到固定串）
+// ============================================================
+
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop propagates 429 from stream error",
+                 "[react_loop][error][89]") {
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->add_content_chunk("partial");
+    reader->set_error_at(1);
+    reader->set_error_payload(429, "HTTP error: 429 - rate limited");
+    provider->set_next_reader(reader);
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("q")};
+    // #144：本用例只验证透传，关闭重试（429 现在会先退避重试，见 [issue144] 组）
+    ReActLoop::Config config;
+    config.thought_max_retries = 0;
+    auto loop = make_loop(config);
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.was_error);
+    // 修复前：http_status 恒为 0，429 与网络错误无法区分
+    REQUIRE(result.http_status == 429);
+    REQUIRE(result.error_message.find("429") != std::string::npos);
+    REQUIRE(result.partial_content == "partial");
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop propagates 4xx so it is distinguishable from 5xx",
+                 "[react_loop][error][89]") {
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->set_error_at(0);
+    reader->set_error_payload(401, "HTTP error: 401 - invalid api key");
+    provider->set_next_reader(reader);
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("q")};
+    ReActLoop::Config config;
+    config.thought_max_retries = 0;  // 同上：只测透传
+    auto loop = make_loop(config);
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.was_error);
+    REQUIRE(result.http_status == 401);
+    REQUIRE(result.error_message.find("401") != std::string::npos);
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop keeps http_status 0 when no HTTP response",
+                 "[react_loop][error][89]") {
+    // 网络错误（curl 传输失败）：无 HTTP 响应，状态码应保持 0 而非编造
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->set_error_at(0);
+    reader->set_error_payload(0, "Connection timed out");
+    provider->set_next_reader(reader);
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("q")};
+    ReActLoop::Config config;
+    config.thought_max_retries = 0;  // 网络错误同样可重试，这里只关心透传
+    auto loop = make_loop(config);
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.was_error);
+    REQUIRE(result.http_status == 0);
+    REQUIRE(result.error_message == "Connection timed out");
 }
 
 // ============================================================================
 // 回调
 // ============================================================================
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop invokes on_step callback for each phase", "[react_loop][callback]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop invokes on_step callback for each phase",
+                 "[react_loop][callback]") {
     make_tool_call_reader("tu_01", "Echo", R"({"text":"x"})");
     make_text_reader("final");
 
     std::vector<ReActStep> steps;
-    auto on_step = [&steps](const ReActStep& step) {
-        steps.push_back(step);
-    };
+    auto on_step = [&steps](const ReActStep& step) { steps.push_back(step); };
 
     std::vector<ChatMessage> messages = {ChatMessage::user("q")};
     auto loop = make_loop();
@@ -616,7 +712,8 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop invokes on_step callback for each 
     REQUIRE(steps.back().type == ReActStepType::FinalAnswer);
 }
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop invokes on_token callback for content deltas", "[react_loop][callback]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop invokes on_token callback for content deltas",
+                 "[react_loop][callback]") {
     auto reader = std::make_shared<MockStreamReader>();
     reader->add_content_chunk("Hello ");
     reader->add_content_chunk("world!");
@@ -625,19 +722,21 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop invokes on_token callback for cont
 
     std::string collected_content;
     auto on_token = [&collected_content](const std::string& content_delta,
-                                          const std::string& /*reasoning_delta*/) {
+                                         const std::string& /*reasoning_delta*/) {
         collected_content += content_delta;
     };
 
     std::vector<ChatMessage> messages = {ChatMessage::user("q")};
     auto loop = make_loop();
-    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel, nullptr, on_token);
+    auto result =
+        loop->run(messages, "", nlohmann::json::array(), should_cancel, nullptr, on_token);
 
     REQUIRE(collected_content == "Hello world!");
     REQUIRE(result.final_answer == "Hello world!");
 }
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop invokes on_token for reasoning deltas", "[react_loop][callback]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop invokes on_token for reasoning deltas",
+                 "[react_loop][callback]") {
     auto reader = std::make_shared<MockStreamReader>();
     reader->add_reasoning_chunk("step1 ");
     reader->add_reasoning_chunk("step2");
@@ -647,13 +746,14 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop invokes on_token for reasoning del
 
     std::string collected_reasoning;
     auto on_token = [&collected_reasoning](const std::string& /*content_delta*/,
-                                            const std::string& reasoning_delta) {
+                                           const std::string& reasoning_delta) {
         collected_reasoning += reasoning_delta;
     };
 
     std::vector<ChatMessage> messages = {ChatMessage::user("q")};
     auto loop = make_loop();
-    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel, nullptr, on_token);
+    auto result =
+        loop->run(messages, "", nlohmann::json::array(), should_cancel, nullptr, on_token);
 
     REQUIRE(collected_reasoning == "step1 step2");
 }
@@ -662,7 +762,8 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop invokes on_token for reasoning del
 // 无工具注册表
 // ============================================================================
 
-TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop works without registry (no tools)", "[react_loop][no_tools]") {
+TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop works without registry (no tools)",
+                 "[react_loop][no_tools]") {
     auto reader = make_text_reader("plain answer");
 
     std::vector<ChatMessage> messages = {ChatMessage::user("q")};
@@ -703,19 +804,17 @@ struct PermissionHost {
     }
 };
 
-} // namespace
+}  // namespace
 
 TEST_CASE_METHOD(ReActLoopFixture,
-    "H-1 EnterPlanMode tool writeback lets Plan persist across turns (scenario B)",
-    "[react_loop][permission][45][h1]") {
+                 "H-1 EnterPlanMode tool writeback lets Plan persist across turns (scenario B)",
+                 "[react_loop][permission][45][h1]") {
     registry->register_tool(std::make_shared<EnterPlanModeTool>());
 
     PermissionHost host;
     auto loop = make_loop();
     loop->set_permission_state_changed_callback(
-        [&host](tool::PermissionMode m, tool::PermissionMode b, bool p) {
-            host.notify(m, b, p);
-        });
+        [&host](tool::PermissionMode m, tool::PermissionMode b, bool p) { host.notify(m, b, p); });
 
     // 第一轮：模型调用 EnterPlanMode → 工具经 on_enter_plan_mode 切 Plan 并回写宿主
     make_tool_call_reader("call_1", "EnterPlanMode", R"({"reason":"research"})");
@@ -738,21 +837,20 @@ TEST_CASE_METHOD(ReActLoopFixture,
 }
 
 TEST_CASE_METHOD(ReActLoopFixture,
-    "H-1 ExitPlanModeV2 approved writeback restores mode (scenario A)",
-    "[react_loop][permission][45][h1]") {
+                 "H-1 ExitPlanModeV2 approved writeback restores mode (scenario A)",
+                 "[react_loop][permission][45][h1]") {
     registry->register_tool(std::make_shared<ExitPlanModeV2Tool>());
 
     // MockEventBus：自动批准 ExitPlanModeV2 的 AskUser 确认
     agent::test::MockEventBus bus;
     bus.set_dispatch_enabled(true);
     bus.set_async_auto_flush(true);
-    bus.subscribe<AskUserRequestEvent>(
-        [](const AskUserRequestEvent& e) {
-            AskUserResult result;
-            result.submitted = true;
-            result.answers.emplace_back("permission", "Yes");
-            e.result_promise->set_value(result);
-        });
+    bus.subscribe<AskUserRequestEvent>([](const AskUserRequestEvent& e) {
+        AskUserResult result;
+        result.submitted = true;
+        result.answers.emplace_back("permission", "Yes");
+        e.result_promise->set_value(result);
+    });
 
     PermissionHost host;
     // 模拟 Shift+Tab 已切 Plan（ChatSession=Plan）+ 本轮注入
@@ -760,12 +858,9 @@ TEST_CASE_METHOD(ReActLoopFixture,
         provider.get(), registry, ReActLoop::Config{}, &ConfigManager::instance(),
         /*task_manager=*/nullptr, /*cwd=*/"", /*external_compactor=*/nullptr,
         /*event_bus=*/&bus);
-    loop->apply_permission_state(tool::PermissionMode::Plan,
-                                 tool::PermissionMode::Default, true);
+    loop->apply_permission_state(tool::PermissionMode::Plan, tool::PermissionMode::Default, true);
     loop->set_permission_state_changed_callback(
-        [&host](tool::PermissionMode m, tool::PermissionMode b, bool p) {
-            host.notify(m, b, p);
-        });
+        [&host](tool::PermissionMode m, tool::PermissionMode b, bool p) { host.notify(m, b, p); });
 
     // 第一轮：模型调用 ExitPlanModeV2（自动批准）→ on_exit_plan_mode 恢复原模式并回写宿主
     make_tool_call_reader("call_1", "ExitPlanModeV2", R"({"plan":"refactor x.cpp"})");
@@ -875,4 +970,1171 @@ TEST_CASE_METHOD(ReActLoopFixture, "ReActLoop at-limit reviewer wraps up gracefu
     REQUIRE(result.final_answer.find("enough progress") != std::string::npos);
     REQUIRE(result.total_iterations == 2);
     REQUIRE(echo_tool->call_count == 2);
+}
+
+// ============================================================================
+// Issue #133：评审器失效不得终止任务（fail-open + 熔断）
+// ============================================================================
+// 背景：Terminal-Bench 首轮 20 题实测，评审器被调用 9 次、9 次拿不到可解析 JSON
+// （reasoning 模型把 max_tokens=200 全花在思维链上，content 为空）。旧代码把这种
+// "拿不到裁决"当作 wrap_up，直接杀掉 9 个还在正常推进的任务（其中 3 题本来能过）。
+
+TEST_CASE_METHOD(ReActLoopFixture, "#133: 评审器无裁决时停滞分支 fail-open 继续",
+                 "[react_loop][stall][issue133]") {
+    ReActLoop::Config config;
+    config.max_iterations = 10;
+    config.review_stall_window = 2;
+    auto loop = make_loop(config);
+
+    // 迭代1 Echo(a)；迭代2 再次 Echo(a) → 停滞；评审器返回非 JSON（失效）；迭代3 final
+    make_tool_call_reader("tu_1", "Echo", R"({"text":"a"})");
+    make_tool_call_reader("tu_2", "Echo", R"({"text":"a"})");
+    make_text_reader("我来想想……（没有任何 JSON）");  // 评审器：无裁决
+    make_text_reader("done after fail-open");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("fix task")};
+    auto result = loop->run(messages, "", registry->get_all_schemas(), should_cancel);
+
+    // 关键：不得因评审器失效而判定失败/收尾
+    REQUIRE_FALSE(result.was_error);
+    REQUIRE_FALSE(result.was_interrupted);
+    REQUIRE(result.final_answer == "done after fail-open");
+    REQUIRE(result.total_iterations == 3);
+    // 注入的是兜底纠偏指令（而非评审器给的摘要）
+    REQUIRE(messages.size() == 5);
+    REQUIRE(messages[3].role == ChatMessage::Role::System);
+    REQUIRE(messages[3].content.find("换一条更高效的路径") != std::string::npos);
+    REQUIRE(echo_tool->call_count == 1);
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#133: 评审器无裁决时达上限分支授予追加预算",
+                 "[react_loop][limit-review][issue133]") {
+    ReActLoop::Config config;
+    config.max_iterations = 2;
+    config.review_extra_budget = 5;
+    config.review_max_grants = 2;
+    auto loop = make_loop(config);
+
+    make_tool_call_reader("tu_1", "Echo", R"({"text":"a"})");  // 迭代1
+    make_tool_call_reader("tu_2", "Echo", R"({"text":"b"})");  // 迭代2（不同输入，不触发停滞）
+    make_text_reader("（空返回，无 JSON）");                      // 达上限评审：无裁决
+    make_text_reader("done with fail-open budget");             // 追加预算后迭代3
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("task")};
+    auto result = loop->run(messages, "", registry->get_all_schemas(), should_cancel);
+
+    REQUIRE_FALSE(result.was_error);
+    REQUIRE(result.final_answer == "done with fail-open budget");
+    REQUIRE(result.total_iterations == 3);  // 评审失效也要给预算，而不是收尾
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#133: 评审器连续失效后熔断，不再重复调用",
+                 "[react_loop][stall][issue133]") {
+    ReActLoop::Config config;
+    config.max_iterations = 6;
+    config.review_stall_window = 2;
+    config.review_max_grants = 1;  // 熔断阈值 = max(1, 1) = 1 → 首次失效即熔断
+    auto loop = make_loop(config);
+
+    // 迭代1 Echo(a) → 窗口 [a]
+    make_tool_call_reader("tu_1", "Echo", R"({"text":"a"})");
+    // 迭代2 Echo(a) → 停滞 → 评审第 1 次（失效）→ 熔断计数=1 → fail-open 继续
+    make_tool_call_reader("tu_2", "Echo", R"({"text":"a"})");
+    make_text_reader("no decision here");  // 评审器（唯一一次调用）
+    // 迭代3 Echo(a) → 窗口清空后重新累积 [a]
+    make_tool_call_reader("tu_3", "Echo", R"({"text":"a"})");
+    // 迭代4 Echo(a) → 停滞 → 熔断已开，不再调用评审器 → fail-open 继续
+    make_tool_call_reader("tu_4", "Echo", R"({"text":"a"})");
+    // 迭代5 收敛
+    make_text_reader("finished without reviewer");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("fix task")};
+    auto result = loop->run(messages, "", registry->get_all_schemas(), should_cancel);
+
+    REQUIRE_FALSE(result.was_error);
+    REQUIRE(result.final_answer == "finished without reviewer");
+    REQUIRE(result.total_iterations == 5);
+    // 5 次迭代 Thought + 1 次评审调用 = 6；若未熔断会是 7（多一次注定无果的评审请求）
+    REQUIRE(provider->submit_count == 6);
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#133: 评审器返回未知 action 视为不可信裁决",
+                 "[react_loop][stall][issue133]") {
+    ReActLoop::Config config;
+    config.max_iterations = 10;
+    config.review_stall_window = 2;
+    auto loop = make_loop(config);
+
+    make_tool_call_reader("tu_1", "Echo", R"({"text":"a"})");
+    make_tool_call_reader("tu_2", "Echo", R"({"text":"a"})");
+    make_text_reader(R"({"action":"maybe","reason":"not sure"})");  // 既非 continue 也非 wrap_up
+    make_text_reader("kept going");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("fix task")};
+    auto result = loop->run(messages, "", registry->get_all_schemas(), should_cancel);
+
+    REQUIRE_FALSE(result.was_error);
+    REQUIRE(result.final_answer == "kept going");
+}
+
+TEST_CASE("#133: 评审器默认参数放宽（窗口 8 / max_tokens 512）", "[react_loop][issue133]") {
+    const ReActLoop::Config cfg;
+    // 窗口 4 太窄：Read→Edit→Read 的正常节奏会被误判成循环
+    REQUIRE(cfg.review_stall_window == 8);
+    // 200 太小：reasoning 模型把预算吃光后 content 为空
+    REQUIRE(cfg.review_max_tokens == 512);
+}
+
+// ============================================================================
+// Issue #78：FinalAnswer 前强制验证闭环（PreCompletion 门禁）
+// ============================================================================
+// 用 FileExists 目标驱动门禁：不依赖真实构建环境，结果确定且执行快。
+// 脚本化模型靠 MockCompletionProvider 的 reader 队列实现（每轮 run 消费一个），
+// 因此"多轮回灌"不需要额外的 scripted_model 基建。
+
+namespace {
+
+/// @brief #78：写"目标产物"的工具 —— 模拟模型真的照反馈去修了
+class WriteArtifactTool : public ITool {
+   public:
+    mutable int call_count = 0;
+    std::string path;
+
+    explicit WriteArtifactTool(std::string target) : path(std::move(target)) {}
+
+    const std::string& name() const override {
+        static const std::string n = "WriteArtifact";
+        return n;
+    }
+    const std::string& description() const override {
+        static const std::string d = "Writes the target artifact file";
+        return d;
+    }
+    const std::string& prompt() const override {
+        static const std::string p = "WriteArtifact tool for #78 gate testing";
+        return p;
+    }
+    nlohmann::json input_schema() const override {
+        return {{"type", "object"}, {"properties", {}}};
+    }
+    ResultV2<ToolResult> call(const nlohmann::json&, const ToolContext&) const override {
+        ++call_count;
+        std::ofstream(path) << "artifact";
+        return ResultV2<ToolResult>::ok(ToolResult::ok(std::string("artifact written")));
+    }
+};
+
+/// @brief #78 P3/P4：建只含指定线索文件的临时项目目录（探测用例用）
+/// @details 探测结果只由这些线索文件决定，不受测试进程当前目录影响。
+///          调用方负责 fs::remove_all。
+std::string make_probe_project(const std::vector<std::string>& files) {
+    namespace fs = std::filesystem;
+    const std::string dir =
+        (fs::temp_directory_path() /
+         ("workx_vfprobe_" +
+          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())))
+            .string();
+    fs::create_directories(dir);
+    for (const auto& rel : files) {
+        const fs::path p = fs::path(dir) / rel;
+        fs::create_directories(p.parent_path());
+        std::ofstream(p) << "{}\n";
+    }
+    return dir;
+}
+
+struct VerificationGateFixture : ReActLoopFixture {
+    std::string dir;       ///< 隔离工作目录（同时作为 loop 的 cwd）
+    std::string artifact;  ///< 待验证的目标产物路径
+    std::shared_ptr<WriteArtifactTool> writer;
+
+    VerificationGateFixture() {
+        namespace fs = std::filesystem;
+        dir = (fs::temp_directory_path() /
+               ("workx_vfgate_" +
+                std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())))
+                  .string();
+        fs::create_directories(dir);
+        artifact = dir + "/artifact.txt";
+        writer = std::make_shared<WriteArtifactTool>(artifact);
+        registry->register_tool(writer);
+    }
+
+    ~VerificationGateFixture() {
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+    }
+
+    /// @brief 门禁配置：以 "产物文件存在" 作为验证目标
+    ReActLoop::Config gate_config(int max_attempts) {
+        ReActLoop::Config cfg;
+        cfg.goal = parse_goal("file_exists:" + artifact);
+        cfg.verify_before_finish = true;
+        cfg.verify_max_attempts = max_attempts;
+        cfg.max_iterations = 10;
+        return cfg;
+    }
+
+    std::unique_ptr<ReActLoop> make_gate_loop(ReActLoop::Config config) {
+        return std::make_unique<ReActLoop>(provider.get(), registry, config,
+                                           &ConfigManager::instance(), nullptr, dir);
+    }
+
+    /// @brief 会话历史中是否存在一条含指定文本的 user 消息（回灌的验证失败信息）
+    bool injected_user_text(const std::vector<ChatMessage>& messages,
+                            std::string_view needle) const {
+        for (const auto& m : messages) {
+            if (m.role == ChatMessage::Role::User && m.content.find(needle) != std::string::npos) {
+                return true;
+            }
+        }
+        return false;
+    }
+};
+
+}  // namespace
+
+TEST_CASE_METHOD(VerificationGateFixture, "VF-01: 验证未通过时不产生无警告的最终答复",
+                 "[react_loop][issue78]") {
+    // max_attempts=1 → 首次失败即降级（不再回灌重试）
+    auto loop = make_gate_loop(gate_config(1));
+    make_text_reader("我认为已经完成了。");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("请实现这个功能")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.goal_status == GoalStatus::Failed);
+    // 原始答复保留（信息不丢），但必须带上未完成验证的警告
+    REQUIRE(result.final_answer.find("我认为已经完成了。") != std::string::npos);
+    REQUIRE(result.final_answer.find("未完成验证") != std::string::npos);
+    REQUIRE_FALSE(result.was_error);  // 降级不是错误，是"降级成功终止"
+}
+
+TEST_CASE_METHOD(VerificationGateFixture, "VF-02: 失败回灌后模型修复 → 重验通过",
+                 "[react_loop][issue78]") {
+    auto loop = make_gate_loop(gate_config(3));
+
+    make_text_reader("完成了。");                                        // 轮1：无据宣称完成
+    make_tool_call_reader("tu_1", "WriteArtifact", R"({})");            // 轮2：照反馈去补产物
+    make_text_reader("修复后重新验证过了，已完成。");                     // 轮3：验证通过
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("请实现这个功能")};
+    auto result = loop->run(messages, "", registry->get_all_schemas(), should_cancel);
+
+    REQUIRE(result.goal_status == GoalStatus::Achieved);
+    REQUIRE(result.final_answer == "修复后重新验证过了，已完成。");
+    REQUIRE(result.final_answer.find("未完成验证") == std::string::npos);
+    REQUIRE(writer->call_count == 1);  // 回灌确实驱动了动作，而不是空转
+    REQUIRE(result.total_iterations == 3);
+    // 回灌的失败信息进入了会话历史，且落在 user 角色（模型视角的纠偏指令）
+    REQUIRE(injected_user_text(messages, "验证未通过"));
+}
+
+TEST_CASE_METHOD(VerificationGateFixture, "VF-02: 达重试上限后降级为带警告终止",
+                 "[react_loop][issue78]") {
+    auto loop = make_gate_loop(gate_config(2));
+
+    make_text_reader("第一轮说完成。");  // 轮1：验证失败 → 回灌
+    make_text_reader("第二轮还说完成。");  // 轮2：验证仍失败 → 达上限 → 降级
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("请实现这个功能")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.goal_status == GoalStatus::Failed);
+    REQUIRE(result.final_answer.find("未完成验证") != std::string::npos);
+    REQUIRE(result.final_answer.find("第二轮还说完成。") != std::string::npos);
+    REQUIRE(provider->submit_count == 2);  // 恰好两次 Thought：回灌一次后仍未过 → 降级，不会无限重试
+}
+
+TEST_CASE_METHOD(VerificationGateFixture, "VF-02: 回灌必须消耗预算（不得静默死循环）",
+                 "[react_loop][issue78]") {
+    // §5.1 的核心风险：回灌分支的 continue 会跳过循环体末尾的 --budget/++iteration。
+    // 这里把预算压到 4、给足 10 个 reader，若记账漏了循环就跑不完 / 打满预算。
+    ReActLoop::Config cfg = gate_config(100);  // 重试上限放开，让预算成为唯一约束
+    cfg.max_iterations = 4;
+    auto loop = make_gate_loop(cfg);
+
+    for (int i = 0; i < 10; ++i) {
+        make_text_reader("还没做，先说完成。");  // 模型从不修复 → 每次都会被回灌
+    }
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("请实现这个功能")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    // 预算有限 ⇒ 必须在有限步内降级退出，且提交次数远小于提供的 reader 数
+    REQUIRE(result.goal_status == GoalStatus::Failed);
+    REQUIRE(result.final_answer.find("未完成验证") != std::string::npos);
+    REQUIRE(provider->submit_count < 10);
+    REQUIRE(result.total_iterations <= 4);
+}
+
+TEST_CASE_METHOD(VerificationGateFixture, "VF-03: 无可用验证器时门禁直接放行",
+                 "[react_loop][issue78]") {
+    // (a) 开关开启但未声明目标 → 不执行任何命令，goal_status 保持 Unknown
+    {
+        ReActLoop::Config cfg;
+        cfg.verify_before_finish = true;  // goal.type 仍是 None
+        auto loop = make_gate_loop(cfg);
+        make_text_reader("普通对话答复。");
+
+        std::vector<ChatMessage> messages = {ChatMessage::user("你好")};
+        auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+        REQUIRE(result.final_answer == "普通对话答复。");
+        REQUIRE(result.goal_status == GoalStatus::Unknown);  // 未经验证 ≠ 验证失败
+        REQUIRE(provider->submit_count == 1);
+    }
+    // (b) 声明了目标但该类型没有验证器（多模式目标）→ 同样放行，不得误判失败
+    {
+        ReActLoop::Config cfg;
+        cfg.verify_before_finish = true;
+        cfg.goal.type = AgentGoal::Batch;  // has_checker() == false
+        auto loop = make_gate_loop(cfg);
+        make_text_reader("多模式目标的答复。");
+
+        std::vector<ChatMessage> messages = {ChatMessage::user("跑批任务")};
+        auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+        REQUIRE(result.final_answer == "多模式目标的答复。");
+        REQUIRE(result.goal_status == GoalStatus::Unknown);
+    }
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "VF-04: apply_verification_gate 按入口正确装配门禁",
+                 "[react_loop][issue78]") {
+    MockConfigManager cfg_mgr;
+
+    // 探测用空目录：不传会取进程当前目录，结果会被「跑在仓库根」污染
+    const std::string empty = make_probe_project({});
+
+    // 传 false 的分支（P3 之前交互式走这条）：未显式配置 → 关闭、无目标
+    ReActLoop::Config interactive;
+    apply_verification_gate(interactive, cfg_mgr, /*enabled_by_default=*/false, empty);
+    REQUIRE_FALSE(interactive.goal.has_goal());
+    REQUIRE(interactive.verify_before_finish == false);
+
+    // headless（评测入口）：未显式配置 → 默认开启
+    // 这是 #78 阶段 P2 的关键：headless 自建 ReActLoop，不走 GoalGuardedAgent，
+    // 漏掉这条接线评测链路就是零验证。
+    ReActLoop::Config headless;
+    apply_verification_gate(headless, cfg_mgr, /*enabled_by_default=*/true, empty);
+    REQUIRE(headless.verify_before_finish == true);
+    // P3 的安全边界：空目录里推断不出任何目标 → 门禁开了也不会跑命令
+    REQUIRE_FALSE(headless.goal.has_goal());
+
+    // 配置了 goal → 必须解析进 Config，否则门禁永远不会真正验证任何东西
+    cfg_mgr.set_value(agent::keys::AGENT_GOAL, std::string("tests_pass"));
+    ReActLoop::Config with_goal;
+    apply_verification_gate(with_goal, cfg_mgr, true);
+    REQUIRE(with_goal.goal.type == AgentGoal::TestsPass);
+
+    // 显式开关优先于入口默认值
+    cfg_mgr.set_value(agent::keys::AGENT_VERIFY_BEFORE_FINISH, false);
+    ReActLoop::Config explicit_off;
+    apply_verification_gate(explicit_off, cfg_mgr, true);
+    REQUIRE(explicit_off.verify_before_finish == false);
+
+    // 非法值归一化为 >=1：0/负值会让重试封顶判定失去意义
+    cfg_mgr.set_value(agent::keys::AGENT_VERIFY_MAX_ATTEMPTS, 0);
+    ReActLoop::Config bad_cap;
+    apply_verification_gate(bad_cap, cfg_mgr, true, empty);
+    REQUIRE(bad_cap.verify_max_attempts == 1);
+
+    std::error_code ec;
+    std::filesystem::remove_all(empty, ec);
+}
+
+// ============================================================
+// VF-11（Issue #78 P3）：默认开启后按项目线索推断目标
+// ============================================================
+
+TEST_CASE_METHOD(ReActLoopFixture, "VF-11: 未声明 agent.goal 时按项目线索推断默认目标",
+                 "[react_loop][issue78]") {
+    MockConfigManager cfg_mgr;
+
+    // 有 CTest 入口 → 测试优先（tests_pass 比 build_clean 更贴近任务验收）
+    const std::string cmake = make_probe_project(
+        {"CMakeLists.txt", "build/CMakeCache.txt", "build/CTestTestfile.cmake"});
+    ReActLoop::Config cmake_cfg;
+    apply_verification_gate(cmake_cfg, cfg_mgr, true, cmake);
+    REQUIRE(cmake_cfg.goal.type == AgentGoal::TestsPass);
+
+    // 只能构建、跑不了测试 → 退到 build_clean
+    const std::string make_only = make_probe_project({"Makefile"});
+    ReActLoop::Config make_cfg;
+    apply_verification_gate(make_cfg, cfg_mgr, true, make_only);
+    REQUIRE(make_cfg.goal.type == AgentGoal::BuildClean);
+
+    // 用户显式声明优先于推断
+    cfg_mgr.set_value(agent::keys::AGENT_GOAL, std::string("lint_zero"));
+    ReActLoop::Config explicit_goal;
+    apply_verification_gate(explicit_goal, cfg_mgr, true, cmake);
+    REQUIRE(explicit_goal.goal.type == AgentGoal::LintZero);
+
+    std::error_code ec;
+    std::filesystem::remove_all(cmake, ec);
+    std::filesystem::remove_all(make_only, ec);
+}
+
+// ============================================================
+// #137 后续：apply_react_knobs 运行旋钮装配
+// 背景：headless 曾绕过 query_engine::make_react_config 手工构造 Config，
+// 评测路径上四个旋钮恒为默认值。共享装配函数落地后在此守护装配语义。
+// ============================================================
+
+TEST_CASE("apply_react_knobs: 配置键优先，env 兜底仅在没有配置时生效", "[react_loop][issue137]") {
+    MockConfigManager cfg_mgr;
+
+    // RAII 管理 env，避免泄漏给其他用例
+    struct EnvGuard {
+        bool had{false};
+        std::string old;
+        explicit EnvGuard(const char* name) : m_name(name) {
+            const char* v = std::getenv(name);
+            if (v) {
+                had = true;
+                old = v;
+            }
+        }
+        void set(const std::string& value) {
+#ifdef _WIN32
+            _putenv_s(m_name, value.c_str());
+#else
+            setenv(m_name, value.c_str(), 1);
+#endif
+        }
+        void unset() {
+#ifdef _WIN32
+            _putenv_s(m_name, "");
+#else
+            unsetenv(m_name);
+#endif
+        }
+        ~EnvGuard() {
+            if (had) {
+                set(old);
+            } else {
+                unset();
+            }
+        }
+        const char* m_name;
+    };
+    EnvGuard timeout_env("WORKX_AGENT_TIMEOUT_SEC");
+    timeout_env.unset();
+
+    // (a) 无配置、无 env → 不启用墙钟预算（0 = 不限），重试/预算保持结构体默认
+    ReActLoop::Config defaults;
+    apply_react_knobs(defaults, cfg_mgr);
+    REQUIRE(defaults.wall_clock_budget_sec == 0);
+    REQUIRE(defaults.wall_clock_reserve_sec == 90);  // #166C：阈值默认值不因未启用而改变
+    REQUIRE(defaults.thought_max_retries == 2);
+    REQUIRE(defaults.empty_answer_max_retries >= 0);
+
+    // (b) env 兜底：WORKX_AGENT_TIMEOUT_SEC 在无配置时生效
+    timeout_env.set("900");
+    ReActLoop::Config from_env;
+    apply_react_knobs(from_env, cfg_mgr);
+    REQUIRE(from_env.wall_clock_budget_sec == 900);
+
+    // 非法 env 值 → 视为不限（0），不因配置错误改变行为
+    timeout_env.set("abc");
+    ReActLoop::Config bad_env;
+    apply_react_knobs(bad_env, cfg_mgr);
+    REQUIRE(bad_env.wall_clock_budget_sec == 0);
+
+    // (c) 配置键优先于 env
+    timeout_env.set("999");
+    cfg_mgr.set_value(agent::keys::AGENT_WALL_CLOCK_BUDGET_SEC, 1234);
+    ReActLoop::Config from_cfg;
+    apply_react_knobs(from_cfg, cfg_mgr);
+    REQUIRE(from_cfg.wall_clock_budget_sec == 1234);
+
+    // (d) #144 / #147 旋钮从配置键读取（MockConfigManager 不做 env 覆盖，
+    //     实机上由 ConfigManager::load_from_env() 统一处理）
+    cfg_mgr.set_value(agent::keys::AGENT_THOUGHT_MAX_RETRIES, 5);
+    cfg_mgr.set_value(agent::keys::AGENT_REASONING_BUDGET_CHARS, 64000);
+    cfg_mgr.set_value(agent::keys::AGENT_EMPTY_ANSWER_MAX_RETRIES, 3);
+    ReActLoop::Config tuned;
+    apply_react_knobs(tuned, cfg_mgr);
+    REQUIRE(tuned.thought_max_retries == 5);
+    REQUIRE(tuned.reasoning_budget_chars == 64000);
+    REQUIRE(tuned.empty_answer_max_retries == 3);
+
+    // (e) #166 方案 C：墙钟收敛阈值。默认 90s（见 (a)）；配置键可调 —— 该键已注册 schema，
+    //     实机上 WORKX_WALL_CLOCK_RESERVE_SEC 由 ConfigManager::load_from_env() 统一覆盖，
+    //     MockConfigManager 不参与 env，故此处只验配置键路径。
+    cfg_mgr.set_value(agent::keys::AGENT_WALL_CLOCK_RESERVE_SEC, 120);
+    ReActLoop::Config reserve_cfg;
+    apply_react_knobs(reserve_cfg, cfg_mgr);
+    REQUIRE(reserve_cfg.wall_clock_reserve_sec == 120);
+
+    // 0 = 关闭收敛提示 —— 必须与"未配置"（回落到结构体默认 90）区分开
+    cfg_mgr.set_value(agent::keys::AGENT_WALL_CLOCK_RESERVE_SEC, 0);
+    ReActLoop::Config reserve_off;
+    apply_react_knobs(reserve_off, cfg_mgr);
+    REQUIRE(reserve_off.wall_clock_reserve_sec == 0);
+}
+
+TEST_CASE("apply_react_knobs: 子循环模式（include_wall_clock=false）+ 守护标志",
+          "[react_loop][issue155]") {
+    MockConfigManager cfg_mgr;
+
+    // RAII 管理 env，避免泄漏给其他用例（与 issue137 用例同款）
+    struct EnvGuard {
+        bool had{false};
+        std::string old;
+        explicit EnvGuard(const char* name) : m_name(name) {
+            const char* v = std::getenv(name);
+            if (v) {
+                had = true;
+                old = v;
+            }
+        }
+        void set(const std::string& value) {
+#ifdef _WIN32
+            _putenv_s(m_name, value.c_str());
+#else
+            setenv(m_name, value.c_str(), 1);
+#endif
+        }
+        void unset() {
+#ifdef _WIN32
+            _putenv_s(m_name, "");
+#else
+            unsetenv(m_name);
+#endif
+        }
+        ~EnvGuard() {
+            if (had) {
+                set(old);
+            } else {
+                unset();
+            }
+        }
+        const char* m_name;
+    };
+    EnvGuard timeout_env("WORKX_AGENT_TIMEOUT_SEC");
+    timeout_env.set("900");  // env 里有主 run 的墙钟预算
+
+    cfg_mgr.set_value(agent::keys::AGENT_THOUGHT_MAX_RETRIES, 5);
+    cfg_mgr.set_value(agent::keys::AGENT_REASONING_BUDGET_CHARS, 64000);
+    cfg_mgr.set_value(agent::keys::AGENT_EMPTY_ANSWER_MAX_RETRIES, 3);
+
+    // (a) 子循环模式：per-request 旋钮照常继承（verifier 同样暴露在思维链
+    //     失控/空答复风险下），但墙钟**必须不被继承** —— 否则主循环只剩 5
+    //     分钟时 hook verifier 又拿到完整 900s，子循环满额预算语义不成立。
+    ReActLoop::Config sub;
+    apply_react_knobs(sub, cfg_mgr, /*include_wall_clock=*/false);
+    REQUIRE(sub.wall_clock_budget_sec == 0);
+    // #166C：阈值保留结构体默认，但预算为 0 → 收敛提示的开关条件不成立，同样不生效
+    REQUIRE(sub.wall_clock_reserve_sec == 90);
+    REQUIRE(sub.thought_max_retries == 5);
+    REQUIRE(sub.reasoning_budget_chars == 64000);
+    REQUIRE(sub.empty_answer_max_retries == 3);
+
+    // (b) 默认（主 run 循环）：墙钟照常装配 —— 参数默认值不改变既有调用点行为
+    ReActLoop::Config main_run;
+    apply_react_knobs(main_run, cfg_mgr);
+    REQUIRE(main_run.wall_clock_budget_sec == 900);
+
+    // (c) 守护标志：装配后置位，裸 Config 保持 false（run() 据此打 WARN）
+    REQUIRE(ReActLoop::Config{}.knobs_configured == false);
+    REQUIRE(sub.knobs_configured);
+    REQUIRE(main_run.knobs_configured);
+}
+
+TEST_CASE_METHOD(VerificationGateFixture, "VF-05: Stop hook 阻断不吞掉验证结论",
+                 "[react_loop][issue78][hook]") {
+    // Stop 的 blockingError 会把 final_answer 整个覆写掉（这是已知且刻意的行为），
+    // 但 goal_status 必须保留 —— 否则 #78 的验证结果会被 hook 静默抹掉。
+    auto hooks = std::make_shared<agent::hook::HookManager>();
+    hooks->set_provider(provider.get());
+    agent::hook::HookDefinition def;
+    def.event = agent::hook::HookEvent::Stop;
+    def.type = agent::hook::HookType::Prompt;
+    def.prompt = "audit the final answer";
+    hooks->register_hook(def);
+
+    ReActLoop::Config cfg = gate_config(1);
+    cfg.hooks = hooks;
+    auto loop = make_gate_loop(cfg);
+
+    make_text_reader("声明完成但其实没验证过。");  // reader[0]：主循环（→ 门禁降级）
+    auto hook_reader = std::make_shared<MockStreamReader>();
+    hook_reader->add_content_chunk(R"({"blockingError":"blocked-by-stop-hook"})");
+    provider->set_next_reader(hook_reader);  // reader[1]：Stop hook 判定
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("请实现这个功能")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.was_error);
+    REQUIRE(result.final_answer == "blocked-by-stop-hook");  // 覆写照旧
+    REQUIRE(result.goal_status == GoalStatus::Failed);       // 但验证结论存活
+}
+
+TEST_CASE_METHOD(VerificationGateFixture, "VF-09: 预算仅剩一轮时不再无效回灌，直接降级",
+                 "[react_loop][issue78]") {
+    // max_iterations=1 → budget==1，回灌后必然立刻退出，只会白丢一次机会。
+    // 因此门禁在此情形下直接产出降级答复，而不是留下一个未验证的空结果。
+    ReActLoop::Config cfg = gate_config(5);  // 重试上限很宽松，预算才是瓶颈
+    cfg.max_iterations = 1;
+    auto loop = make_gate_loop(cfg);
+    make_text_reader("完成。");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("请实现这个功能")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.goal_status == GoalStatus::Failed);
+    REQUIRE(result.final_answer.find("未完成验证") != std::string::npos);
+    REQUIRE(result.total_iterations == 1);
+    REQUIRE(provider->submit_count == 1);  // 没有多余的一次回灌
+}
+
+// ============================================================
+// VF-10（Issue #78 P4）：探测不到验证手段时门禁放行
+// ============================================================
+// 与 VF-03 的区别：VF-03 覆盖「goal 类型没有验证器」（has_checker 为假）；
+// 本条覆盖「类型有验证器，但这个项目里没有可跑的命令」。
+// 二者都必须放行 —— 否则「无法验证」会被当成「验证失败」，模型为
+// 不存在的测试目标反复纠错，把预算烧在没有答案的地方。
+
+TEST_CASE_METHOD(VerificationGateFixture, "VF-10: 项目探测不到验证命令 → 门禁直接放行",
+                 "[react_loop][issue78]") {
+    // fixture 的 dir 是空临时目录：没有 CMakeLists / package.json / Cargo.toml …
+    ReActLoop::Config cfg;
+    cfg.goal = parse_goal("tests_pass");
+    cfg.verify_before_finish = true;
+    cfg.verify_max_attempts = 3;
+    cfg.max_iterations = 10;
+    auto loop = make_gate_loop(cfg);
+    make_text_reader("完成了。");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("请实现这个功能")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.goal_status != GoalStatus::Failed);  // 不得降级成「未完成验证」
+    REQUIRE(result.final_answer == "完成了。");          // 答复不得被追加警告
+    REQUIRE(provider->submit_count == 1);               // 不得产生回灌轮
+    REQUIRE_FALSE(injected_user_text(messages, "验证未通过"));
+}
+
+// ============================================================
+// Issue #83：剩余预算提示
+// ============================================================
+// 真跑 30+ 轮需要真 LLM（烧 token），这里用 mock provider 精确驱动到档位边界：
+// 预算提示是**纯本地判定**，是否与 token 无关，因此 mock 足以验证注入链路。
+// 档位文案本身由 test_budget_hint.cpp 的纯函数用例覆盖。
+
+namespace {
+
+/// @brief #83：造一个「有 ctest 线索」的项目目录
+/// @details detect_goal_command(TestsPass) 要求 CMakeLists.txt + CTest 入口
+///          （#129 起 out-of-source 还须构建目录可推导），缺一都不算
+///          「这个项目有测试」。调用方负责 remove_all。
+std::string make_ctest_project() {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "workx_issue83_ctest";
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+    fs::create_directories(dir / "build", ec);
+    auto write = [](const fs::path& p, const char* text) {
+        std::ofstream out(p);
+        out << text;
+    };
+    write(dir / "CMakeLists.txt", "cmake_minimum_required(VERSION 3.20)\n");
+    write(dir / "build" / "CMakeCache.txt", "# generated by cmake\n");
+    write(dir / "build" / "CTestTestfile.cmake", "# generated by cmake\n");
+    return dir.string();
+}
+
+/// @brief 历史里是否出现过含子串的 system 消息（预算提示以 system 角色注入）
+bool budget_hint_seen(const std::vector<ChatMessage>& messages, std::string_view needle) {
+    for (const auto& m : messages) {
+        if (m.role == ChatMessage::Role::System && m.content.find(needle) != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
+}  // namespace
+
+TEST_CASE_METHOD(ReActLoopFixture, "#83: 剩余预算跨过 30% / 10% 阈值时注入收尾提示",
+                 "[react_loop][issue83]") {
+    ReActLoop::Config config;
+    config.max_iterations = 10;
+    config.review_max_grants = 0;  // 不追加预算：跑满 10 轮硬停，避免牵扯评审器
+    auto loop = make_loop(config);
+
+    // 10 轮工具调用，输入各不相同 → 不触发停滞判定
+    for (int i = 1; i <= 10; ++i) {
+        make_tool_call_reader("tu_" + std::to_string(i), "Echo",
+                              R"({"text":"step)" + std::to_string(i) + R"("})");
+    }
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("这是一个很长的任务")};
+    auto result = loop->run(messages, "", registry->get_all_schemas(), should_cancel);
+
+    REQUIRE(result.total_iterations == 10);
+    CHECK(echo_tool->call_count == 10);
+    // 剩余 9..4（>30%）不发提示 —— 每轮都塞一行只会淹没工具输出
+    CHECK_FALSE(budget_hint_seen(messages, "剩余轮次 9 / 10"));
+    CHECK_FALSE(budget_hint_seen(messages, "剩余轮次 5 / 10"));
+    // 第 7 轮后剩余 3（30%）→ Warn
+    CHECK(budget_hint_seen(messages, "剩余轮次 3 / 10"));
+    CHECK(budget_hint_seen(messages, "转入验证与收尾"));
+    // 第 9 轮后剩余 1（10%）→ Critical
+    CHECK(budget_hint_seen(messages, "剩余轮次 1 / 10"));
+    // 无 goal 时不得凭空编一条命令出来
+    CHECK_FALSE(budget_hint_seen(messages, "`"));
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#83: Warn 档点名项目里真实的验证命令",
+                 "[react_loop][issue83]") {
+    const std::string project = make_ctest_project();
+    ReActLoop::Config config;
+    config.goal = parse_goal("tests_pass");
+    config.verify_before_finish = true;
+    config.max_iterations = 10;
+    config.review_max_grants = 0;
+    auto loop = std::make_unique<ReActLoop>(provider.get(), registry, config,
+                                            &ConfigManager::instance(), nullptr, project);
+
+    for (int i = 1; i <= 8; ++i) {
+        make_tool_call_reader("tu_" + std::to_string(i), "Echo",
+                              R"({"text":"step)" + std::to_string(i) + R"("})");
+    }
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("这是一个很长的任务")};
+    loop->run(messages, "", registry->get_all_schemas(), should_cancel);
+
+    // 提示里点名的必须是 #78 门禁真正会跑的那条命令（同源，不另造一套）。
+    // #129：out-of-source 项目门禁带 --test-dir 指向真实构建目录，提示同步。
+    CHECK(budget_hint_seen(messages, "`ctest --test-dir build -C Debug --output-on-failure`"));
+
+    std::error_code ec;
+    std::filesystem::remove_all(project, ec);
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#83: 预算充裕时完全不注入（零开销）", "[react_loop][issue83]") {
+    ReActLoop::Config config;
+    config.max_iterations = 40;
+    auto loop = make_loop(config);
+
+    for (int i = 1; i <= 3; ++i) {
+        make_tool_call_reader("tu_" + std::to_string(i), "Echo",
+                              R"({"text":"step)" + std::to_string(i) + R"("})");
+    }
+    make_text_reader("做完了。");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("短任务")};
+    auto result = loop->run(messages, "", registry->get_all_schemas(), should_cancel);
+
+    REQUIRE(result.final_answer == "做完了。");
+    CHECK_FALSE(budget_hint_seen(messages, "预算提醒"));
+}
+
+// ============================================================================
+// Issue #166 方案 C / #137 建议 3 — 剩余墙钟不足时主动收敛
+//
+// 背景：#137 实测「轮次还够、墙钟先到」才是评测场景的真实瓶颈（20 题里 3 题
+//      AgentTimeout：adaptive-rejection-sampler / caffe-cifar-10 / feal-linear）。
+// 策略：剩余墙钟 <= reserve 注入收敛提示（Warn=收尾+验证；Critical=立即交卷）；
+//      未配置 wall_clock_budget_sec 时整体关闭（交互式场景行为不变）。
+// ============================================================================
+
+TEST_CASE_METHOD(ReActLoopFixture, "#166C: 墙钟进入收敛阈值后注入收尾提示",
+                 "[react_loop][issue166]") {
+    ReActLoop::Config config;
+    config.max_iterations = 10;
+    config.review_max_grants = 0;
+    // 预算 90s = 阈值 90s：循环刚开始时剩余≈90s，落在 Warn（> 阈值/3 = 30s）
+    config.wall_clock_budget_sec = 90;
+    config.wall_clock_reserve_sec = 90;
+    auto loop = make_loop(config);
+
+    for (int i = 1; i <= 3; ++i) {
+        make_tool_call_reader("tu_" + std::to_string(i), "Echo",
+                              R"({"text":"step)" + std::to_string(i) + R"("})");
+    }
+    make_text_reader("收到，收尾。");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("长任务")};
+    loop->run(messages, "", registry->get_all_schemas(), should_cancel);
+
+    CHECK(budget_hint_seen(messages, "[墙钟提醒]"));
+    CHECK(budget_hint_seen(messages, "转入收敛与收尾"));
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#166C: 墙钟极短时升级为立即交卷（Critical）",
+                 "[react_loop][issue166]") {
+    ReActLoop::Config config;
+    config.max_iterations = 10;
+    config.review_max_grants = 0;
+    config.wall_clock_budget_sec = 3;  // 3s << 90/3 → 一开始就是 Critical
+    config.wall_clock_reserve_sec = 90;
+    auto loop = make_loop(config);
+
+    make_tool_call_reader("tu_1", "Echo", R"({"text":"step1"})");
+    make_text_reader("交卷。");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("长任务")};
+    loop->run(messages, "", registry->get_all_schemas(), should_cancel);
+
+    CHECK(budget_hint_seen(messages, "[墙钟提醒]"));
+    CHECK(budget_hint_seen(messages, "立即停止"));
+    // Critical 档不提验证命令（那一刻要的是交卷，不是再跑一遍测试）
+    CHECK_FALSE(budget_hint_seen(messages, "构建/测试"));
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#166C: 未配置墙钟预算时完全不注入（交互式零影响）",
+                 "[react_loop][issue166]") {
+    ReActLoop::Config config;
+    config.max_iterations = 10;
+    config.review_max_grants = 0;
+    // wall_clock_budget_sec 保持默认 0 → 整体关闭，即便阈值有默认值（90）也不注入
+    auto loop = make_loop(config);
+
+    make_tool_call_reader("tu_1", "Echo", R"({"text":"step1"})");
+    make_text_reader("做完了。");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("短任务")};
+    loop->run(messages, "", registry->get_all_schemas(), should_cancel);
+
+    CHECK_FALSE(budget_hint_seen(messages, "[墙钟提醒]"));
+}
+
+// ============================================================================
+// Issue #144 — Thought 阶段 LLM 请求失败的重试策略
+//
+// 背景：一次网络抖动/慢请求就会让整个任务在第 5 轮终止（Real case:
+// adaptive-rejection-sampler 死于 Total request timeout exceeded，核心产物没写出来）。
+// 策略：可重试错误（网络/超时/429/5xx）指数退避后重发同一个请求，
+//       **不消耗迭代预算**；不可重试错误（4xx）保持原样快速失败。
+// ============================================================================
+
+TEST_CASE_METHOD(ReActLoopFixture,
+                 "#144: 可重试错误会退避重试并最终成功，且不消耗迭代预算",
+                 "[react_loop][issue144]") {
+    ReActLoop::Config config;
+    config.thought_max_retries = 2;
+    config.thought_base_delay_ms = 1;  // 测试里不真的等待
+    auto loop = make_loop(config);
+
+    // 第一次：典型的网络/O超时错误（http_status=0 且详情非空 → 可重试）
+    make_error_reader(0, "Total request timeout exceeded");
+    // 第二次：正常完成
+    make_text_reader("恢复了。");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("继续任务")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE_FALSE(result.was_error);
+    REQUIRE_FALSE(result.was_interrupted);
+    REQUIRE(result.final_answer == "恢复了。");
+    // 失败的那一次没有任何状态变更，重试等价于重发同一请求，不该吃掉预算
+    REQUIRE(result.total_iterations == 1);
+    REQUIRE(provider->submit_count == 2);
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#144: 不可重试的 4xx 保持快速失败（不重试）",
+                 "[react_loop][issue144]") {
+    ReActLoop::Config config;
+    config.thought_max_retries = 2;
+    config.thought_base_delay_ms = 1;
+    auto loop = make_loop(config);
+
+    make_error_reader(401, "Unauthorized");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("继续任务")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.was_error);
+    REQUIRE(result.http_status == 401);
+    REQUIRE(provider->submit_count == 1);  // 重试无益，一次就放弃
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#144: 429 视为可重试", "[react_loop][issue144]") {
+    ReActLoop::Config config;
+    config.thought_max_retries = 1;
+    config.thought_base_delay_ms = 1;
+    auto loop = make_loop(config);
+
+    make_error_reader(429, "Rate limited");
+    make_text_reader("限速后成功。");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("继续任务")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE_FALSE(result.was_error);
+    REQUIRE(result.final_answer == "限速后成功。");
+    REQUIRE(provider->submit_count == 2);
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#144: 重试预算耗尽后才放弃", "[react_loop][issue144]") {
+    ReActLoop::Config config;
+    config.thought_max_retries = 2;
+    config.thought_base_delay_ms = 1;
+    auto loop = make_loop(config);
+
+    // 1 次原始 + 2 次重试 = 3 个错误 reader，全部失败
+    make_error_reader(503, "upstream temporarily down");
+    make_error_reader(503, "upstream temporarily down");
+    make_error_reader(503, "upstream temporarily down");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("继续任务")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.was_error);
+    REQUIRE(result.http_status == 503);
+    REQUIRE(result.error_message.find("upstream") != std::string::npos);
+    REQUIRE(provider->submit_count == 3);
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#144: thought_max_retries=0 恢复旧行为（失败即终止）",
+                 "[react_loop][issue144]") {
+    ReActLoop::Config config;
+    config.thought_max_retries = 0;  // 显式关闭
+    config.thought_base_delay_ms = 1;
+    auto loop = make_loop(config);
+
+    make_error_reader(0, "network unreachable");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("继续任务")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.was_error);
+    REQUIRE(provider->submit_count == 1);
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#144: 退避等待期间可被取消打断", "[react_loop][issue144]") {
+    ReActLoop::Config config;
+    config.thought_max_retries = 2;
+    config.thought_base_delay_ms = 3000;  // 足够长的窗口，确保取消发生在退避中
+    auto loop = make_loop(config);
+
+    make_error_reader(0, "Total request timeout exceeded");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("继续任务")};
+    ReActResult result;
+    std::thread runner([&] {
+        result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+    });
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    should_cancel.store(true);
+    runner.join();
+
+    // 退避不该把 Ctrl-C 卡住：收到取消后应立即走中断分支，而不是继续重试
+    REQUIRE(result.was_interrupted);
+    REQUIRE_FALSE(result.was_error);
+    REQUIRE(provider->submit_count == 1);
+}
+
+// ============================================================================
+// Issue #147 — 思维链失控 与 空答复（交白卷）
+//
+// 背景（Terminal-Bench 20 题实测）：
+//   ① 模型会生成 1.5 万~6.5 万 token 思维链而 content 为空，占掉全部思考时间的 49%；
+//      `adaptive-rejection-sampler` 三次失控吃掉 761/900 秒预算，直接超时判 0。
+//   ② 旧逻辑把"空 content + 无 tool_use"当成 LLM 主动结束，`cancel-async-tasks`
+//      在生成 65536 token 思维链后提交了一个**空 final_answer** 就结束了任务。
+// 策略：推理字符超预算即流式中断；无效答复回灌提示后重试，且都不消耗迭代预算。
+// ============================================================================
+
+namespace {
+
+/// @brief 构造一个"思维链失控"的 reader：只有 reasoning、没有 content、没有工具调用
+/// @param chars reasoning 字符总量（按 chunk 切分，模拟真实流式）
+std::shared_ptr<MockStreamReader> make_runaway_reasoning_reader(int chars, int chunk_size = 64) {
+    auto reader = std::make_shared<MockStreamReader>();
+    int written = 0;
+    while (written < chars) {
+        const int n = std::min(chunk_size, chars - written);
+        reader->add_reasoning_chunk(std::string(static_cast<size_t>(n), 'x'));
+        written += n;
+    }
+    reader->set_usage(10, 60000);
+    return reader;
+}
+
+/// @brief 构造一个"想了但没产出"的 reader：有 reasoning、无 content、无 tool_use
+/// @details 这正是 #147 要拦截的白卷：模型推理了半天却什么都没输出。
+///          注意 content 与 reasoning **都空**不属于此类——那是模型主动结束，
+///          必须保持旧行为（见"content 与 reasoning 都空视为主动结束"用例）。
+std::shared_ptr<MockStreamReader> make_empty_reader() {
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->add_reasoning_chunk("让我想想……");
+    reader->set_usage(10, 500);
+    return reader;
+}
+
+/// @brief 构造一个"完全空响应"reader：content 与 reasoning 都没有
+std::shared_ptr<MockStreamReader> make_void_reader() {
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->set_usage(10, 0);
+    return reader;
+}
+
+}  // namespace
+
+TEST_CASE_METHOD(ReActLoopFixture,
+                 "#147: 思维链超出预算时流式中断，回灌提示后重试并最终拿到答复",
+                 "[react_loop][issue147]") {
+    ReActLoop::Config config;
+    config.reasoning_budget_chars = 256;  // 测试用小预算，避免构造 3 万字符
+    config.empty_answer_max_retries = 2;
+    auto loop = make_loop(config);
+
+    // 第一次：思维链失控（只产出 reasoning，content 为空）
+    provider->set_next_reader(make_runaway_reasoning_reader(4096));
+    // 第二次：被回灌提示后直接给出结论
+    make_text_reader("答案是 42。");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("请解题")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE_FALSE(result.was_error);
+    REQUIRE(result.final_answer == "答案是 42。");
+    // 中断发生在工具执行之前，重试不该吃掉迭代预算
+    REQUIRE(result.total_iterations == 1);
+    REQUIRE(provider->submit_count == 2);
+    // 回灌的提示必须进入上下文，否则模型会重蹈覆辙
+    const auto& sent = provider->last_messages;
+    REQUIRE(std::any_of(sent.begin(), sent.end(), [](const ChatMessage& m) {
+        return m.role == ChatMessage::Role::User && m.content.find("reasoning") != std::string::npos;
+    }));
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#147: 空答复不再被当成 FinalAnswer 直接交白卷",
+                 "[react_loop][issue147]") {
+    ReActLoop::Config config;
+    config.empty_answer_max_retries = 2;
+    auto loop = make_loop(config);
+
+    provider->set_next_reader(make_empty_reader());  // 交白卷
+    make_text_reader("这是我真正的答复。");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("继续任务")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE_FALSE(result.was_error);
+    REQUIRE(result.final_answer == "这是我真正的答复。");
+    REQUIRE(result.total_iterations == 1);
+    REQUIRE(provider->submit_count == 2);
+}
+
+TEST_CASE_METHOD(ReActLoopFixture,
+                 "#147: content 与 reasoning 都空视为模型主动结束，不重试",
+                 "[react_loop][issue147]") {
+    ReActLoop::Config config;
+    config.empty_answer_max_retries = 2;
+    auto loop = make_loop(config);
+
+    // 一个字都没说（既无 content 也无 reasoning）—— 这是"主动结束"而非白卷，
+    // 必须保持旧行为直接收尾，否则会误伤把空响应当作正常结束的调用方。
+    provider->set_next_reader(make_void_reader());
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("继续任务")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(provider->submit_count == 1);  // 不得额外重试
+    REQUIRE_FALSE(result.was_error);
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#147: 重试预算用尽后兜底收尾，不会无限循环",
+                 "[react_loop][issue147]") {
+    ReActLoop::Config config;
+    config.empty_answer_max_retries = 1;  // 只允许重试 1 次
+    auto loop = make_loop(config);
+
+    provider->set_next_reader(make_empty_reader());
+    provider->set_next_reader(make_empty_reader());
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("继续任务")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    // 1 次原始 + 1 次重试 = 2 次提交，之后必须停止
+    REQUIRE(provider->submit_count == 2);
+    REQUIRE(result.final_answer.empty());
+    // 属 LLM 主动结束（无内容），不是硬预算错误
+    REQUIRE_FALSE(result.was_error);
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#147: 有效答复不受影响（有文本则不重试）",
+                 "[react_loop][issue147]") {
+    ReActLoop::Config config;
+    config.reasoning_budget_chars = 256;
+    config.empty_answer_max_retries = 2;
+    auto loop = make_loop(config);
+
+    // 正常的短思维链 + 正常答复，不该被误伤
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->add_reasoning_chunk(std::string(100, 'r'));
+    reader->add_content_chunk("正常答复");
+    reader->set_usage(10, 50);
+    provider->set_next_reader(reader);
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("继续任务")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.final_answer == "正常答复");
+    REQUIRE(provider->submit_count == 1);  // 没有多余重试
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#147: 带工具调用的空 content 不算白卷（不重试）",
+                 "[react_loop][issue147]") {
+    ReActLoop::Config config;
+    config.empty_answer_max_retries = 2;
+    auto loop = make_loop(config);
+
+    // 模型只调用工具、不输出文本 —— 这是完全正常的，绝不能当成无效答复
+    auto reader = std::make_shared<MockStreamReader>();
+    reader->add_tool_use_start("t1", "Echo");
+    reader->add_tool_use_delta("t1", R"({"text":"hi"})");
+    reader->set_usage(10, 20);
+    provider->set_next_reader(reader);
+    // 工具执行后给出最终答复
+    make_text_reader("完成。");
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("用工具打个招呼")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    REQUIRE(result.final_answer == "完成。");
+    REQUIRE(echo_tool->call_count == 1);
+    REQUIRE(provider->submit_count == 2);  // 1 次工具轮 + 1 次最终答复，没有多余重试
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#147: reasoning_budget_chars=0 恢复旧行为（不中断）",
+                 "[react_loop][issue147]") {
+    ReActLoop::Config config;
+    config.reasoning_budget_chars = 0;  // 关闭上限
+    config.empty_answer_max_retries = 0;
+    auto loop = make_loop(config);
+
+    provider->set_next_reader(make_runaway_reasoning_reader(4096));
+
+    std::vector<ChatMessage> messages = {ChatMessage::user("请解题")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+
+    // 不中断、不重试：单次提交后按"LLM 主动结束"收尾
+    REQUIRE(provider->submit_count == 1);
+}
+
+TEST_CASE_METHOD(ReActLoopFixture, "#147: 思维链熔断默认关闭（实测净效应为负）",
+                 "[react_loop][issue147]") {
+    // 完整 20 题实测（job 2026-10-05__11-50-58）：触发中断的 6 题 0/6 通过，
+    // 同批题在关闭熔断的基线里 3/5 通过。故默认必须保持关闭，
+    // 这条用例是防止有人把默认值改回 64000 却不跑分验证。
+    ReActLoop::Config config;
+    REQUIRE(config.reasoning_budget_chars == 0);
+
+    // 默认配置下：思维链远超曾经的 64000 阈值也不中断。
+    // 关掉空答复重试，单独隔离"不中断"这一点（否则会走 #147 的重试分支）。
+    config.empty_answer_max_retries = 0;
+    auto loop = make_loop(config);
+    provider->set_next_reader(make_runaway_reasoning_reader(70000));
+    std::vector<ChatMessage> messages = {ChatMessage::user("请解题")};
+    auto result = loop->run(messages, "", nlohmann::json::array(), should_cancel);
+    REQUIRE(provider->submit_count == 1);  // 未被中断，故也没有触发重试
 }

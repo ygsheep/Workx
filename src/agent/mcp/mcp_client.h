@@ -29,7 +29,7 @@ namespace agent::mcp {
 
 /// @brief MCP client：连接单个 server，提供工具/资源调用
 class McpClient {
-public:
+   public:
     McpClient();
     ~McpClient();
 
@@ -52,8 +52,7 @@ public:
 
     // === 工具 ===
     ResultV2<std::vector<McpToolInfo>> list_tools();
-    ResultV2<McpCallResult> call_tool(const std::string& tool_name,
-                                      const nlohmann::json& args);
+    ResultV2<McpCallResult> call_tool(const std::string& tool_name, const nlohmann::json& args);
 
     // === 资源 ===
     ResultV2<std::vector<McpResourceInfo>> list_resources();
@@ -64,17 +63,15 @@ public:
 
     // === 提示词（M4：prompts/list、prompts/get）===
     ResultV2<std::vector<McpPromptInfo>> list_prompts();
-    ResultV2<std::vector<McpPromptMessage>> get_prompt(
-        const std::string& name, const nlohmann::json& arguments);
+    ResultV2<std::vector<McpPromptMessage>> get_prompt(const std::string& name,
+                                                       const nlohmann::json& arguments);
 
-private:
+   private:
     /// @brief 发送请求并解析 result（error 转为 Error）
-    ResultV2<nlohmann::json> request(const std::string& method,
-                                     const nlohmann::json& params,
+    ResultV2<nlohmann::json> request(const std::string& method, const nlohmann::json& params,
                                      int timeout_ms);
     /// @brief 发送请求返回完整响应（含 error，供协商逻辑检查）
-    ResultV2<nlohmann::json> raw_request(const std::string& method,
-                                         const nlohmann::json& params,
+    ResultV2<nlohmann::json> raw_request(const std::string& method, const nlohmann::json& params,
                                          int timeout_ms);
     /// @brief 发送通知
     ResultV2<void> notify(const std::string& method, const nlohmann::json& params);
@@ -84,8 +81,7 @@ private:
 
     /// @brief 带 2.0 缓存语义的请求：命中未过期缓存直接返回，否则请求并按
     ///        result._meta.ttlMs 写入缓存（M4）
-    ResultV2<nlohmann::json> request_cached(const std::string& method,
-                                            const nlohmann::json& params,
+    ResultV2<nlohmann::json> request_cached(const std::string& method, const nlohmann::json& params,
                                             int timeout_ms);
     /// @brief 从响应 result 提取 2.0 缓存元数据（_meta.ttlMs / _meta.cacheScope）
     static McpCacheMeta extract_cache_meta(const nlohmann::json& result);
@@ -100,10 +96,10 @@ private:
     std::string m_name;
     std::string m_protocol_version;
     std::atomic<bool> m_connected{false};  ///< 跨线程读写（P2-6 数据竞争防护）
-    bool m_stateless = false;  ///< 2.0 无状态模式（每请求 _meta 带版本）
+    bool m_stateless = false;              ///< 2.0 无状态模式（每请求 _meta 带版本）
     int m_next_id = 1;
     /// @brief 2.0 响应缓存（key = method|params，TTL 过期自动失效）
     std::map<std::string, CacheEntry> m_cache;
 };
 
-} // namespace agent::mcp
+}  // namespace agent::mcp

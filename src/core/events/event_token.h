@@ -13,7 +13,7 @@
 namespace agent {
 
 class EventToken {
-public:
+   public:
     using ID = uint64_t;
 
     EventToken() : m_id(0), m_is_valid(false) {}
@@ -22,8 +22,7 @@ public:
     EventToken(const EventToken&) = default;
     EventToken& operator=(const EventToken&) = default;
 
-    EventToken(EventToken&& other) noexcept
-        : m_id(other.m_id), m_is_valid(other.m_is_valid) {
+    EventToken(EventToken&& other) noexcept : m_id(other.m_id), m_is_valid(other.m_is_valid) {
         other.m_is_valid = false;
         other.m_id = 0;
     }
@@ -43,9 +42,9 @@ public:
 
     void invalidate() { m_is_valid = false; }
 
-private:
+   private:
     ID m_id;
     bool m_is_valid;
 };
 
-} // namespace agent
+}  // namespace agent

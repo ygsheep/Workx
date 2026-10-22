@@ -24,7 +24,7 @@ namespace agent::tool {
 /// - 支持 MCP server 注册的工具
 /// - 透传输入参数和返回结果
 class MCPTool : public ITool {
-public:
+   public:
     explicit MCPTool(std::shared_ptr<mcp::McpClientManager> manager);
 
     const std::string& name() const override;
@@ -32,17 +32,13 @@ public:
     const std::string& prompt() const override;
     nlohmann::json input_schema() const override;
 
-    PermissionResult check_permissions(
-        const nlohmann::json& input,
-        const ToolContext& ctx) const override;
+    PermissionResult check_permissions(const nlohmann::json& input,
+                                       const ToolContext& ctx) const override;
 
-    ResultV2<ToolResult> call(
-        const nlohmann::json& input,
-        const ToolContext& ctx
-    ) const override;
+    ResultV2<ToolResult> call(const nlohmann::json& input, const ToolContext& ctx) const override;
 
-private:
+   private:
     std::shared_ptr<mcp::McpClientManager> m_manager;
 };
 
-} // namespace agent::tool
+}  // namespace agent::tool

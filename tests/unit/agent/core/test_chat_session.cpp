@@ -31,16 +31,13 @@ namespace {
 std::unique_ptr<ChatSession> make_test_session(MockConfigManager& cfg) {
     return std::make_unique<ChatSession>(
         std::unique_ptr<ICompletionProvider>(new test::MockCompletionProvider()),
-        TaskManager::instance(),
-        EventBus::instance(),
-        cfg
-    );
+        TaskManager::instance(), EventBus::instance(), cfg);
 }
 
 /// @brief 可阻塞的流式读取器：next() 挂起直到 release()，用于制造"模型忙碌"窗口
 /// @details 继承 MockStreamReader 以便传给 MockCompletionProvider::set_next_reader
 class BlockingStreamReader : public MockStreamReader {
-public:
+   public:
     void release() {
         {
             std::lock_guard<std::mutex> lock(m_);
@@ -63,13 +60,13 @@ public:
 
     void cancel() override {}
 
-private:
+   private:
     std::mutex m_;
     std::condition_variable cv_;
     bool released_ = false;
 };
 
-} // anonymous namespace
+}  // anonymous namespace
 
 TEST_CASE("ChatSession basic operations", "[session]") {
     MockConfigManager cfg;
@@ -155,17 +152,12 @@ TEST_CASE("ChatSession serialize_state all roles", "[session][h6][serialize]") {
     std::vector<ChatMessage> messages;
     messages.push_back({.role = ChatMessage::Role::System, .content = "sys msg"});
     messages.push_back({.role = ChatMessage::Role::User, .content = "hello"});
-    messages.push_back({
-        .role = ChatMessage::Role::Assistant,
-        .content = "hi",
-        .reasoning_content = "thinking"
-    });
-    messages.push_back({
-        .role = ChatMessage::Role::Tool,
-        .content = "result",
-        .tool_call_id = "tc1",
-        .tool_name = "Read"
-    });
+    messages.push_back(
+        {.role = ChatMessage::Role::Assistant, .content = "hi", .reasoning_content = "thinking"});
+    messages.push_back({.role = ChatMessage::Role::Tool,
+                        .content = "result",
+                        .tool_call_id = "tc1",
+                        .tool_name = "Read"});
     session->commit_state(std::move(messages), "sys");
 
     auto j = session->serialize_state();
@@ -195,10 +187,8 @@ TEST_CASE("ChatSession deserialize_state round-trip", "[session][h6][deserialize
     // H-A 修复：直接测试 deserialize_state 纯函数本身，不依赖 session 实例
     nlohmann::json input;
     input["system_prompt"] = "round-trip test";
-    input["messages"] = nlohmann::json::array({
-        {{"role", "user"}, {"content", "q1"}},
-        {{"role", "assistant"}, {"content", "a1"}}
-    });
+    input["messages"] = nlohmann::json::array(
+        {{{"role", "user"}, {"content", "q1"}}, {{"role", "assistant"}, {"content", "a1"}}});
 
     auto parse_result = ChatSession::deserialize_state(input);
     REQUIRE(parse_result.isOk());
@@ -224,9 +214,7 @@ TEST_CASE("ChatSession deserialize_state round-trip", "[session][h6][deserialize
 
 TEST_CASE("ChatSession deserialize_state rejects unknown role", "[session][h6][deserialize]") {
     nlohmann::json input;
-    input["messages"] = nlohmann::json::array({
-        {{"role", "alien"}, {"content", "??"}}
-    });
+    input["messages"] = nlohmann::json::array({{{"role", "alien"}, {"content", "??"}}});
 
     auto r = ChatSession::deserialize_state(input);
     REQUIRE(r.isErr());
@@ -285,6 +273,251 @@ TEST_CASE("compute_retry returns Sleep when retryable", "[session][h7][retry]") 
     auto d2 = ChatSession::compute_retry(r, policy, 2);
     REQUIRE(d2.action == RetryAction::Sleep);
     REQUIRE(d2.delay_ms == 4000);
+}
+
+// ============================================================
+// #89：compute_retry 依据真实 HTTP 状态码判定（此前硬编码 http_status=0）
+// ============================================================
+
+TEST_CASE("compute_retry retries on http 429", "[session][h7][retry][89]") {
+    ReActResult r;
+    r.was_error = true;
+    r.http_status = 429;
+    r.error_message = "HTTP error: 429";
+    HttpRetryPolicy policy{.max_retries = 3, .base_delay_ms = 1000};
+
+    auto d = ChatSession::compute_retry(r, policy, 0);
+    REQUIRE(d.action == RetryAction::Sleep);
+    REQUIRE(d.delay_ms == 1000);
+}
+
+TEST_CASE("compute_retry retries on http 503", "[session][h7][retry][89]") {
+    ReActResult r;
+    r.was_error = true;
+    r.http_status = 503;
+    r.error_message = "HTTP error: 503";
+    HttpRetryPolicy policy{.max_retries = 3, .base_delay_ms = 1000};
+
+    auto d = ChatSession::compute_retry(r, policy, 0);
+    REQUIRE(d.action == RetryAction::Sleep);
+}
+
+TEST_CASE("compute_retry stops on http 4xx instead of retrying", "[session][h7][retry][89]") {
+    // 修复前：http_status 恒传 0，is_retryable(0, 非空 msg) 恒 true —— 400/401 也会重试。
+    // 客户端错误重试无益（也是后续 fallback 判定「换模型有没有用」的依据）。
+    for (int status : {400, 401, 403, 404}) {
+        ReActResult r;
+        r.was_error = true;
+        r.http_status = status;
+        r.error_message = "HTTP error: " + std::to_string(status);
+        HttpRetryPolicy policy{.max_retries = 3, .base_delay_ms = 1000};
+
+        auto d = ChatSession::compute_retry(r, policy, 0);
+        REQUIRE(d.action == RetryAction::Stop);
+    }
+}
+
+// ============================================================
+// #89：fallback 模型降级
+// ============================================================
+
+TEST_CASE("next_fallback_model only degrades on retryable errors",
+          "[session][fallback][89]") {
+    const std::vector<std::string> models = {"model-a", "model-b"};
+
+    ReActResult r429;
+    r429.was_error = true;
+    r429.http_status = 429;
+    r429.error_message = "rate limited";
+    REQUIRE(ChatSession::next_fallback_model(r429, models, 0) ==
+            std::optional<std::string>("model-a"));
+    REQUIRE(ChatSession::next_fallback_model(r429, models, 1) ==
+            std::optional<std::string>("model-b"));
+    // 列表耗尽 → nullopt（走终止路径）
+    REQUIRE_FALSE(ChatSession::next_fallback_model(r429, models, 2).has_value());
+
+    ReActResult r503;
+    r503.was_error = true;
+    r503.http_status = 503;
+    r503.error_message = "server error";
+    REQUIRE(ChatSession::next_fallback_model(r503, models, 0) ==
+            std::optional<std::string>("model-a"));
+
+    // 网络错误（无 HTTP 响应）：http_status=0 + 非空 message
+    ReActResult rnet;
+    rnet.was_error = true;
+    rnet.http_status = 0;
+    rnet.error_message = "connection reset by peer";
+    REQUIRE(ChatSession::next_fallback_model(rnet, models, 0) ==
+            std::optional<std::string>("model-a"));
+
+    // 4xx 客户端错误：换模型同样失败 → 不降级
+    ReActResult r400;
+    r400.was_error = true;
+    r400.http_status = 400;
+    r400.error_message = "bad request";
+    REQUIRE_FALSE(ChatSession::next_fallback_model(r400, models, 0).has_value());
+
+    // 空列表 → nullopt
+    REQUIRE_FALSE(ChatSession::next_fallback_model(r429, {}, 0).has_value());
+}
+
+TEST_CASE("ChatSession degrades to fallback model after retry exhaustion",
+          "[session][fallback][89]") {
+    MockConfigManager cfg;
+    cfg.set<std::string>("backend.fallback_models", "fallback-a, fallback-b");
+    cfg.set<int>("backend.retry_count", 0);  // 不重试：首轮 429 立即耗尽
+    // ⚠️ 关闭 #78 验证门禁：测试进程 cwd 是本仓库根目录，门禁会按项目线索推断出
+    // tests_pass 目标，在 final answer 前真实执行 `ctest --test-dir ./build`（全套
+    // 数千用例，分钟级）——本测试只验证降级链路，不测门禁。
+    cfg.set<bool>("agent.verify_before_finish", false);
+    auto session = make_test_session(cfg);
+    auto* primary = static_cast<MockCompletionProvider*>(session->completion_provider());
+
+    // 主后端：429 错误
+    auto err = std::make_shared<MockStreamReader>();
+    err->set_error_at(0).set_error_payload(429, "rate limited");
+    primary->set_next_reader(err);
+
+    // fallback 工厂：每次调用造一个成功回复的新 mock（std::function 须可拷贝，不可捕获 unique_ptr）
+    std::vector<std::string> requested;
+    session->set_fallback_provider_factory(
+        [&requested](const std::string& model) -> std::unique_ptr<ICompletionProvider> {
+            requested.push_back(model);
+            auto p = std::make_unique<MockCompletionProvider>();
+            auto r = std::make_shared<MockStreamReader>();
+            r->add_content_chunk("from-" + model);
+            p->set_next_reader(r);
+            return p;
+        });
+
+    // 事件取证：捕获降级提示与最终完成事件
+    std::vector<std::string> error_events;
+    std::vector<std::string> done_events;
+    int status_events = 0;
+    auto err_token = EventBus::instance().subscribe<StreamErrorEvent>(
+        [&](const StreamErrorEvent& e) { error_events.push_back(e.message); });
+    auto done_token = EventBus::instance().subscribe<StreamDoneEvent>(
+        [&](const StreamDoneEvent& e) { done_events.push_back(e.full_content); });
+    auto status_token = EventBus::instance().subscribe<BackendStatusEvent>(
+        [&](const BackendStatusEvent&) { ++status_events; });
+
+    session->send_message("hello");
+    // 注意：Windows 默认定时器粒度 ~15.6ms，sleep_for(1ms) 实际睡 ~15ms，
+    // 「迭代次数上限」在这里形同虚设（10000 次 ≈ 2.6 分钟）——必须用截止时间
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (!session->is_generating() && std::chrono::steady_clock::now() < deadline) {
+        EventBus::instance().process_async_events();  // 测试无 TUI 主循环，手动泵发异步事件
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    while (session->is_generating() && std::chrono::steady_clock::now() < deadline) {
+        EventBus::instance().process_async_events();
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    INFO("events: " << error_events.size() << " errors, " << done_events.size() << " done, "
+                    << status_events << " status");
+    // 排水：run 结束前最后发布的事件可能仍在异步队列里（publish_async 只入队，
+    // 分发依赖调用方泵发），多泵几轮确保断言看到完整事件流
+    for (int i = 0; i < 10; ++i) {
+        EventBus::instance().process_async_events();
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    REQUIRE_FALSE(session->is_generating());
+
+    EventBus::instance().unsubscribe<BackendStatusEvent>(status_token);
+
+    // 断言：降级到第一个候选；降级提示与完成事件均已发布
+    REQUIRE(requested == std::vector<std::string>{"fallback-a"});
+    REQUIRE(std::any_of(error_events.begin(), error_events.end(), [](const std::string& m) {
+        return m.find("degraded to model 'fallback-a'") != std::string::npos;
+    }));
+    REQUIRE(std::any_of(done_events.begin(), done_events.end(), [](const std::string& c) {
+        return c.find("from-fallback-a") != std::string::npos;
+    }));
+
+    EventBus::instance().unsubscribe<StreamErrorEvent>(err_token);
+    EventBus::instance().unsubscribe<StreamDoneEvent>(done_token);
+
+    // 任务由 fallback 后端完成；上下文保留（user 消息不因 fresh_budget 重启而重复）
+    const auto msgs = session->get_messages();
+    REQUIRE_FALSE(msgs.empty());
+    REQUIRE(msgs.back().role == ChatMessage::Role::Assistant);
+    REQUIRE(msgs.back().content.find("from-fallback-a") != std::string::npos);
+    const size_t user_msgs = std::count_if(msgs.begin(), msgs.end(), [](const ChatMessage& m) {
+        return m.role == ChatMessage::Role::User && m.content.find("hello") != std::string::npos;
+    });
+    REQUIRE(user_msgs == 1);
+}
+
+TEST_CASE("ChatSession does not degrade on non-retryable 4xx", "[session][fallback][89]") {
+    MockConfigManager cfg;
+    cfg.set<std::string>("backend.fallback_models", "fallback-a");
+    cfg.set<int>("backend.retry_count", 0);
+    cfg.set<bool>("agent.verify_before_finish", false);  // 同 degrade 用例：避免门禁跑真 ctest
+    auto session = make_test_session(cfg);
+    auto* primary = static_cast<MockCompletionProvider*>(session->completion_provider());
+
+    auto err = std::make_shared<MockStreamReader>();
+    err->set_error_at(0).set_error_payload(400, "bad request");
+    primary->set_next_reader(err);
+
+    bool factory_called = false;
+    session->set_fallback_provider_factory(
+        [&factory_called](const std::string&) -> std::unique_ptr<ICompletionProvider> {
+            factory_called = true;
+            return nullptr;
+        });
+
+    session->send_message("hello");
+    const auto deadline4xx = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (!session->is_generating() && std::chrono::steady_clock::now() < deadline4xx)
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    while (session->is_generating() && std::chrono::steady_clock::now() < deadline4xx)
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    REQUIRE_FALSE(session->is_generating());
+
+    // 4xx 不降级，走终止路径
+    REQUIRE_FALSE(factory_called);
+    REQUIRE(primary->submit_count <= 3);
+}
+
+TEST_CASE("ChatSession gives up when fallback factory fails", "[session][fallback][89]") {
+    MockConfigManager cfg;
+    cfg.set<std::string>("backend.fallback_models", "fallback-a");
+    cfg.set<int>("backend.retry_count", 0);
+    cfg.set<bool>("agent.verify_before_finish", false);  // 同 degrade 用例：避免门禁跑真 ctest
+    auto session = make_test_session(cfg);
+    auto* primary = static_cast<MockCompletionProvider*>(session->completion_provider());
+
+    auto err = std::make_shared<MockStreamReader>();
+    err->set_error_at(0).set_error_payload(429, "rate limited");
+    primary->set_next_reader(err);
+
+    session->set_fallback_provider_factory(
+        [](const std::string&) -> std::unique_ptr<ICompletionProvider> { return nullptr; });
+
+    session->send_message("hello");
+    const auto deadlineFail = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (!session->is_generating() && std::chrono::steady_clock::now() < deadlineFail)
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    while (session->is_generating() && std::chrono::steady_clock::now() < deadlineFail)
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    REQUIRE_FALSE(session->is_generating());
+
+    // 创建失败 → 降级放弃，走终止路径（不挂死、不无限重试）
+    REQUIRE(primary->submit_count <= 3);
+}
+
+TEST_CASE("compute_retry treats http_status 0 as network error", "[session][h7][retry][89]") {
+    // 无 HTTP 响应（连接超时 / 提交失败）：仍按网络错误可重试，与修复前一致
+    ReActResult r;
+    r.was_error = true;
+    r.http_status = 0;
+    r.error_message = "Connection timed out";
+    HttpRetryPolicy policy{.max_retries = 3, .base_delay_ms = 1000};
+
+    auto d = ChatSession::compute_retry(r, policy, 0);
+    REQUIRE(d.action == RetryAction::Sleep);
 }
 
 TEST_CASE("compute_retry returns Stop when attempts exhausted", "[session][h7][retry]") {
@@ -367,19 +600,26 @@ TEST_CASE("compute_retry handles attempt >= 63 without UB", "[session][h7][retry
 // 项目会话恢复：serialize_state/deserialize_state tool_uses round-trip
 // ============================================================
 
-TEST_CASE("ChatSession serialize/deserialize tool_uses round-trip", "[session][restore][serialize]") {
+TEST_CASE("ChatSession serialize/deserialize tool_uses round-trip",
+          "[session][restore][serialize]") {
     // 构造含 tool_uses 的 assistant 消息
     nlohmann::json input;
     input["system_prompt"] = "test";
-    nlohmann::json uses = nlohmann::json::array({
-        {{"id", "toolu_001"}, {"name", "Read"}, {"input", {{"path", "/tmp/test"}}}},
-        {{"id", "toolu_002"}, {"name", "Write"}, {"input", {{"path", "/tmp/out"}, {"content", "hi"}}}}
-    });
-    input["messages"] = nlohmann::json::array({
-        {{"role", "user"}, {"content", "read and write"}},
-        {{"role", "assistant"}, {"content", "calling tools"}, {"reasoning_content", "thinking"}, {"tool_uses", uses}},
-        {{"role", "tool"}, {"content", "ok"}, {"tool_call_id", "toolu_001"}, {"tool_name", "Read"}, {"is_error", true}}
-    });
+    nlohmann::json uses = nlohmann::json::array(
+        {{{"id", "toolu_001"}, {"name", "Read"}, {"input", {{"path", "/tmp/test"}}}},
+         {{"id", "toolu_002"},
+          {"name", "Write"},
+          {"input", {{"path", "/tmp/out"}, {"content", "hi"}}}}});
+    input["messages"] = nlohmann::json::array({{{"role", "user"}, {"content", "read and write"}},
+                                               {{"role", "assistant"},
+                                                {"content", "calling tools"},
+                                                {"reasoning_content", "thinking"},
+                                                {"tool_uses", uses}},
+                                               {{"role", "tool"},
+                                                {"content", "ok"},
+                                                {"tool_call_id", "toolu_001"},
+                                                {"tool_name", "Read"},
+                                                {"is_error", true}}});
 
     // 反序列化
     auto parse_result = ChatSession::deserialize_state(input);
@@ -422,10 +662,14 @@ TEST_CASE("ChatSession restore_from_file loads messages", "[session][restore]") 
     // 写入测试数据
     {
         std::ofstream f(tmp.string());
-        f << R"({"type":"session_start","sessionId":"s1","cwd":"/tmp","model":"m","gitBranch":"main"})" << "\n";
-        f << R"({"type":"user","uuid":"u1","parentUuid":"","timestamp":"t1","content":"hello"})" << "\n";
-        f << R"({"type":"assistant","uuid":"a1","parentUuid":"u1","timestamp":"t2","content":"hi","reasoningContent":"thinking","toolUses":[]})" << "\n";
-        f << R"({"type":"tool","uuid":"t1","parentUuid":"a1","timestamp":"t3","toolCallId":"tc1","toolName":"Read","content":"file","isError":false})" << "\n";
+        f << R"({"type":"session_start","sessionId":"s1","cwd":"/tmp","model":"m","gitBranch":"main"})"
+          << "\n";
+        f << R"({"type":"user","uuid":"u1","parentUuid":"","timestamp":"t1","content":"hello"})"
+          << "\n";
+        f << R"({"type":"assistant","uuid":"a1","parentUuid":"u1","timestamp":"t2","content":"hi","reasoningContent":"thinking","toolUses":[]})"
+          << "\n";
+        f << R"({"type":"tool","uuid":"t1","parentUuid":"a1","timestamp":"t3","toolCallId":"tc1","toolName":"Read","content":"file","isError":false})"
+          << "\n";
     }
 
     auto session = make_test_session(cfg);
@@ -718,8 +962,7 @@ TEST_CASE("ChatSession set_permission_mode injects bypass", "[session][permissio
 // 会话工作模式三态切换（标准 → 极简 → 计划 → 标准）+ 计划联动权限
 // ============================================================
 
-TEST_CASE("ChatSession session mode toggle cycles and links plan permission",
-          "[session][mode]" ) {
+TEST_CASE("ChatSession session mode toggle cycles and links plan permission", "[session][mode]") {
     MockConfigManager cfg;
     auto session = make_test_session(cfg);
 
@@ -849,8 +1092,7 @@ TEST_CASE("ChatSession queue enqueue/remove/clear while busy", "[session][queue]
     REQUIRE_FALSE(session->is_generating());
 }
 
-TEST_CASE("ChatSession queue removed message cannot be removed twice",
-          "[session][queue]") {
+TEST_CASE("ChatSession queue removed message cannot be removed twice", "[session][queue]") {
     MockConfigManager cfg;
     auto session = make_test_session(cfg);
 
@@ -861,12 +1103,10 @@ TEST_CASE("ChatSession queue removed message cannot be removed twice",
     REQUIRE(session->queued_messages().empty());
 }
 
-TEST_CASE("ChatSession queue auto-sends after current loop ends",
-          "[session][queue][autosend]") {
+TEST_CASE("ChatSession queue auto-sends after current loop ends", "[session][queue][autosend]") {
     MockConfigManager cfg;
     auto session = make_test_session(cfg);
-    auto* provider =
-        static_cast<MockCompletionProvider*>(session->completion_provider());
+    auto* provider = static_cast<MockCompletionProvider*>(session->completion_provider());
 
     // 第一轮：阻塞 reader 挂起生成，制造"模型忙碌"窗口
     auto blocking = std::make_shared<BlockingStreamReader>();
@@ -905,4 +1145,133 @@ TEST_CASE("ChatSession queue auto-sends after current loop ends",
             found_queued_user = true;
     }
     REQUIRE(found_queued_user);
+}
+
+// ============================================================
+// #87：PermissionMode / SessionMode 随 resume 持久化
+// ============================================================
+// 背景：修复前三态只存在于内存，resume 后一律重置为 Default —— 用户在 Plan 模式批准
+// 方案后中断再恢复，agent 变成可写可执行的普通模式，而用户以为还在只读阶段。
+
+namespace {
+
+/// @brief 造一个可被 switch_session 恢复的会话文件（load_meta 需要 session_start）
+/// @param permission 为空表示不写 permission 事件（模拟本特性之前的历史会话）
+std::filesystem::path make_resumable_session(
+    const std::string& file_name,
+    const std::optional<agent::session::PermissionEvent>& permission) {
+    namespace fs = std::filesystem;
+    auto tmp = fs::temp_directory_path() / file_name;
+    fs::remove(tmp);
+
+    auto store = std::make_shared<agent::session::SessionStore>(tmp.string(), file_name);
+    if (!store->open()) throw std::runtime_error("open failed");
+    store->append_session_start("/project", "model-x", "develop");
+    store->append_user_message("u1", "", "hello", "t1");
+    if (permission) store->append_permission(*permission);
+    store->close();
+    return tmp;
+}
+
+/// @brief 关闭会话持有的文件句柄后再删除临时文件
+/// @details switch_session 以 append 模式重新打开会话文件，Windows 上未关闭的句柄
+///          会让 remove 抛「文件被占用」（断言本身已通过，仅清理失败）。
+void close_and_remove(std::unique_ptr<ChatSession>& session, const std::filesystem::path& p) {
+    if (auto store = session->session_store()) store->close();
+    session.reset();
+    std::error_code ec;
+    std::filesystem::remove(p, ec);
+}
+
+}  // anonymous namespace
+
+TEST_CASE("ChatSession switch_session restores plan permission boundary",
+          "[session][permission][87]") {
+    MockConfigManager cfg;
+
+    agent::session::PermissionEvent ev;
+    ev.permission_mode = "plan";
+    ev.session_mode = "plan";
+    ev.permission_mode_before_plan = "bypass-permissions";
+    ev.in_plan = true;
+    auto tmp = make_resumable_session("workx_test_perm_restore.jsonl", ev);
+
+    auto session = make_test_session(cfg);
+    REQUIRE(session->switch_session(tmp.string()));
+
+    // 核心断言：Plan 只读边界在 resume 后仍然成立（修复前这里会是 Default）
+    REQUIRE(session->permission_mode() == tool::PermissionMode::Plan);
+    REQUIRE(session->session_mode() == tool::SessionMode::Plan);
+
+    const auto r = session->last_permission_restore();
+    REQUIRE(r.restored == true);
+    REQUIRE(r.reason.empty());  // 成功恢复不提示用户
+    REQUIRE(r.mode == tool::PermissionMode::Plan);
+
+    close_and_remove(session, tmp);
+}
+
+TEST_CASE("ChatSession switch_session falls back to default when no permission record",
+          "[session][permission][87]") {
+    MockConfigManager cfg;
+
+    // 历史会话：没有任何 permission 事件
+    auto tmp = make_resumable_session("workx_test_perm_no_record.jsonl", std::nullopt);
+
+    auto session = make_test_session(cfg);
+    REQUIRE(session->switch_session(tmp.string()));
+
+    REQUIRE(session->permission_mode() == tool::PermissionMode::Default);
+    REQUIRE(session->session_mode() == tool::SessionMode::Standard);
+
+    // 回退必须显式告知（reason 非空 → TUI 插一行提示），不能静默降级
+    const auto r = session->last_permission_restore();
+    REQUIRE(r.restored == false);
+    REQUIRE(r.reason == "no_record");
+
+    close_and_remove(session, tmp);
+}
+
+TEST_CASE("ChatSession switch_session falls back to plan on invalid permission value",
+          "[session][permission][87]") {
+    MockConfigManager cfg;
+
+    agent::session::PermissionEvent ev;
+    ev.permission_mode = "bogus-mode";  // 跨版本/被篡改
+    ev.session_mode = "standard";
+    auto tmp = make_resumable_session("workx_test_perm_invalid.jsonl", ev);
+
+    auto session = make_test_session(cfg);
+    REQUIRE(session->switch_session(tmp.string()));
+
+    // 值非法：从严回退 Plan（宁可只读，不可放行写操作）
+    REQUIRE(session->permission_mode() == tool::PermissionMode::Plan);
+    REQUIRE(session->session_mode() == tool::SessionMode::Plan);
+
+    const auto r = session->last_permission_restore();
+    REQUIRE(r.restored == false);
+    REQUIRE(r.reason == "invalid_value");
+
+    close_and_remove(session, tmp);
+}
+
+TEST_CASE("ChatSession persists permission change after resume", "[session][permission][87]") {
+    MockConfigManager cfg;
+
+    auto tmp = make_resumable_session("workx_test_perm_persist.jsonl", std::nullopt);
+    auto session = make_test_session(cfg);
+    REQUIRE(session->switch_session(tmp.string()));
+
+    // switch_session 后会话文件以 append 模式重新打开 → 后续模式变更应落盘
+    REQUIRE(session->session_store() != nullptr);
+
+    session->set_permission_mode(tool::PermissionMode::BypassPermissions);
+    REQUIRE(session->permission_mode() == tool::PermissionMode::BypassPermissions);
+
+    session->session_store()->close();
+    auto latest = agent::session::SessionStore::load_permission(tmp.string());
+    REQUIRE(latest.has_value());
+    REQUIRE(latest->permission_mode == "bypass-permissions");
+
+    close_and_remove(session, tmp);
 }

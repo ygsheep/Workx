@@ -21,7 +21,7 @@ namespace agent::command {
 struct ExecutorResult {
     CommandResult result;
     std::string command_name = {};
-    bool should_query{false};       ///< 是否需要后续查询模型
+    bool should_query{false};  ///< 是否需要后续查询模型
     // TODO: chain input not yet implemented — 字段保留待后续实现
     std::optional<std::string> next_input = std::nullopt;
     bool submit_next_input{false};
@@ -31,7 +31,7 @@ struct ExecutorResult {
 ///
 /// 负责解析用户输入、查找命令、执行命令并返回结果。
 class CommandExecutor {
-public:
+   public:
     explicit CommandExecutor(std::shared_ptr<CommandRegistry> registry);
 
     /// 解析并执行命令
@@ -44,8 +44,8 @@ public:
     /// @return (command_name, args)
     static std::pair<std::string, std::string> parse(const std::string& input);
 
-private:
+   private:
     std::shared_ptr<CommandRegistry> registry_;
 };
 
-} // namespace agent::command
+}  // namespace agent::command

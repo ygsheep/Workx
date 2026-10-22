@@ -24,8 +24,10 @@ namespace agent {
 class ICompletionProvider;
 class IConfigManager;
 class IEventBus;
-namespace tool { class ToolRegistry; }
+namespace tool {
+class ToolRegistry;
 }
+}  // namespace agent
 
 namespace agent::hook {
 
@@ -36,20 +38,19 @@ class HookManager;  // 前向声明（make_hook_manager 返回 shared_ptr 需要
 ///          复用同一套装配逻辑：注册配置中的 hook 定义并注入 provider/event_bus，
 ///          以及 agent 类型所需的 config_manager / 白名单来源 registry。
 ///          hooks.enabled 为 false 时返回空 manager（empty()==true，零开销短路）。
-/// @param tool_registry 白名单来源（agent 类型从中派生只读子工具集；空则 agent 退化为纯 prompt 判定）
-std::shared_ptr<HookManager> make_hook_manager(agent::IConfigManager& cfg,
-                                               std::shared_ptr<agent::tool::ToolRegistry> tool_registry,
-                                               agent::ICompletionProvider* provider,
-                                               agent::IEventBus* bus);
+/// @param tool_registry 白名单来源（agent 类型从中派生只读子工具集；空则 agent 退化为纯 prompt
+/// 判定）
+std::shared_ptr<HookManager> make_hook_manager(
+    agent::IConfigManager& cfg, std::shared_ptr<agent::tool::ToolRegistry> tool_registry,
+    agent::ICompletionProvider* provider, agent::IEventBus* bus);
 
 struct HookEntry {
     HookDefinition def;
     HookMatcher matcher;
-    bool consumed = false;  // once 语义：已执行过
-    uint64_t run_count = 0; // 执行次数（调试/日志）
+    bool consumed = false;   // once 语义：已执行过
+    uint64_t run_count = 0;  // 执行次数（调试/日志）
 
-    explicit HookEntry(HookDefinition d)
-        : def(std::move(d)), matcher(def.match) {}
+    explicit HookEntry(HookDefinition d) : def(std::move(d)), matcher(def.match) {}
 };
 
 /// @brief Hook 生命周期接口。宿主（ReActLoop/ChatSession/AgentTool）持有一个
@@ -62,7 +63,7 @@ struct HookEntry {
 ///          阻塞其他线程。empty()/size() 热路径不加锁，依赖运行期不变量：注册
 ///          仅在首个 dispatch 之前完成，运行期不增删条目。
 class HookManager {
-public:
+   public:
     /// @brief 注册一个 hook（若同 event+match 已存在则忽略，避免 config+frontmatter 重复）
     void register_hook(HookDefinition def);
 
@@ -109,15 +110,16 @@ public:
         cached_sub_registry_.reset();
     }
 
-private:
+   private:
     std::vector<HookEntry> entries_;
-    mutable std::mutex mutex_;   ///< 保护 entries_ 的并发访问（dispatch 快照）
+    mutable std::mutex mutex_;  ///< 保护 entries_ 的并发访问（dispatch 快照）
     agent::ICompletionProvider* provider_ = nullptr;
     agent::IConfigManager* config_manager_ = nullptr;
     agent::IEventBus* event_bus_ = nullptr;
-    std::shared_ptr<agent::tool::ToolRegistry> tool_registry_;         ///< agent 类型白名单来源
-    mutable std::mutex tool_mutex_;                                    ///< 保护 tool_registry_ 与子工具集缓存
-    std::shared_ptr<agent::tool::ToolRegistry> cached_sub_registry_;   ///< 只读子工具集缓存（M-1 复用，来源稳定时不为空）
+    std::shared_ptr<agent::tool::ToolRegistry> tool_registry_;  ///< agent 类型白名单来源
+    mutable std::mutex tool_mutex_;  ///< 保护 tool_registry_ 与子工具集缓存
+    std::shared_ptr<agent::tool::ToolRegistry>
+        cached_sub_registry_;  ///< 只读子工具集缓存（M-1 复用，来源稳定时不为空）
 
     /// @brief 获取只读子工具集（懒构建 + 缓存；来源 registry 稳定时复用）
     /// @details 线程安全：内部加锁，首次构建后缓存返回。调用方持返回值存活期即本次
@@ -137,4 +139,4 @@ private:
     HookResult run_agent(const HookDefinition& def, const HookContext& ctx);
 };
 
-} // namespace agent::hook
+}  // namespace agent::hook

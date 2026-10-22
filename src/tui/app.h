@@ -26,9 +26,9 @@
 #include <ftxui/component/component.hpp>
 
 #include "core/events/agent_events.h"
-#include "agent/tool/context.h"  // tool::PermissionMode
-#include "agent/api/backend_types.h"  // agent::ModelInfo（模型切换 context_length）
-#include "agent/factory.h"       // agent::BackendCreateResult
+#include "agent/tool/context.h"           // tool::PermissionMode
+#include "agent/api/backend_types.h"      // agent::ModelInfo（模型切换 context_length）
+#include "agent/factory.h"                // agent::BackendCreateResult
 #include "agent/model/provider_config.h"  // agent::ProviderConfigEntry
 #include "bridge/action_queue.h"
 #include "bridge/event_bridge.h"
@@ -69,9 +69,9 @@ struct AppDeps {
     agent::IBackendAdmin* backend_admin = nullptr;
     agent::IEventBus* event_bus = nullptr;
     agent::IConfigManager* config_manager = nullptr;  ///< 配置（供应商列表 / 当前 provider）
-    agent::ITaskManager* task_manager = nullptr;      ///< 后台任务（任务调度 tab 只读查询）
-    bool mock_mode = false;  ///< --mock：无后端演示（send_input 走本地 mock 流）
-    bool smoke_mode = false; ///< --smoke：自动驱动一轮 mock 对话后退出（CI 冒烟）
+    agent::ITaskManager* task_manager = nullptr;  ///< 后台任务（任务调度 tab 只读查询）
+    bool mock_mode = false;   ///< --mock：无后端演示（send_input 走本地 mock 流）
+    bool smoke_mode = false;  ///< --smoke：自动驱动一轮 mock 对话后退出（CI 冒烟）
     std::string model_name;
     std::string project;
     std::string agent_name;
@@ -100,7 +100,8 @@ struct AppDeps {
     /// @brief 运行时创建后端（/provider 热切换；main 注入 agent::create_backend_for_entry 包装）
     /// @param entry 目标供应商条目（含 base_url/api_key/model，创建后端时以条目为准）
     /// @return BackendCreateResult（provider 可为空 = 配置不足或创建/初始化失败）
-    std::function<agent::BackendCreateResult(const agent::ProviderConfigEntry& entry)> create_provider;
+    std::function<agent::BackendCreateResult(const agent::ProviderConfigEntry& entry)>
+        create_provider;
 
     /// @brief 配置落盘回调（供应商切换成功持久化后调用；main 注入 save_to_file）
     /// @details apply_provider_switch 只改 ConfigManager 内存，不落盘。
@@ -110,7 +111,7 @@ struct AppDeps {
 
 /// @brief 顶层应用
 class App {
-public:
+   public:
     explicit App(AppDeps deps);
     ~App();
 
@@ -120,7 +121,7 @@ public:
     /// @brief 退出码（冒烟模式：0=通过，1=超时/失败；常规模式恒 0）
     int exit_code() const { return m_exit_code.load(); }
 
-private:
+   private:
     void drain();
     void handle_ask_user(const ActionAskUser& a);
     void close_ask(bool submitted);
@@ -133,8 +134,7 @@ private:
     /// @param force_flush 模型忙碌时是否请求下个工具轮边界立即冲刷（Ctrl+Enter）
     void send_input(const std::string& text, bool force_flush = false);
     /// @brief 技能命令任意位置调用：回显原始输入 + 注入合成 Skill 卡片 + 路由模型
-    void handle_skill_invocation(const std::string& raw_input,
-                                 const std::string& name,
+    void handle_skill_invocation(const std::string& raw_input, const std::string& name,
                                  const std::string& args);
     /// @brief 统一命令执行入口（斜杠命令经 InputProcessor → CommandExecutor）
     void run_command(const std::string& cmd, const std::string& args);
@@ -232,7 +232,8 @@ private:
     ///          命中区写入 m_queue_hits（标题行切换展开，✕ 移除对应条目）。
     ftxui::Element build_queue_bar();
     /// @brief Hook 执行进度条（#50 M-2：输入区上方多行，展示 Command/HTTP/Prompt hook 实时状态）
-    /// @details 单行一条 hook：状态图标（进行中 ● / 完成 ✓ / 失败 ✕）+ 事件名 + hook 类型 + 展示标签。
+    /// @details 单行一条 hook：状态图标（进行中 ● / 完成 ✓ / 失败 ✕）+ 事件名 + hook 类型 +
+    /// 展示标签。
     ///          为空时返回 emptyElement（零占用，不干扰既有布局）。
     ftxui::Element build_hook_progress_elem() const;
     /// @brief hook 进度条占用的行数（0 = 空；供 build_transcript 扣除可视高度防滚动错位）
@@ -293,10 +294,10 @@ private:
     //       vector 扩容时按拷贝搬移 deque，元素地址全部变化，reflect 的 Box& 悬垂 →
     //       SetBox 写坏 shared_ptr 的 _Ptr（resume 后重发消息崩溃 0x560000002A 根因）。
     struct MsgCacheEntry {
-        ftxui::Element element;     ///< 缓存的渲染树（仅 sealed，帧无关）
+        ftxui::Element element;  ///< 缓存的渲染树（仅 sealed，帧无关）
         std::unique_ptr<std::deque<CardHit>> hits;  ///< 卡片命中（reflect 实时回写屏幕坐标）
-        int width = -1;             ///< 上次渲染宽度（resize 失效）
-        std::uint64_t key = 0;      ///< 渲染内容指纹（长度+折叠状态，见 sealed_cache_key）
+        int width = -1;                             ///< 上次渲染宽度（resize 失效）
+        std::uint64_t key = 0;  ///< 渲染内容指纹（长度+折叠状态，见 sealed_cache_key）
         bool has = false;
     };
     std::vector<MsgCacheEntry> m_msg_cache;
@@ -321,20 +322,20 @@ private:
     /// @brief 输入历史（上下箭头浏览 + JSON 落盘；路径 ~/.workx/history.json）
     InputHistory m_input_history;
     std::chrono::steady_clock::time_point m_last_ctrl_c{};  ///< 上次 Ctrl+C 时刻（1s 内连按退出）
-    bool m_ctrl_c_hint = false;              ///< 状态栏「再次按 Ctrl+C 退出」提示是否显示
+    bool m_ctrl_c_hint = false;  ///< 状态栏「再次按 Ctrl+C 退出」提示是否显示
     std::chrono::steady_clock::time_point m_ctrl_c_hint_until;  ///< 提示显示截止时刻
-    std::string m_ask_buffer;          ///< AskUser 模态输入（自定义输入模式用）
+    std::string m_ask_buffer;  ///< AskUser 模态输入（自定义输入模式用）
     bool m_palette_open = false;
     bool m_model_open = false;
     int m_scroll = 0;
-    bool m_follow = true;              ///< 自动跟随最新内容
+    bool m_follow = true;  ///< 自动跟随最新内容
 
     // ---- 输入栏提示面板（/ 命令 · @ 文件）----
-    size_t m_composer_cursor = 0;      ///< composer 光标（外部持有，供路径替换同步）
+    size_t m_composer_cursor = 0;  ///< composer 光标（外部持有，供路径替换同步）
     SuggestMode m_suggest_mode = SuggestMode::None;
-    std::vector<SuggestEntry> m_suggest_entries;   ///< 过滤后的候选
+    std::vector<SuggestEntry> m_suggest_entries;           ///< 过滤后的候选
     std::vector<agent::FileIndex::Entry> m_suggest_files;  ///< 文件候选（payload 映射）
-    int m_suggest_selected = -1;       ///< 选中项下标（-1 = 无）
+    int m_suggest_selected = -1;                           ///< 选中项下标（-1 = 无）
     /// @brief 提示面板候选行渲染后的屏幕 box（每帧重建；deque 保证 reflect 地址稳定）
     std::deque<ftxui::Box> m_suggest_hits;
 
@@ -345,42 +346,42 @@ private:
     std::deque<CardHit> m_queue_hits;
 
     // ---- 聚合搜索面板（Ctrl+P）----
-    std::vector<PaletteCommand> m_palette_cmds;      ///< 命令条目（注册表派生，搜索/提示共用）
-    std::vector<SearchEntry> m_search_entries;   ///< 面板打开时装配的条目（on_select 映射）
-    std::vector<SessionLite> m_session_metas;    ///< 会话列表缓存（后台加载）
-    bool m_sessions_loading = false;             ///< 会话列表正在后台加载
+    std::vector<PaletteCommand> m_palette_cmds;  ///< 命令条目（注册表派生，搜索/提示共用）
+    std::vector<SearchEntry> m_search_entries;  ///< 面板打开时装配的条目（on_select 映射）
+    std::vector<SessionLite> m_session_metas;  ///< 会话列表缓存（后台加载）
+    bool m_sessions_loading = false;           ///< 会话列表正在后台加载
 
     // ---- 统一悬浮面板：/resume 会话 · /model 模型 · 模式选择 · /provider 供应商 ----
     std::vector<SearchEntry> m_session_entries;  ///< /resume 面板条目（仅会话）
     bool m_resume_open = false;
-    std::vector<SearchEntry> m_model_entries;    ///< /model 面板条目（由 m_model_items 派生）
-    std::vector<SearchEntry> m_mode_entries;     ///< 模式选择面板条目（标准/计划/极简 + 介绍）
+    std::vector<SearchEntry> m_model_entries;  ///< /model 面板条目（由 m_model_items 派生）
+    std::vector<SearchEntry> m_mode_entries;  ///< 模式选择面板条目（标准/计划/极简 + 介绍）
     bool m_mode_open = false;
     bool m_provider_open = false;
     std::vector<agent::ProviderConfigEntry> m_providers;  ///< 配置中的供应商列表
-    std::string m_current_provider;              ///< 当前供应商 id（backend.provider）
+    std::string m_current_provider;  ///< 当前供应商 id（backend.provider）
 
     // ---- 侧边栏布局 ----
-    bool m_sidebar_left = false;                 ///< 侧边栏居中位置（false=右，true=左）
-    int m_sidebar_width = 35;                    ///< 侧边栏宽度百分比（Ctrl+←/→ / 鼠标拖动，[20,80]）
-    bool m_sidebar_resizing = false;             ///< 正在用鼠标拖动侧边栏分隔线调整宽度
+    bool m_sidebar_left = false;  ///< 侧边栏居中位置（false=右，true=左）
+    int m_sidebar_width = 35;  ///< 侧边栏宽度百分比（Ctrl+←/→ / 鼠标拖动，[20,80]）
+    bool m_sidebar_resizing = false;  ///< 正在用鼠标拖动侧边栏分隔线调整宽度
     /// @brief 侧边栏 tab 栏命中区（每帧由 build_sidebar_tabs 重建；鼠标点击用）
     std::deque<TabHit> m_tab_hits;
     /// @brief 侧栏可折叠区块命中区（MCP/TODO 标题行；每帧由 append_sidebar_info 重建）
     std::deque<SectionHit> m_section_hits;
     /// @brief 项目文件树组件（项目 tab 可交互：点击目录/文件、滚轮滚动）
     ftxui::Component m_project_tree;
-    ftxui::Box m_project_box;          ///< 项目树组件渲染 box（点击命中用；折叠时置空）
+    ftxui::Box m_project_box;  ///< 项目树组件渲染 box（点击命中用；折叠时置空）
     /// @brief 项目树常驻后台扫描线程（首扫 + 项目 tab 可见时周期重扫，生命周期内 join）
     std::thread m_project_watch_thread;
     std::atomic<bool> m_project_watch_run{false};  ///< 扫描线程运行开关（置 false 请求退出）
-    std::atomic<bool> m_project_tab_active{false}; ///< 项目 tab 是否可见（仅可见时周期重扫）
+    std::atomic<bool> m_project_tab_active{false};  ///< 项目 tab 是否可见（仅可见时周期重扫）
 
     // ---- 输出区域层级导航（标题栏下子列表）----
     /// @brief 层级子列表命中区（面包屑项：主会话/子 Agent；每帧由 build_breadcrumb 重建）
     std::deque<CardHit> m_breadcrumb_hits;
-    int m_sub_scroll = 0;       ///< 第二层（子 Agent 记录）独立滚动位置
-    bool m_sub_follow = true;   ///< 第二层自动跟随最新记录
+    int m_sub_scroll = 0;      ///< 第二层（子 Agent 记录）独立滚动位置
+    bool m_sub_follow = true;  ///< 第二层自动跟随最新记录
     /// @brief 第二层卡片命中区（思考/工具卡；每帧由 build_sub_agent_view 重建）
     std::deque<CardHit> m_sub_hits;
 
@@ -396,29 +397,29 @@ private:
     // ---- 子 Agent 菜单（任务调度 tab 可交互）----
     std::vector<std::string> m_sub_entries;  ///< 菜单条目（每帧由 sub_agents 重建）
     ftxui::Component m_sub_menu;             ///< 纵向 Menu（可聚焦；Enter 跳转转录）
-    ftxui::Box m_sub_box;                    ///< 菜单渲染 box（点击命中用；折叠时置空）
+    ftxui::Box m_sub_box;  ///< 菜单渲染 box（点击命中用；折叠时置空）
 
     // ---- 变更记录组件（变更记录 tab 可交互）----
-    ftxui::Component m_change_viewer;        ///< 修改点 Menu + hunk + 目的展开
-    ftxui::Box m_change_box;                 ///< 组件渲染 box（点击命中用；折叠时置空）
+    ftxui::Component m_change_viewer;  ///< 修改点 Menu + hunk + 目的展开
+    ftxui::Box m_change_box;           ///< 组件渲染 box（点击命中用；折叠时置空）
 
     // ---- 文件查看组件（文件 tab 可聚焦：↑↓/PgUp/PgDn/滚轮滚动）----
-    ftxui::Component m_file_viewer;          ///< 文件查看器（聚焦时接收滚动键）
-    ftxui::Box m_file_box;                   ///< 文件查看器渲染 box（滚轮命中用；折叠时置空）
+    ftxui::Component m_file_viewer;  ///< 文件查看器（聚焦时接收滚动键）
+    ftxui::Box m_file_box;  ///< 文件查看器渲染 box（滚轮命中用；折叠时置空）
 
     // ---- AskUser 模态（B3：多问题 + 选项 + 自定义输入 + cancel_flag）----
     struct AskQuestion {
-        std::string question;          ///< 完整问题文本（答案 map 的 key）
-        std::string header;            ///< 短标签（可空，回退用 question）
-        bool multi = false;            ///< 多选（Space 勾选；Enter 确认当前题）
+        std::string question;  ///< 完整问题文本（答案 map 的 key）
+        std::string header;    ///< 短标签（可空，回退用 question）
+        bool multi = false;    ///< 多选（Space 勾选；Enter 确认当前题）
         bool allow_custom_input = true;
         std::vector<std::string> options;  ///< 选项 label
     };
     bool m_ask_active = false;
-    size_t m_ask_qindex = 0;           ///< 当前问题下标
-    int m_ask_sel = 0;                 ///< 当前选中选项下标（-1 = 无）
-    std::vector<bool> m_ask_checked;   ///< 多选勾选状态（仅 multi 用）
-    bool m_ask_custom = false;         ///< 是否处于自定义输入模式
+    size_t m_ask_qindex = 0;                   ///< 当前问题下标
+    int m_ask_sel = 0;                         ///< 当前选中选项下标（-1 = 无）
+    std::vector<bool> m_ask_checked;           ///< 多选勾选状态（仅 multi 用）
+    bool m_ask_custom = false;                 ///< 是否处于自定义输入模式
     std::vector<AskQuestion> m_ask_questions;  ///< 解析后的问题列表
     std::vector<std::pair<std::string, std::string>> m_ask_answers;  ///< 已答（question→answer）
     std::shared_ptr<std::promise<agent::AskUserResult>> m_ask_promise;
@@ -428,31 +429,32 @@ private:
     bool m_ask_test_echo = false;
 
     std::vector<std::string> m_model_items;  ///< 模型列表（/model 面板）
-    std::vector<agent::ModelInfo> m_model_infos;  ///< list_models 完整信息（apply_model 取 context_length）
-    int m_mock_perm_cycle = 0;   ///< mock 下 Shift+Tab 权限循环序号（""→bypass）
-    int m_mock_mode_cycle = 0;   ///< mock 下模式切换循环序号（standard→minimal→plan）
+    std::vector<agent::ModelInfo>
+        m_model_infos;          ///< list_models 完整信息（apply_model 取 context_length）
+    int m_mock_perm_cycle = 0;  ///< mock 下 Shift+Tab 权限循环序号（""→bypass）
+    int m_mock_mode_cycle = 0;  ///< mock 下模式切换循环序号（standard→minimal→plan）
 
     // 思考动画（busy 时推进帧并持续重绘）
-    std::size_t m_anim_frame = 0;        ///< 动画帧号（UI 线程自增）
-    std::atomic<bool> m_anim_run{false}; ///< 动画线程运行标志
-    std::atomic<bool> m_busy{false};     ///< 忙标志（UI 线程写，动画线程读）
-    std::mutex m_anim_mutex;             ///< 动画线程等待锁（IDLE 睡眠）
-    std::condition_variable m_anim_cv;   ///< busy 变化唤醒动画线程
-    std::thread m_anim_thread;           ///< 动画推进线程（busy 时发 Event::Custom）
+    std::size_t m_anim_frame = 0;         ///< 动画帧号（UI 线程自增）
+    std::atomic<bool> m_anim_run{false};  ///< 动画线程运行标志
+    std::atomic<bool> m_busy{false};      ///< 忙标志（UI 线程写，动画线程读）
+    std::mutex m_anim_mutex;              ///< 动画线程等待锁（IDLE 睡眠）
+    std::condition_variable m_anim_cv;    ///< busy 变化唤醒动画线程
+    std::thread m_anim_thread;            ///< 动画推进线程（busy 时发 Event::Custom）
 
     // mock 流式输出（后台线程逐步入队 token，模拟 LLM 流式回复）
-    std::atomic<bool> m_stream_run{false}; ///< 流式线程运行标志
-    std::thread m_stream_thread;           ///< 流式线程
+    std::atomic<bool> m_stream_run{false};  ///< 流式线程运行标志
+    std::thread m_stream_thread;            ///< 流式线程
 
     /// @brief ！命令执行线程（后台 exec + m_queue.push 合成 Bash 卡；析构 join）
     /// @details 串行执行（新命令启动前 join 旧命令），避免并发命令交错。
     std::thread m_cmd_thread;
 
     // 冒烟模式（B5）状态：driver 线程经 atomic 与 UI 线程通信
-    std::atomic<int> m_exit_code{0};       ///< 退出码（0=通过；1=超时）
-    std::atomic<bool> m_smoke_submit{false}; ///< 置位=UI 线程应投递冒烟消息
-    std::atomic<bool> m_smoke_exit{false};   ///< 置位=UI 线程应请求退出
-    std::atomic<size_t> m_msg_count{0};      ///< 消息数镜像（drain 更新，driver 只读）
+    std::atomic<int> m_exit_code{0};          ///< 退出码（0=通过；1=超时）
+    std::atomic<bool> m_smoke_submit{false};  ///< 置位=UI 线程应投递冒烟消息
+    std::atomic<bool> m_smoke_exit{false};    ///< 置位=UI 线程应请求退出
+    std::atomic<size_t> m_msg_count{0};       ///< 消息数镜像（drain 更新，driver 只读）
 
     // 组件
     ftxui::Component m_transcript;
@@ -469,20 +471,20 @@ private:
     // ---- Ctrl+G Prompt 编辑（Windows notepad 异步：后台轮询 + Esc 收尾）----
     /// @brief 异步编辑会话进行中（UI 线程写，轮询线程读）
     std::atomic<bool> m_prompt_editing{false};
-    std::thread m_prompt_watch_thread;      ///< Windows notepad 文件轮询线程
-    std::mutex m_prompt_mutex;              ///< 保护下列字段
-    std::string m_prompt_last;              ///< 轮询线程上次读到的文件内容（变化判定）
-    std::string m_prompt_pending;           ///< 有待 UI 线程消费的最新内容
-    bool m_prompt_pending_dirty = false;    ///< pending 尚未被 UI 消费
-    std::string m_prompt_path;              ///< 本轮 Prompt 文件路径（start 时记录）
-    void* m_prompt_editor_proc = nullptr;   ///< Windows notepad 进程句柄（finish 时关闭）
+    std::thread m_prompt_watch_thread;  ///< Windows notepad 文件轮询线程
+    std::mutex m_prompt_mutex;          ///< 保护下列字段
+    std::string m_prompt_last;     ///< 轮询线程上次读到的文件内容（变化判定）
+    std::string m_prompt_pending;  ///< 有待 UI 线程消费的最新内容
+    bool m_prompt_pending_dirty = false;   ///< pending 尚未被 UI 消费
+    std::string m_prompt_path;             ///< 本轮 Prompt 文件路径（start 时记录）
+    void* m_prompt_editor_proc = nullptr;  ///< Windows notepad 进程句柄（finish 时关闭）
     /// @brief 轮询线程检测到记事本窗口关闭（非 stub）后置位，UI 线程消费并自动收尾
     std::atomic<bool> m_prompt_auto_done{false};
 
     // ---- 拖拽选中 → 复制剪贴板（FTXUI 原生 Selection + 系统剪贴板）----
-    std::string m_selection_text;          ///< 最新选中文本（SelectionChange 回调维护）
-    bool m_copy_flash = false;             ///< 复制提示是否显示（仅 UI 线程读写）
-    std::size_t m_copy_flash_n = 0;        ///< 提示中的字符数
+    std::string m_selection_text;    ///< 最新选中文本（SelectionChange 回调维护）
+    bool m_copy_flash = false;       ///< 复制提示是否显示（仅 UI 线程读写）
+    std::size_t m_copy_flash_n = 0;  ///< 提示中的字符数
     std::chrono::steady_clock::time_point m_copy_flash_until;  ///< 提示过期时刻
     /// @brief 提示自清除线程：仅 sleep 后触发一次重绘，不触碰任何 App 成员（析构安全）
     std::thread m_copy_flash_thread;

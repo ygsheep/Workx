@@ -20,7 +20,8 @@ using namespace agent;
 // ============================================================
 
 static_assert(std::is_same_v<decltype(std::declval<ModelLoadEvent>().model_name), std::string>);
-static_assert(std::is_same_v<decltype(std::declval<BackendStatusEvent>().backend_name), std::string>);
+static_assert(
+    std::is_same_v<decltype(std::declval<BackendStatusEvent>().backend_name), std::string>);
 static_assert(std::is_same_v<decltype(std::declval<ShutdownEvent>().force), bool>);
 
 static_assert(std::is_same_v<decltype(std::declval<UserInputEvent>().text), std::string>);

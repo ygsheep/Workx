@@ -25,19 +25,19 @@ namespace agent::plan {
 
 /// @brief Plan Mode V2 协调器
 class PlanCoordinator {
-public:
+   public:
     /// @brief 并行 explore 启动回调（宿主注入；供测试注入 mock）
     /// @param task_id 本次 explore 任务的唯一任务 id（供宿主回映 SubAgentCompleted）
     /// @param area 探索子域（人可读标签）
     /// @param prompt 该 explore agent 的系统提示词
-    using ExploreRunner = std::function<void(
-        const std::string& task_id, const std::string& area, const std::string& prompt)>;
+    using ExploreRunner = std::function<void(const std::string& task_id, const std::string& area,
+                                             const std::string& prompt)>;
 
     /// @brief plan 综合回调（宿主注入；同步返回结构化产物）
     /// @details 输入全部 explore 发现 + interview 约束，输出规划产物。
     ///          为空时由本类退化为机械合成（从 findings 聚合 + 渲染 markdown）。
-    using PlanRunner = std::function<PlanArtifact(
-        const std::vector<ExploreFinding>&, const std::string& notes)>;
+    using PlanRunner =
+        std::function<PlanArtifact(const std::vector<ExploreFinding>&, const std::string& notes)>;
 
     explicit PlanCoordinator(IConfigManager& cfg);
 
@@ -99,7 +99,7 @@ public:
     nlohmann::json serialize() const;
     void deserialize(const nlohmann::json& j);
 
-private:
+   private:
     void transition(PlanStage s);
     void complete_explore_if_all_done();
     /// @brief 生成 (area, prompt) 探索子域列表（探索 agent 数 = explore_agent_count）
@@ -113,16 +113,17 @@ private:
     IConfigManager& m_cfg;
     PlanStage m_stage{PlanStage::Idle};
     std::string m_reason;
-    std::string m_context;   ///< interview 约束/需求
+    std::string m_context;  ///< interview 约束/需求
     std::vector<ExploreFinding> m_findings;
     std::vector<std::string> m_active_tasks;  ///< 尚在运行的 explore 任务 id
     std::vector<std::string> m_explore_areas;  ///< #54：本轮 explore 启动顺序对应的子域列表
-    std::size_t m_explore_launched = 0;       ///< 归档用启动计数（写入 serialize，供恢复参考；重入防护由 stage 承担）
-    std::size_t m_plan_cycle = 0;             ///< #54：规划轮次（begin_plan 自增，explore id 跨轮唯一）
+    std::size_t m_explore_launched =
+        0;  ///< 归档用启动计数（写入 serialize，供恢复参考；重入防护由 stage 承担）
+    std::size_t m_plan_cycle = 0;  ///< #54：规划轮次（begin_plan 自增，explore id 跨轮唯一）
     PlanArtifact m_artifact;
 
     ExploreRunner m_explore_runner;
     PlanRunner m_plan_runner;
 };
 
-} // namespace agent::plan
+}  // namespace agent::plan

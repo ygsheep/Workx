@@ -83,9 +83,9 @@ struct StreamDoneEvent {
 ///          状态转 IDLE、光标复位）。
 struct StepDoneEvent {
     std::string session_id;
-    std::string full_content;       ///< 本步 LLM 输出的完整正文
-    std::string full_reasoning;     ///< 本步 LLM 输出的完整推理内容
-    double generation_ms = 0.0;     ///< 本步生成耗时（用于思考标记显示）
+    std::string full_content;    ///< 本步 LLM 输出的完整正文
+    std::string full_reasoning;  ///< 本步 LLM 输出的完整推理内容
+    double generation_ms = 0.0;  ///< 本步生成耗时（用于思考标记显示）
 };
 
 /// @brief 推理错误
@@ -95,4 +95,4 @@ struct StreamErrorEvent {
     bool retryable = false;
 };
 
-} // namespace agent
+}  // namespace agent

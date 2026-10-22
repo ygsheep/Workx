@@ -32,25 +32,21 @@ struct AnotherEvent {
 
 /// @brief 每个测试前清理 EventBus 单例残留订阅
 struct EventBusFixture {
-    EventBusFixture() {
-        EventBus::instance().clear();
-    }
-    ~EventBusFixture() {
-        EventBus::instance().clear();
-    }
+    EventBusFixture() { EventBus::instance().clear(); }
+    ~EventBusFixture() { EventBus::instance().clear(); }
 };
 
-} // namespace
+}  // namespace
 
 // ============================================================================
 // Basic subscribe & publish
 // ============================================================================
 
-TEST_CASE_METHOD(EventBusFixture, "EventBus single subscriber receives sync event", "[event_bus][basic]") {
+TEST_CASE_METHOD(EventBusFixture, "EventBus single subscriber receives sync event",
+                 "[event_bus][basic]") {
     int received = 0;
     auto token = EventBus::instance().subscribe<TestEvent>(
-        [&received](const TestEvent& e) { received = e.value; }
-    );
+        [&received](const TestEvent& e) { received = e.value; });
 
     EventBus::instance().publish(TestEvent{.value = 42});
 
@@ -58,16 +54,15 @@ TEST_CASE_METHOD(EventBusFixture, "EventBus single subscriber receives sync even
     EventBus::instance().unsubscribe<TestEvent>(token);
 }
 
-TEST_CASE_METHOD(EventBusFixture, "EventBus multiple subscribers all receive event", "[event_bus][basic]") {
+TEST_CASE_METHOD(EventBusFixture, "EventBus multiple subscribers all receive event",
+                 "[event_bus][basic]") {
     std::vector<int> received_a;
     std::vector<int> received_b;
 
     auto token_a = EventBus::instance().subscribe<TestEvent>(
-        [&received_a](const TestEvent& e) { received_a.push_back(e.value); }
-    );
+        [&received_a](const TestEvent& e) { received_a.push_back(e.value); });
     auto token_b = EventBus::instance().subscribe<TestEvent>(
-        [&received_b](const TestEvent& e) { received_b.push_back(e.value); }
-    );
+        [&received_b](const TestEvent& e) { received_b.push_back(e.value); });
 
     EventBus::instance().publish(TestEvent{.value = 1});
     EventBus::instance().publish(TestEvent{.value = 2});
@@ -83,16 +78,15 @@ TEST_CASE_METHOD(EventBusFixture, "EventBus multiple subscribers all receive eve
     EventBus::instance().unsubscribe<TestEvent>(token_b);
 }
 
-TEST_CASE_METHOD(EventBusFixture, "EventBus different event types are isolated", "[event_bus][basic]") {
+TEST_CASE_METHOD(EventBusFixture, "EventBus different event types are isolated",
+                 "[event_bus][basic]") {
     int test_received = 0;
     int another_received = 0;
 
     auto t1 = EventBus::instance().subscribe<TestEvent>(
-        [&test_received](const TestEvent& e) { test_received = e.value; }
-    );
+        [&test_received](const TestEvent& e) { test_received = e.value; });
     auto t2 = EventBus::instance().subscribe<AnotherEvent>(
-        [&another_received](const AnotherEvent&) { another_received++; }
-    );
+        [&another_received](const AnotherEvent&) { another_received++; });
 
     EventBus::instance().publish(TestEvent{.value = 100});
     EventBus::instance().publish(AnotherEvent{.msg = "hello"});
@@ -108,11 +102,11 @@ TEST_CASE_METHOD(EventBusFixture, "EventBus different event types are isolated",
 // Unsubscribe
 // ============================================================================
 
-TEST_CASE_METHOD(EventBusFixture, "EventBus unsubscribe stops receiving events", "[event_bus][unsubscribe]") {
+TEST_CASE_METHOD(EventBusFixture, "EventBus unsubscribe stops receiving events",
+                 "[event_bus][unsubscribe]") {
     int received = 0;
     auto token = EventBus::instance().subscribe<TestEvent>(
-        [&received](const TestEvent& e) { received += e.value; }
-    );
+        [&received](const TestEvent& e) { received += e.value; });
 
     EventBus::instance().publish(TestEvent{.value = 10});
     REQUIRE(received == 10);
@@ -123,13 +117,13 @@ TEST_CASE_METHOD(EventBusFixture, "EventBus unsubscribe stops receiving events",
     REQUIRE(received == 10);  // no longer increments
 }
 
-TEST_CASE_METHOD(EventBusFixture, "EventBus unsubscribe invalid token does not affect others", "[event_bus][unsubscribe]") {
+TEST_CASE_METHOD(EventBusFixture, "EventBus unsubscribe invalid token does not affect others",
+                 "[event_bus][unsubscribe]") {
     int received = 0;
     auto token = EventBus::instance().subscribe<TestEvent>(
-        [&received](const TestEvent& e) { received = e.value; }
-    );
+        [&received](const TestEvent& e) { received = e.value; });
 
-    EventToken invalid_token;  // default-constructed as invalid
+    EventToken invalid_token;                                    // default-constructed as invalid
     EventBus::instance().unsubscribe<TestEvent>(invalid_token);  // should not crash
 
     EventBus::instance().publish(TestEvent{.value = 5});
@@ -138,7 +132,8 @@ TEST_CASE_METHOD(EventBusFixture, "EventBus unsubscribe invalid token does not a
     EventBus::instance().unsubscribe<TestEvent>(token);
 }
 
-TEST_CASE_METHOD(EventBusFixture, "EventBus partial unsubscribe keeps others receiving", "[event_bus][unsubscribe]") {
+TEST_CASE_METHOD(EventBusFixture, "EventBus partial unsubscribe keeps others receiving",
+                 "[event_bus][unsubscribe]") {
     int a = 0, b = 0, c = 0;
     auto ta = EventBus::instance().subscribe<TestEvent>([&a](const TestEvent& e) { a = e.value; });
     auto tb = EventBus::instance().subscribe<TestEvent>([&b](const TestEvent& e) { b = e.value; });
@@ -160,11 +155,12 @@ TEST_CASE_METHOD(EventBusFixture, "EventBus partial unsubscribe keeps others rec
 // Async publish
 // ============================================================================
 
-TEST_CASE_METHOD(EventBusFixture, "EventBus publish_async triggers callback via process_async_events", "[event_bus][async]") {
+TEST_CASE_METHOD(EventBusFixture,
+                 "EventBus publish_async triggers callback via process_async_events",
+                 "[event_bus][async]") {
     int received = 0;
     auto token = EventBus::instance().subscribe<TestEvent>(
-        [&received](const TestEvent& e) { received = e.value; }
-    );
+        [&received](const TestEvent& e) { received = e.value; });
 
     EventBus::instance().publish_async(TestEvent{.value = 99});
     REQUIRE(received == 0);  // not consumed yet
@@ -175,11 +171,11 @@ TEST_CASE_METHOD(EventBusFixture, "EventBus publish_async triggers callback via 
     EventBus::instance().unsubscribe<TestEvent>(token);
 }
 
-TEST_CASE_METHOD(EventBusFixture, "EventBus multiple async events consumed in order", "[event_bus][async]") {
+TEST_CASE_METHOD(EventBusFixture, "EventBus multiple async events consumed in order",
+                 "[event_bus][async]") {
     std::vector<int> received_order;
     auto token = EventBus::instance().subscribe<TestEvent>(
-        [&received_order](const TestEvent& e) { received_order.push_back(e.value); }
-    );
+        [&received_order](const TestEvent& e) { received_order.push_back(e.value); });
 
     for (int i = 1; i <= 5; ++i) {
         EventBus::instance().publish_async(TestEvent{.value = i});
@@ -196,11 +192,10 @@ TEST_CASE_METHOD(EventBusFixture, "EventBus multiple async events consumed in or
     EventBus::instance().unsubscribe<TestEvent>(token);
 }
 
-TEST_CASE_METHOD(EventBusFixture, "EventBus process_async_events clears queue", "[event_bus][async]") {
+TEST_CASE_METHOD(EventBusFixture, "EventBus process_async_events clears queue",
+                 "[event_bus][async]") {
     int count = 0;
-    auto token = EventBus::instance().subscribe<TestEvent>(
-        [&count](const TestEvent&) { count++; }
-    );
+    auto token = EventBus::instance().subscribe<TestEvent>([&count](const TestEvent&) { count++; });
 
     EventBus::instance().publish_async(TestEvent{});
     EventBus::instance().publish_async(TestEvent{});
@@ -218,11 +213,11 @@ TEST_CASE_METHOD(EventBusFixture, "EventBus process_async_events clears queue", 
 // clear (H-2：EventGuard 测试已删除)
 // ============================================================================
 
-TEST_CASE_METHOD(EventBusFixture, "EventBus clear removes all subscribers and async queue", "[event_bus][clear]") {
+TEST_CASE_METHOD(EventBusFixture, "EventBus clear removes all subscribers and async queue",
+                 "[event_bus][clear]") {
     int received = 0;
     [[maybe_unused]] auto token = EventBus::instance().subscribe<TestEvent>(
-        [&received](const TestEvent& e) { received = e.value; }
-    );
+        [&received](const TestEvent& e) { received = e.value; });
 
     EventBus::instance().publish_async(TestEvent{.value = 50});
     EventBus::instance().clear();
@@ -240,18 +235,16 @@ TEST_CASE_METHOD(EventBusFixture, "EventBus clear removes all subscribers and as
 // Exception safety
 // ============================================================================
 
-TEST_CASE_METHOD(EventBusFixture, "EventBus single callback throwing does not break others", "[event_bus][exception]") {
+TEST_CASE_METHOD(EventBusFixture, "EventBus single callback throwing does not break others",
+                 "[event_bus][exception]") {
     int a = 0, c = 0;
     auto ta = EventBus::instance().subscribe<TestEvent>([&a](const TestEvent& e) {
         a = e.value;
         throw std::runtime_error("callback A failed");
     });
-    auto tb = EventBus::instance().subscribe<TestEvent>([](const TestEvent&) {
-        throw std::runtime_error("callback B failed");
-    });
-    auto tc = EventBus::instance().subscribe<TestEvent>([&c](const TestEvent& e) {
-        c = e.value;
-    });
+    auto tb = EventBus::instance().subscribe<TestEvent>(
+        [](const TestEvent&) { throw std::runtime_error("callback B failed"); });
+    auto tc = EventBus::instance().subscribe<TestEvent>([&c](const TestEvent& e) { c = e.value; });
 
     EventBus::instance().publish(TestEvent{.value = 7});
 
@@ -263,18 +256,19 @@ TEST_CASE_METHOD(EventBusFixture, "EventBus single callback throwing does not br
     EventBus::instance().unsubscribe<TestEvent>(tc);
 }
 
-TEST_CASE_METHOD(EventBusFixture, "EventBus sync publish does not hold lock during callback (no reentrancy deadlock)", "[event_bus][reentrancy]") {
+TEST_CASE_METHOD(
+    EventBusFixture,
+    "EventBus sync publish does not hold lock during callback (no reentrancy deadlock)",
+    "[event_bus][reentrancy]") {
     // Verifies T-1 fix: publish copies callback list and releases lock before invoking
     int received = 0;
-    auto token = EventBus::instance().subscribe<TestEvent>(
-        [&received](const TestEvent& e) {
-            received = e.value;
-            // publishing same-type event inside callback should not deadlock
-            if (e.value < 3) {
-                EventBus::instance().publish(TestEvent{.value = e.value + 1});
-            }
+    auto token = EventBus::instance().subscribe<TestEvent>([&received](const TestEvent& e) {
+        received = e.value;
+        // publishing same-type event inside callback should not deadlock
+        if (e.value < 3) {
+            EventBus::instance().publish(TestEvent{.value = e.value + 1});
         }
-    );
+    });
 
     EventBus::instance().publish(TestEvent{.value = 1});
     // recursive publish should have driven received to 3
@@ -287,11 +281,11 @@ TEST_CASE_METHOD(EventBusFixture, "EventBus sync publish does not hold lock duri
 // Cross-thread publishing
 // ============================================================================
 
-TEST_CASE_METHOD(EventBusFixture, "EventBus concurrent publish_async is thread-safe", "[event_bus][thread]") {
+TEST_CASE_METHOD(EventBusFixture, "EventBus concurrent publish_async is thread-safe",
+                 "[event_bus][thread]") {
     std::atomic<int> received{0};
-    auto token = EventBus::instance().subscribe<TestEvent>(
-        [&received](const TestEvent&) { received++; }
-    );
+    auto token =
+        EventBus::instance().subscribe<TestEvent>([&received](const TestEvent&) { received++; });
 
     constexpr int THREAD_COUNT = 4;
     constexpr int EVENTS_PER_THREAD = 25;
@@ -313,15 +307,13 @@ TEST_CASE_METHOD(EventBusFixture, "EventBus concurrent publish_async is thread-s
     EventBus::instance().unsubscribe<TestEvent>(token);
 }
 
-TEST_CASE_METHOD(EventBusFixture, "EventBus cross-thread subscribe and publish", "[event_bus][thread]") {
+TEST_CASE_METHOD(EventBusFixture, "EventBus cross-thread subscribe and publish",
+                 "[event_bus][thread]") {
     std::atomic<int> received{0};
     auto token = EventBus::instance().subscribe<TestEvent>(
-        [&received](const TestEvent& e) { received.store(e.value); }
-    );
+        [&received](const TestEvent& e) { received.store(e.value); });
 
-    std::thread publisher([]() {
-        EventBus::instance().publish(TestEvent{.value = 777});
-    });
+    std::thread publisher([]() { EventBus::instance().publish(TestEvent{.value = 777}); });
 
     publisher.join();
     REQUIRE(received.load() == 777);
@@ -366,9 +358,8 @@ TEST_CASE("drain_async_events processes all queued events (M-8)", "[event_bus][m
     bus.clear();
 
     std::atomic<int> received{0};
-    auto token = bus.subscribe<TestEvent>([&received](const TestEvent&) {
-        received.fetch_add(1, std::memory_order_relaxed);
-    });
+    auto token = bus.subscribe<TestEvent>(
+        [&received](const TestEvent&) { received.fetch_add(1, std::memory_order_relaxed); });
 
     // 入队 5 个异步事件
     for (int i = 0; i < 5; ++i) {
@@ -379,7 +370,7 @@ TEST_CASE("drain_async_events processes all queued events (M-8)", "[event_bus][m
 
     // drain：应处理完所有事件
     size_t iterations = bus.drain_async_events();
-    REQUIRE(iterations == 1);          // 单批次即可排空（5 个事件一次性处理）
+    REQUIRE(iterations == 1);  // 单批次即可排空（5 个事件一次性处理）
     REQUIRE(bus.async_queue_size() == 0);
     REQUIRE(received.load() == 5);
 
@@ -451,7 +442,8 @@ TEST_CASE("drain_async_events on empty queue is no-op (M-8)", "[event_bus][m8][d
 // 诊断接口（G-1）：测试失败时可用于输出 EventBus 内部状态
 // ============================================================================
 
-TEST_CASE_METHOD(EventBusFixture, "EventBus async_queue_size reflects queue backlog", "[event_bus][debug]") {
+TEST_CASE_METHOD(EventBusFixture, "EventBus async_queue_size reflects queue backlog",
+                 "[event_bus][debug]") {
     // 初始队列为空
     REQUIRE(EventBus::instance().async_queue_size() == 0);
 
@@ -466,7 +458,8 @@ TEST_CASE_METHOD(EventBusFixture, "EventBus async_queue_size reflects queue back
     REQUIRE(EventBus::instance().async_queue_size() == 0);
 }
 
-TEST_CASE_METHOD(EventBusFixture, "EventBus subscriber_count tracks subscribe/unsubscribe", "[event_bus][debug]") {
+TEST_CASE_METHOD(EventBusFixture, "EventBus subscriber_count tracks subscribe/unsubscribe",
+                 "[event_bus][debug]") {
     REQUIRE(EventBus::instance().subscriber_count<TestEvent>() == 0);
     REQUIRE(EventBus::instance().subscriber_count<AnotherEvent>() == 0);
     REQUIRE(EventBus::instance().total_subscriber_count() == 0);
@@ -492,7 +485,8 @@ TEST_CASE_METHOD(EventBusFixture, "EventBus subscriber_count tracks subscribe/un
     REQUIRE(EventBus::instance().total_subscriber_count() == 0);
 }
 
-TEST_CASE_METHOD(EventBusFixture, "EventBus clear resets all debug counters", "[event_bus][debug]") {
+TEST_CASE_METHOD(EventBusFixture, "EventBus clear resets all debug counters",
+                 "[event_bus][debug]") {
     [[maybe_unused]] auto t = EventBus::instance().subscribe<TestEvent>([](const TestEvent&) {});
     EventBus::instance().publish_async(TestEvent{});
     EventBus::instance().publish_async(TestEvent{});

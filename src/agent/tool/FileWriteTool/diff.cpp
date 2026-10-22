@@ -78,12 +78,10 @@ std::vector<size_t> hash_lines(const std::vector<std::string>& lines) {
 /// @param old_lines 旧行列表
 /// @param new_lines 新行列表
 /// @return LCS 长度矩阵（一维存储，索引 [i][j] = i*(n+1)+j）
-std::vector<int> build_lcs_table(
-    const std::vector<std::string>& old_lines,
-    const std::vector<std::string>& new_lines,
-    const std::vector<size_t>& old_hashes,
-    const std::vector<size_t>& new_hashes
-) {
+std::vector<int> build_lcs_table(const std::vector<std::string>& old_lines,
+                                 const std::vector<std::string>& new_lines,
+                                 const std::vector<size_t>& old_hashes,
+                                 const std::vector<size_t>& new_hashes) {
     const size_t m = old_lines.size();
     const size_t n = new_lines.size();
     const size_t row_size = n + 1;
@@ -120,14 +118,11 @@ std::vector<int> build_lcs_table(
 /// @param dp LCS 长度矩阵（一维存储）
 /// @param row_size 每行元素数 (n+1)
 /// @return diff 行列表（按文件顺序）
-std::vector<DiffLine> backtrack_diff(
-    const std::vector<std::string>& old_lines,
-    const std::vector<std::string>& new_lines,
-    const std::vector<size_t>& old_hashes,
-    const std::vector<size_t>& new_hashes,
-    const std::vector<int>& dp,
-    size_t row_size
-) {
+std::vector<DiffLine> backtrack_diff(const std::vector<std::string>& old_lines,
+                                     const std::vector<std::string>& new_lines,
+                                     const std::vector<size_t>& old_hashes,
+                                     const std::vector<size_t>& new_hashes,
+                                     const std::vector<int>& dp, size_t row_size) {
     std::vector<DiffLine> diff;
     size_t i = old_lines.size();
     size_t j = new_lines.size();
@@ -141,29 +136,15 @@ std::vector<DiffLine> backtrack_diff(
             }
         }
         if (i > 0 && j > 0 && equal) {
-            diff.push_back({
-                DiffOp::Equal,
-                static_cast<int>(i),
-                static_cast<int>(j),
-                old_lines[i - 1]
-            });
+            diff.push_back(
+                {DiffOp::Equal, static_cast<int>(i), static_cast<int>(j), old_lines[i - 1]});
             --i;
             --j;
         } else if (j > 0 && (i == 0 || dp[i * row_size + (j - 1)] >= dp[(i - 1) * row_size + j])) {
-            diff.push_back({
-                DiffOp::Add,
-                0,
-                static_cast<int>(j),
-                new_lines[j - 1]
-            });
+            diff.push_back({DiffOp::Add, 0, static_cast<int>(j), new_lines[j - 1]});
             --j;
         } else {
-            diff.push_back({
-                DiffOp::Remove,
-                static_cast<int>(i),
-                0,
-                old_lines[i - 1]
-            });
+            diff.push_back({DiffOp::Remove, static_cast<int>(i), 0, old_lines[i - 1]});
             --i;
         }
     }
@@ -171,16 +152,14 @@ std::vector<DiffLine> backtrack_diff(
     return diff;
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 // ============================================================
 // 公共 API 实现
 // ============================================================
 
-std::vector<DiffLine> generate_line_diff(
-    const std::string& old_content,
-    const std::string& new_content
-) {
+std::vector<DiffLine> generate_line_diff(const std::string& old_content,
+                                         const std::string& new_content) {
     const auto old_lines = split_lines(old_content);
     const auto new_lines = split_lines(new_content);
 
@@ -225,10 +204,7 @@ std::vector<DiffLine> generate_line_diff(
     return backtrack_diff(old_lines, new_lines, old_hashes, new_hashes, dp, new_lines.size() + 1);
 }
 
-std::string format_diff(
-    const std::string& file_path,
-    const std::vector<DiffLine>& diff_lines
-) {
+std::string format_diff(const std::string& file_path, const std::vector<DiffLine>& diff_lines) {
     if (diff_lines.empty()) {
         return {};
     }
@@ -298,32 +274,47 @@ std::string format_diff(
         for (size_t k = hunk_begin; k < hunk_end; ++k) {
             const auto& d = diff_lines[k];
             if (d.op == DiffOp::Equal) {
-                if (old_start == 0) { old_start = d.old_line_no; }
-                if (new_start == 0) { new_start = d.new_line_no; }
+                if (old_start == 0) {
+                    old_start = d.old_line_no;
+                }
+                if (new_start == 0) {
+                    new_start = d.new_line_no;
+                }
                 ++old_count;
                 ++new_count;
             } else if (d.op == DiffOp::Remove) {
-                if (old_start == 0) { old_start = d.old_line_no; }
+                if (old_start == 0) {
+                    old_start = d.old_line_no;
+                }
                 ++old_count;
-            } else { // Add
-                if (new_start == 0) { new_start = d.new_line_no; }
+            } else {  // Add
+                if (new_start == 0) {
+                    new_start = d.new_line_no;
+                }
                 ++new_count;
             }
         }
 
         // hunk 头部：@@ -old_start,old_count +new_start,new_count @@
         out << "@@ -" << old_start;
-        if (old_count != 1) { out << "," << old_count; }
+        if (old_count != 1) {
+            out << "," << old_count;
+        }
         out << " +" << new_start;
-        if (new_count != 1) { out << "," << new_count; }
+        if (new_count != 1) {
+            out << "," << new_count;
+        }
         out << " @@\n";
 
         // hunk 内容
         for (size_t k = hunk_begin; k < hunk_end; ++k) {
             const auto& d = diff_lines[k];
             char prefix = ' ';
-            if (d.op == DiffOp::Add) { prefix = '+'; }
-            else if (d.op == DiffOp::Remove) { prefix = '-'; }
+            if (d.op == DiffOp::Add) {
+                prefix = '+';
+            } else if (d.op == DiffOp::Remove) {
+                prefix = '-';
+            }
             out << prefix << d.text << "\n";
         }
 
@@ -333,4 +324,4 @@ std::string format_diff(
     return out.str();
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

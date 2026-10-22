@@ -30,7 +30,7 @@ namespace agent::process {
 /// @brief 外部工具路径发现与缓存（单例）
 /// @details 不管理进程，只缓存路径。线程安全。
 class ToolRegistry {
-public:
+   public:
     /// @brief 获取单例
     static ToolRegistry& instance();
 
@@ -52,11 +52,9 @@ public:
     /// @param path_name PATH 中查找的命令名（如 "rg" 或 "rg.exe"）
     /// @return 可执行文件绝对路径；未找到返回 nullopt
     /// @note 首次调用时探测，结果缓存（包括 nullopt：未找到也会被缓存）。
-    std::optional<std::string> resolve_tool(
-        const std::string& tool_name,
-        const std::string& bundled_relative_path,
-        const std::string& path_name
-    ) const;
+    std::optional<std::string> resolve_tool(const std::string& tool_name,
+                                            const std::string& bundled_relative_path,
+                                            const std::string& path_name) const;
 
     /// @brief 清除缓存（主要用于测试）
     void clear_cache();
@@ -71,7 +69,7 @@ public:
     /// @return 可执行文件目录的绝对路径（用于定位 bundled 资源，如 tools/、skills/bundled/）
     static std::string executable_dir();
 
-private:
+   private:
     ToolRegistry() = default;
 
     /// @brief 获取当前可执行文件所在目录
@@ -91,4 +89,4 @@ private:
     mutable std::unordered_map<std::string, std::optional<std::string>> m_cache;
 };
 
-} // namespace agent::process
+}  // namespace agent::process

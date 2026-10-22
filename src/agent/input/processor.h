@@ -18,27 +18,25 @@
 namespace agent::input {
 
 class InputProcessor {
-public:
+   public:
     /// @brief 构造
     /// @param registry 命令注册表
     explicit InputProcessor(std::shared_ptr<command::CommandRegistry> registry)
         : m_command_executor(std::make_shared<command::CommandExecutor>(registry)) {}
 
     /// 处理用户输入（异步）
-    ProcessResult process(const std::string& user_input, const command::CommandContext& ctx)
-    {
-
+    ProcessResult process(const std::string& user_input, const command::CommandContext& ctx) {
         ParsedInput parsed = m_parser.parse(user_input);
 
         switch (parsed.type) {
             case InputType::Empty:
-                return {.should_query = false, .output_text = "", .messages = {}, .is_error = false};
+                return {
+                    .should_query = false, .output_text = "", .messages = {}, .is_error = false};
 
             case InputType::SlashCommand: {
                 // 多命令支持："/skill1 + /skill2" 拆分逐个执行并合并结果
                 const auto parts = split_multi_commands(user_input);
-                if (parts.size() > 1)
-                    return process_multi_commands(parts, ctx);
+                if (parts.size() > 1) return process_multi_commands(parts, ctx);
                 return process_slash_command(*parsed.command, ctx);
             }
 
@@ -49,11 +47,12 @@ public:
                 return process_text_prompt(parsed);
 
             default:
-                return {.should_query = false, .output_text = "", .messages = {}, .is_error = false};
+                return {
+                    .should_query = false, .output_text = "", .messages = {}, .is_error = false};
         }
     }
 
-private:
+   private:
     /// @brief 拆分多命令输入："/skill1 + /skill2" → ["/skill1", "/skill2"]
     /// @param input 以 "/" 开头的原始输入
     /// @return 含 2+ 个以 "/" 开头的命令段时返回各段；否则返回空（走单命令路径）
@@ -109,9 +108,8 @@ private:
         return combined;
     }
 
-    ProcessResult process_slash_command(const ParsedSlashCommand& cmd, const command::CommandContext& ctx)
-    {
-
+    ProcessResult process_slash_command(const ParsedSlashCommand& cmd,
+                                        const command::CommandContext& ctx) {
         auto result = m_command_executor->execute("/" + cmd.command_name + " " + cmd.args, ctx);
 
         return {
@@ -125,7 +123,7 @@ private:
     ProcessResult process_bash_command(const std::string& command) {
         // 执行bash命令（简化实现）
         std::string output = execute_bash(command);
-        return { };
+        return {};
     }
 
     ProcessResult process_text_prompt(const ParsedInput& parsed) {
@@ -140,8 +138,7 @@ private:
         // 图片附件：转绝对路径 + 存在性校验（失败的提示并跳过）
         for (const auto& path : parsed.image_paths) {
             std::error_code ec;
-            auto abs = std::filesystem::weakly_canonical(
-                std::filesystem::absolute(path, ec), ec);
+            auto abs = std::filesystem::weakly_canonical(std::filesystem::absolute(path, ec), ec);
             if (ec || abs.empty() || !std::filesystem::exists(abs, ec)) {
                 messages.push_back(std::format("[Could not read image: {}]", path));
                 continue;
@@ -172,4 +169,4 @@ private:
     std::shared_ptr<command::CommandExecutor> m_command_executor;
 };
 
-} // namespace agent::input
+}  // namespace agent::input

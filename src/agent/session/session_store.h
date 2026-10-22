@@ -13,9 +13,13 @@
  *          - system_prompt：系统提示词快照（append-only，reason 区分 initial/changed/resume，
  *            含 hash 便于前端检测变更，调试会话轨迹用）
  *          - session_end：会话结束标记
+ *          - todo：待办清单快照（append-only，取最后一条）
+ *          - sub_agent：子 Agent 事件（progress/completed）
+ *          - skill：手动调用技能事件
+ *          - permission：权限模式快照（#87，append-only，取最后一条）
  *
  *          存储路径：~/.workx/projects/<编码路径>/<sessionId>.jsonl
- * @version 1.0.0
+ * @version 1.1.0
  * @date 2026-07
  */
 
@@ -41,10 +45,10 @@ namespace agent::session {
 ///          SubAgentProgressEvent/SubAgentCompletedEvent 后转为本结构追加到 JSONL，
 ///          /resume 时按写入顺序重放恢复 sub_records（含观察合并语义）。
 struct SubAgentEvent {
-    std::string type;            ///< "progress" / "completed"
+    std::string type;  ///< "progress" / "completed"
     std::string task_id;
     int32_t step_number = 0;
-    std::string step_type;       ///< progress: "thought"/"action"/"observation"
+    std::string step_type;  ///< progress: "thought"/"action"/"observation"
     std::string content;
     std::string thought_text;
     std::string tool_name;
@@ -52,8 +56,8 @@ struct SubAgentEvent {
     std::string observation;
     bool is_error = false;
     double duration_ms = 0.0;
-    std::string final_answer;    ///< completed
-    bool was_error = false;      ///< completed
+    std::string final_answer;  ///< completed
+    bool was_error = false;    ///< completed
 };
 
 /// @brief 序列化到 JSON（SessionStore 持久化；外层 type 恒为 "sub_agent"）
@@ -67,11 +71,11 @@ void from_json(const nlohmann::json& j, SubAgentEvent& ev);
 ///          /resume 重建转录区时按 query 匹配对应会话 user 消息，转为其"原始输入回显
 ///          + Skill 卡"。本事件仅影响转录区显示，不进入模型上下文。
 struct SkillEvent {
-    std::string name;        ///< 技能名（不含前导 /）
-    std::string input;       ///< 用户输入的参数文本
-    std::string raw_input;   ///< 用户完整原始输入（回显用）
-    std::string query;       ///< 实际发往模型的展开提示词（用于恢复时定位对应 user 消息）
-    bool is_error = false;   ///< 技能本地解析是否出错
+    std::string name;       ///< 技能名（不含前导 /）
+    std::string input;      ///< 用户输入的参数文本
+    std::string raw_input;  ///< 用户完整原始输入（回显用）
+    std::string query;  ///< 实际发往模型的展开提示词（用于恢复时定位对应 user 消息）
+    bool is_error = false;  ///< 技能本地解析是否出错
 };
 
 /// @brief 序列化到 JSON（外层 type 恒为 "skill"）
@@ -80,23 +84,47 @@ void to_json(nlohmann::json& j, const SkillEvent& ev);
 /// @brief 从 JSON 反序列化（缺省字段用默认值）
 void from_json(const nlohmann::json& j, SkillEvent& ev);
 
+/// @brief 权限模式持久化事件（#87）
+/// @details append-only：每次模式变更追加一条，/resume 时取**最后一条**恢复。
+///
+///          修复前 PermissionMode / SessionMode 只存在于内存（ChatSession 与 ReActLoop 成员），
+///          resume 后一律重置为 Default —— 用户在 Plan 模式批准方案后中断会话再恢复，
+///          agent 会变成普通模式「可以写入和执行」，而用户以为还在只读阶段。
+///          这是安全边界的静默降级，比功能 bug 更危险。
+///
+///          枚举以**字符串**落盘（对齐 system_prompt.reason 的 initial/changed/resume 风格），
+///          读取时由调用方映射回枚举，映射失败即视为非法值。此处刻意不 include
+///          tool/context.h，避免持久化层依赖工具层。
+struct PermissionEvent {
+    std::string permission_mode;  ///< "default"/"accept-edits"/"plan"/"bypass-permissions"
+    std::string session_mode;     ///< "standard"/"plan"/"minimal"
+    std::string permission_mode_before_plan;  ///< 进入 Plan 前的模式（退出 Plan 时恢复用）
+    bool in_plan = false;                     ///< ReActLoop::m_in_plan_mode
+};
+
+/// @brief 序列化到 JSON（外层 type 恒为 "permission"）
+void to_json(nlohmann::json& j, const PermissionEvent& ev);
+
+/// @brief 从 JSON 反序列化（缺省字段用默认值）
+void from_json(const nlohmann::json& j, PermissionEvent& ev);
+
 /// @brief 会话元信息（用于列表展示）
 struct SessionMeta {
-    std::string session_id;        ///< 会话 ID
-    std::string file_path;         ///< JSONL 文件路径
-    std::string created_at;        ///< 创建时间（ISO 8601）
-    std::string cwd;               ///< 会话工作目录
-    std::string model;             ///< 模型名
-    std::string git_branch;        ///< git 分支
-    std::string title;             ///< 会话标题（最后一条 title 事件，无则 fallback）
+    std::string session_id;  ///< 会话 ID
+    std::string file_path;   ///< JSONL 文件路径
+    std::string created_at;  ///< 创建时间（ISO 8601）
+    std::string cwd;         ///< 会话工作目录
+    std::string model;       ///< 模型名
+    std::string git_branch;  ///< git 分支
+    std::string title;       ///< 会话标题（最后一条 title 事件，无则 fallback）
     std::filesystem::file_time_type last_modified;  ///< 最后修改时间（用于排序）
-    int message_count = 0;         ///< 消息数（不含 session_start/end/title）
+    int message_count = 0;  ///< 消息数（不含 session_start/end/title）
 };
 
 /// @brief JSONL 会话存储（每条消息实时追加）
 /// @details 写入时 open + append（flush 保证崩溃不丢），读取时逐行解析。
 class WORKX_API SessionStore {
-public:
+   public:
     /// @brief 构造
     /// @param file_path JSONL 文件路径
     /// @param session_id 会话 ID（写入 session_start/end 事件时使用）
@@ -115,32 +143,23 @@ public:
     void set_session_id(std::string id) { m_session_id = std::move(id); }
 
     /// @brief 追加 session_start 事件
-    bool append_session_start(const std::string& cwd,
-                              const std::string& model,
+    bool append_session_start(const std::string& cwd, const std::string& model,
                               const std::string& git_branch);
 
     /// @brief 追加 user 消息
-    bool append_user_message(const std::string& uuid,
-                             const std::string& parent_uuid,
-                             const std::string& content,
-                             const std::string& timestamp);
+    bool append_user_message(const std::string& uuid, const std::string& parent_uuid,
+                             const std::string& content, const std::string& timestamp);
 
     /// @brief 追加 assistant 消息
-    bool append_assistant_message(const std::string& uuid,
-                                  const std::string& parent_uuid,
-                                  const std::string& content,
-                                  const std::string& reasoning_content,
+    bool append_assistant_message(const std::string& uuid, const std::string& parent_uuid,
+                                  const std::string& content, const std::string& reasoning_content,
                                   const std::vector<ToolUse>& tool_uses,
-                                  const std::string& timestamp,
-                                  double reasoning_ms = 0.0);
+                                  const std::string& timestamp, double reasoning_ms = 0.0);
 
     /// @brief 追加 tool 消息
-    bool append_tool_message(const std::string& uuid,
-                             const std::string& parent_uuid,
-                             const std::string& tool_call_id,
-                             const std::string& tool_name,
-                             const std::string& content,
-                             bool is_error,
+    bool append_tool_message(const std::string& uuid, const std::string& parent_uuid,
+                             const std::string& tool_call_id, const std::string& tool_name,
+                             const std::string& content, bool is_error,
                              const std::string& timestamp);
 
     /// @brief 追加 session_end 事件
@@ -169,6 +188,12 @@ public:
     /// @brief 追加手动调用技能事件（合成 Skill 卡持久化）
     /// @details append-only：按发生顺序逐条追加，/resume 重建转录区时按 query 匹配恢复。
     bool append_skill(const SkillEvent& ev);
+
+    /// @brief 追加权限模式事件（#87：PermissionMode / SessionMode 变更时调用）
+    /// @details append-only：每次变更追加一条，读取时取最后一条。
+    ///          只在**主会话**的模式变更出口写入；headless 与子 Agent 路径不做 resume，
+    ///          故不写入（写进去反而会让恢复时读到与当前上下文不符的模式）。
+    bool append_permission(const PermissionEvent& ev);
 
     // ============================================================
     // 静态工具方法
@@ -201,7 +226,11 @@ public:
     /// @return 技能事件列表（无则空）
     static std::vector<SkillEvent> load_skills(const std::string& file_path);
 
-private:
+    /// @brief 从 JSONL 文件加载权限模式（#87：取最后一条 permission 事件）
+    /// @return 无 permission 事件时返回 nullopt（调用方据此走 fail-safe）
+    static std::optional<PermissionEvent> load_permission(const std::string& file_path);
+
+   private:
     std::string m_file_path;
     std::ofstream m_out;
     std::string m_session_id;
@@ -216,4 +245,4 @@ private:
 std::filesystem::path get_project_session_dir(const std::filesystem::path& config_dir,
                                               const std::string& cwd);
 
-} // namespace agent::session
+}  // namespace agent::session

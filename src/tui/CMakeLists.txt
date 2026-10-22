@@ -71,6 +71,16 @@ add_executable(workx
     wizard.cpp
 )
 
+# --- Linux：glibc strtol 兼容 shim + libstdc++/libgcc 静态化 ---
+# 产物要能在老 glibc（debian:bookworm 2.36，terminal-bench 数据集镜像）上
+# 运行。新工具链（GCC 13 / glibc 2.39）引入的 __isoc23_strtol* 依赖与
+# GLIBCXX 动态版本要求都会让老系统载入即失败。两者缺一不可，详见
+# glibc_isoc23_shim.c 头部注释。
+if(UNIX AND NOT APPLE)
+    target_sources(workx PRIVATE glibc_isoc23_shim.c)
+    target_link_options(workx PRIVATE -static-libstdc++ -static-libgcc)
+endif()
+
 # ============================================================
 # workx 目标的应用图标与运行时资源打包
 # 注意：add_custom_command(TARGET workx POST_BUILD ...) 必须在 workx
@@ -155,6 +165,31 @@ add_custom_command(TARGET workx POST_BUILD
         "$<TARGET_FILE_DIR:workx>/skills/bundled"
     COMMENT "Bundling built-in skills: ${CMAKE_SOURCE_DIR}/src/agent/skill/bundled"
 )
+
+# ⚠️ #108：撤销 vendored ftxui 的 SYSTEM 标记，否则系统级 ftxui 会遮蔽仓库内这份。
+#
+# third_party/ftxui/cmake/ftxui_set_options.cmake:53 在 FetchContent 场景下
+# 用 `target_include_directories(${library} SYSTEM INTERFACE ...)` 暴露自己的
+# include —— 于是 CMake 用 /external:I（MSVC）/ -isystem（GCC）传递它，而**这类目录
+# 在搜索顺序上排在所有普通 -I 之后**。
+# 后果：本机若装有系统/用户级 vcpkg 的 ftxui（D:/Programs/vcpkg/installed/x64-windows/
+# include/ftxui，经 vcpkg 的 MSBuild 集成作为普通 /I 注入），旧版头文件就会遮蔽仓库内
+# 这份 —— src/tui 随即报一堆 C2664（旧版 string_width(const std::string&) /
+# text(std::string) 对不上 string_view）与 C2039（无 Cell / Screen::CellAt）。
+# 上游 :40-45 的注释本身就警告了这个陷阱，只是它只给 standalone 场景做了规避。
+#
+# 修法：清掉 SYSTEM 标记并以普通 INTERFACE 重新暴露同一个目录，让它回到普通 -I，
+# 从而压过任何包管理器注入的路径。只影响本仓库的构建（vendored 场景），不改变 ftxui 源码。
+foreach(_ftxui_target screen dom component)
+    if(TARGET ${_ftxui_target})
+        set_property(TARGET ${_ftxui_target} PROPERTY INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "")
+        # 必须用 $<BUILD_INTERFACE:> 包裹：ftxui 会 install(EXPORT) 自己的目标，
+        # 裸的源码树绝对路径进 INTERFACE_INCLUDE_DIRECTORIES 会被 CMake 的导出校验拒绝
+        #（“which is prefixed in the source directory” → Generate step failed）。
+        target_include_directories(${_ftxui_target} INTERFACE
+            $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/third_party/ftxui/include>)
+    endif()
+endforeach()
 
 target_include_directories(workx PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/..

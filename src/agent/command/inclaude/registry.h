@@ -20,7 +20,7 @@ namespace agent::command {
 ///
 /// 管理所有可用命令，支持按名查找和分类过滤。
 class CommandRegistry {
-public:
+   public:
     /// 注册一个命令
     void register_command(std::shared_ptr<CommandBase> cmd);
 
@@ -39,9 +39,9 @@ public:
     /// 获取命令总数
     size_t size() const;
 
-private:
+   private:
     std::vector<std::shared_ptr<CommandBase>> commands_;
     std::unordered_map<std::string, std::shared_ptr<CommandBase>> name_index_;
 };
 
-} // namespace agent::command
+}  // namespace agent::command

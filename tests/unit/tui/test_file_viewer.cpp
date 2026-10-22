@@ -26,8 +26,8 @@ namespace {
 
 /// @brief 把元素渲染到固定尺寸 Screen 并返回文本
 std::string render_elem(const ftxui::Element& e, int cols = 30, int rows = 24) {
-    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(cols),
-                                        ftxui::Dimension::Fixed(rows));
+    auto screen =
+        ftxui::Screen::Create(ftxui::Dimension::Fixed(cols), ftxui::Dimension::Fixed(rows));
     ftxui::Render(screen, e);
     std::string out;
     for (int y = 0; y < rows; ++y) {
@@ -37,10 +37,8 @@ std::string render_elem(const ftxui::Element& e, int cols = 30, int rows = 24) {
     return out;
 }
 
-FileViewState make_file(std::vector<std::string> lines,
-                        std::string path = "src/main.cpp",
-                        std::string lang = "cpp",
-                        int scroll = 0) {
+FileViewState make_file(std::vector<std::string> lines, std::string path = "src/main.cpp",
+                        std::string lang = "cpp", int scroll = 0) {
     FileViewState f;
     f.path = std::move(path);
     f.lines = std::move(lines);
@@ -77,8 +75,8 @@ TEST_CASE("file viewer shows line numbers and content", "[file_viewer][render]")
 }
 
 TEST_CASE("file viewer scrolls to offset slice", "[file_viewer][render]") {
-    FileViewState f = make_file({"line0", "line1", "line2", "line3", "line4", "line5"},
-                                "f.txt", "", 3);
+    FileViewState f =
+        make_file({"line0", "line1", "line2", "line3", "line4", "line5"}, "f.txt", "", 3);
     // 显式视口高度 3 行（绕过终端探测，保证 scroll=3 → line0/1/2 出视口）
     const auto text = render_elem(build_file_viewer(f, 40, 3), 40, 24);
     INFO("RENDERED:\n" << text);
@@ -189,8 +187,7 @@ TEST_CASE("file viewer ignores change without new_start", "[file_viewer][diff]")
 namespace {
 
 /// @brief 构造纯色/逐像素可控的 RGBA 测试图
-std::shared_ptr<ImageData> make_image(int w, int h, uint8_t r, uint8_t g,
-                                      uint8_t b) {
+std::shared_ptr<ImageData> make_image(int w, int h, uint8_t r, uint8_t g, uint8_t b) {
     auto img = std::make_shared<ImageData>();
     img->width = w;
     img->height = h;
@@ -208,7 +205,7 @@ std::shared_ptr<ImageData> make_image(int w, int h, uint8_t r, uint8_t g,
 
 TEST_CASE("is_image_file detects common image extensions", "[file_viewer][image]") {
     REQUIRE(is_image_file("logo.png"));
-    REQUIRE(is_image_file("a/b/c.PNG"));      // 大小写不敏感
+    REQUIRE(is_image_file("a/b/c.PNG"));  // 大小写不敏感
     REQUIRE(is_image_file("photo.jpeg"));
     REQUIRE(is_image_file("photo.jpg"));
     REQUIRE(is_image_file("img.webp"));
@@ -238,12 +235,11 @@ TEST_CASE("image content renders half-block truecolor cells", "[file_viewer][ren
     auto img = std::make_shared<ImageData>();
     img->width = 2;
     img->height = 2;
-    img->rgba = {255, 0, 0, 255,  0, 255, 0, 255,   //
-                 0, 0, 255, 255,  255, 255, 255, 255};
+    img->rgba = {255, 0, 0,   255, 0,   255, 0,   255,  //
+                 0,   0, 255, 255, 255, 255, 255, 255};
 
     auto e = build_image_content(*img, 40, 24, 0);
-    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(40),
-                                        ftxui::Dimension::Fixed(24));
+    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(40), ftxui::Dimension::Fixed(24));
     ftxui::Render(screen, e);
 
     // 收集半块 cell（应恰好 2 个，水平居中于 40 宽：x=19/x=20）
@@ -292,16 +288,14 @@ TEST_CASE("image_view_rows fits aspect ratio without upscale", "[file_viewer][im
 }
 
 TEST_CASE("decode_image_file decodes real PNG from repo", "[file_viewer][image]") {
-    const auto png = (std::filesystem::path(SOURCE_DIR) / "docs" / "img" /
-                      "11_module_dependency.png")
-                         .string();
+    const auto png =
+        (std::filesystem::path(SOURCE_DIR) / "docs" / "img" / "11_module_dependency.png").string();
     std::string err;
     auto img = decode_image_file(png, &err);
     REQUIRE(img != nullptr);
     REQUIRE(img->width > 0);
     REQUIRE(img->height > 0);
-    REQUIRE(img->rgba.size() ==
-            static_cast<std::size_t>(img->width) * img->height * 4);
+    REQUIRE(img->rgba.size() == static_cast<std::size_t>(img->width) * img->height * 4);
 }
 
 TEST_CASE("decode_image_file reports error for missing file", "[file_viewer][image]") {

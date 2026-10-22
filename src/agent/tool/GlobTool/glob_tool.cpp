@@ -8,9 +8,9 @@
 
 #include "agent/tool/GlobTool/glob_tool.h"
 
-#include "agent/tool/path_expand.h"       // expand_path
-#include "agent/tool/path_validator.h"    // validate_path_access
-#include "agent/tool/permission_ask.h"    // is_bypass_mode, ask_user_confirm
+#include "agent/tool/path_expand.h"     // expand_path
+#include "agent/tool/path_validator.h"  // validate_path_access
+#include "agent/tool/permission_ask.h"  // is_bypass_mode, ask_user_confirm
 #include "core/utils/error.h"
 
 #include <format>
@@ -41,33 +41,31 @@ const std::string& GlobTool::prompt() const {
     static const std::string p{
         "Finds files matching a glob pattern. "
         "Supports ** (recursive), * (single level), and ? (single char) wildcards. "
-        "Returns matching file paths sorted by modification time (newest first)."
-    };
+        "Returns matching file paths sorted by modification time (newest first)."};
     return p;
 }
 
 nlohmann::json GlobTool::input_schema() const {
-    return {
-        {"type", "object"},
-        {"properties", {
-            {"pattern", {{"type", "string"}, {"description", "The glob pattern to match files against"}}},
-            {"cwd", {{"type", "string"}, {"description", "The directory to search in (defaults to context cwd)"}}}
-        }},
-        {"required", {"pattern"}},
-        {"additionalProperties", false}
-    };
+    return {{"type", "object"},
+            {"properties",
+             {{"pattern",
+               {{"type", "string"}, {"description", "The glob pattern to match files against"}}},
+              {"cwd",
+               {{"type", "string"},
+                {"description", "The directory to search in (defaults to context cwd)"}}}}},
+            {"required", {"pattern"}},
+            {"additionalProperties", false}};
 }
 
 // ============================================================
 // 输入验证
 // ============================================================
 
-ValidationResult GlobTool::validate_input(
-    const nlohmann::json& input,
-    const ToolContext& /*ctx*/
+ValidationResult GlobTool::validate_input(const nlohmann::json& input, const ToolContext& /*ctx*/
 ) const {
     if (!input.contains("pattern") || !input["pattern"].is_string()) {
-        return ValidationResult::err(Error::Code::MissingArgument, "Missing required field: pattern");
+        return ValidationResult::err(Error::Code::MissingArgument,
+                                     "Missing required field: pattern");
     }
     if (input["pattern"].get<std::string>().empty()) {
         return ValidationResult::err(Error::Code::InvalidInput, "pattern must not be empty");
@@ -98,8 +96,7 @@ std::string GlobTool::normalize_path(const std::string& path) {
 /// @param t    文本指针
 /// @param t_len 文本剩余长度
 /// @return true 匹配成功
-static bool glob_match_impl(const char* p, size_t p_len,
-                            const char* t, size_t t_len) {
+static bool glob_match_impl(const char* p, size_t p_len, const char* t, size_t t_len) {
     size_t pi = 0, ti = 0;
     // star_p / star_t：记录最近一个 `*`（非 `**`）的位置，用于回溯
     size_t star_p = SIZE_MAX;
@@ -181,18 +178,15 @@ static bool glob_match_impl(const char* p, size_t p_len,
 }
 
 bool glob_match(std::string_view pattern, std::string_view text) {
-    return glob_match_impl(pattern.data(), pattern.size(),
-                           text.data(), text.size());
+    return glob_match_impl(pattern.data(), pattern.size(), text.data(), text.size());
 }
 
 // ============================================================
 // 权限检查（#60：路径边界校验，与 Read 工具一致）
 // ============================================================
 
-PermissionResult GlobTool::check_permissions(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+PermissionResult GlobTool::check_permissions(const nlohmann::json& input,
+                                             const ToolContext& ctx) const {
     if (is_bypass_mode(ctx.permission_mode)) {
         return PermissionResult::ok();
     }
@@ -205,23 +199,22 @@ PermissionResult GlobTool::check_permissions(
     while (std::getline(ss, part, '|')) {
         try {
             const std::string expanded = expand_path(part, ctx.cwd);
-            auto res = validate_path_access(expanded, ctx.cwd,
-                                            repo_root_allowlist(ctx.git_repo_root));
+            auto res =
+                validate_path_access(expanded, ctx.cwd, repo_root_allowlist(ctx.git_repo_root));
             if (res.is_err()) {
                 if (!is_absolutely_forbidden_path(expanded) &&
-                    ask_user_confirm(ctx, std::format(
-                        "File listing access requires your approval:\n\n```\n{}\n```\n\n"
-                        "Allow listing files in this path?", part))) {
+                    ask_user_confirm(
+                        ctx, std::format(
+                                 "File listing access requires your approval:\n\n```\n{}\n```\n\n"
+                                 "Allow listing files in this path?",
+                                 part))) {
                     continue;
                 }
-                return PermissionResult::err(
-                    Error::Code::PermissionDenied,
-                    res.error().message);
+                return PermissionResult::err(Error::Code::PermissionDenied, res.error().message);
             }
         } catch (const std::exception& e) {
-            return PermissionResult::err(
-                Error::Code::PermissionDenied,
-                std::string("Glob path error: ") + e.what());
+            return PermissionResult::err(Error::Code::PermissionDenied,
+                                         std::string("Glob path error: ") + e.what());
         }
     }
     return PermissionResult::ok();
@@ -231,10 +224,7 @@ PermissionResult GlobTool::check_permissions(
 // 执行
 // ============================================================
 
-ResultV2<ToolResult> GlobTool::call(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+ResultV2<ToolResult> GlobTool::call(const nlohmann::json& input, const ToolContext& ctx) const {
     // 1. 解析输入（try-catch 防止类型不匹配抛异常）
     GlobInput glob_input;
     try {
@@ -273,12 +263,8 @@ ResultV2<ToolResult> GlobTool::call(
     std::vector<MatchEntry> matches;
 
     for (auto it = fs::recursive_directory_iterator(
-             search_dir,
-             fs::directory_options::skip_permission_denied,
-             ec);
-         it != fs::recursive_directory_iterator();
-         it.increment(ec)) {
-
+             search_dir, fs::directory_options::skip_permission_denied, ec);
+         it != fs::recursive_directory_iterator(); it.increment(ec)) {
         if (ec) {
             ec.clear();
             continue;
@@ -287,9 +273,7 @@ ResultV2<ToolResult> GlobTool::call(
         const auto& entry = *it;
 
         // 获取相对路径并规范化
-        std::string rel_path = normalize_path(
-            fs::relative(entry.path(), search_dir, ec).string()
-        );
+        std::string rel_path = normalize_path(fs::relative(entry.path(), search_dir, ec).string());
         if (ec) {
             ec.clear();
             continue;
@@ -307,14 +291,14 @@ ResultV2<ToolResult> GlobTool::call(
     }
 
     // 5. 按修改时间倒序排列（最新优先）
-    std::sort(matches.begin(), matches.end(),
-        [](const MatchEntry& a, const MatchEntry& b) {
-            return a.last_write_time > b.last_write_time;
-        });
+    std::sort(matches.begin(), matches.end(), [](const MatchEntry& a, const MatchEntry& b) {
+        return a.last_write_time > b.last_write_time;
+    });
 
     // 6. 格式化输出
     if (matches.empty()) {
-        return ResultV2<ToolResult>::ok(ToolResult::ok("No files matched pattern: " + glob_input.pattern));
+        return ResultV2<ToolResult>::ok(
+            ToolResult::ok("No files matched pattern: " + glob_input.pattern));
     }
 
     std::string result;
@@ -332,4 +316,4 @@ ResultV2<ToolResult> GlobTool::call(
     return ResultV2<ToolResult>::ok(ToolResult::ok(std::move(result)));
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

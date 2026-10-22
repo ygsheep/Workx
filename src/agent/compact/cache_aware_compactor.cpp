@@ -38,8 +38,8 @@ bool is_summary_message(const ChatMessage& msg) {
 /// @brief 单轮 compact 后的摘要文本（机械折叠 fallback）
 /// @details 不调用 LLM，按消息角色拼接短摘要。
 ///          真正的 LLM 摘要由 m_summarize_fn 提供，未注入时用此 fallback。
-std::string mechanical_fold_summary(const std::vector<ChatMessage>& msgs,
-                                     size_t begin, size_t end) {
+std::string mechanical_fold_summary(const std::vector<ChatMessage>& msgs, size_t begin,
+                                    size_t end) {
     std::ostringstream oss;
     oss << "<compaction-summary>\n";
     oss << "以下为历史对话折叠摘要（机械版，含 " << (end - begin) << " 条消息）：\n";
@@ -47,10 +47,18 @@ std::string mechanical_fold_summary(const std::vector<ChatMessage>& msgs,
         const auto& m = msgs[i];
         std::string role_tag;
         switch (m.role) {
-            case ChatMessage::Role::User:      role_tag = "user"; break;
-            case ChatMessage::Role::Assistant: role_tag = "assistant"; break;
-            case ChatMessage::Role::Tool:      role_tag = "tool:" + m.tool_name; break;
-            default:                            role_tag = "system"; break;
+            case ChatMessage::Role::User:
+                role_tag = "user";
+                break;
+            case ChatMessage::Role::Assistant:
+                role_tag = "assistant";
+                break;
+            case ChatMessage::Role::Tool:
+                role_tag = "tool:" + m.tool_name;
+                break;
+            default:
+                role_tag = "system";
+                break;
         }
         std::string preview = m.content.substr(0, std::min<size_t>(m.content.size(), 200));
         oss << "  [" << i << "][" << role_tag << "] " << preview;
@@ -67,24 +75,21 @@ std::string mechanical_fold_summary(const std::vector<ChatMessage>& msgs,
 /// @return 归档文件路径（失败返回空串）
 /// @details 文件名格式：<archive_dir>/<YYYYMMDD_HHMMSS>_<millis>.jsonl
 ///          每行一条 JSON（NDJSON），字段含 role/content/tool_name/tool_call_id
-std::string archive_middle(const std::vector<ChatMessage>& middle,
-                            const std::string& archive_dir) {
+std::string archive_middle(const std::vector<ChatMessage>& middle, const std::string& archive_dir) {
     if (archive_dir.empty() || middle.empty()) return {};
 
     namespace fs = std::filesystem;
     std::error_code ec;
     fs::create_directories(archive_dir, ec);
     if (ec) {
-        LOG_WARN("[cache_aware_compactor] archive: create_directories failed: {}",
-                 ec.message());
+        LOG_WARN("[cache_aware_compactor] archive: create_directories failed: {}", ec.message());
         return {};
     }
 
     // 生成时间戳文件名
     auto now = std::chrono::system_clock::now();
     auto t = std::chrono::system_clock::to_time_t(now);
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                  now.time_since_epoch()) % 1000;
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
     std::tm tm{};
 #ifdef _WIN32
     localtime_s(&tm, &t);
@@ -106,10 +111,18 @@ std::string archive_middle(const std::vector<ChatMessage>& middle,
     for (const auto& msg : middle) {
         nlohmann::json j;
         switch (msg.role) {
-            case ChatMessage::Role::User:      j["role"] = "user"; break;
-            case ChatMessage::Role::Assistant: j["role"] = "assistant"; break;
-            case ChatMessage::Role::Tool:      j["role"] = "tool"; break;
-            default:                            j["role"] = "system"; break;
+            case ChatMessage::Role::User:
+                j["role"] = "user";
+                break;
+            case ChatMessage::Role::Assistant:
+                j["role"] = "assistant";
+                break;
+            case ChatMessage::Role::Tool:
+                j["role"] = "tool";
+                break;
+            default:
+                j["role"] = "system";
+                break;
         }
         j["content"] = msg.content;
         if (msg.role == ChatMessage::Role::Tool) {
@@ -123,22 +136,19 @@ std::string archive_middle(const std::vector<ChatMessage>& middle,
     }
     out.close();
 
-    LOG_INFO("[cache_aware_compactor] archived {} messages to {}",
-             middle.size(), filepath.string());
+    LOG_INFO("[cache_aware_compactor] archived {} messages to {}", middle.size(),
+             filepath.string());
     return filepath.string();
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 // ============================================================
 // 构造
 // ============================================================
 
 CacheAwareCompactor::CacheAwareCompactor(Config cfg, SummarizeFn summarize_fn)
-    : m_config(std::move(cfg))
-    , m_summarize_fn(std::move(summarize_fn))
-{
-}
+    : m_config(std::move(cfg)), m_summarize_fn(std::move(summarize_fn)) {}
 
 // ============================================================
 // reset — 重置状态（新会话）
@@ -154,9 +164,7 @@ void CacheAwareCompactor::reset() {
 // maybe_compact — 主入口
 // ============================================================
 
-CacheAwareCompactor::Result CacheAwareCompactor::maybe_compact(
-    std::vector<ChatMessage>& messages)
-{
+CacheAwareCompactor::Result CacheAwareCompactor::maybe_compact(std::vector<ChatMessage>& messages) {
     Result result;
     result.tokens_before = compact::estimate_messages_tokens(messages);
 
@@ -166,15 +174,17 @@ CacheAwareCompactor::Result CacheAwareCompactor::maybe_compact(
         return result;
     }
 
-    const float ratio = static_cast<float>(result.tokens_before)
-                        / static_cast<float>(m_config.context_window_tokens);
+    const float ratio = static_cast<float>(result.tokens_before) /
+                        static_cast<float>(m_config.context_window_tokens);
 
     // H-3：卡死自愈 — ratio 回落到 soft 以下时清除 m_stuck，让前缀重新 append-only 后恢复压缩
     if (m_stuck.load() && ratio < m_config.soft_ratio) {
         m_stuck.store(false);
         m_consecutive_compacts.store(0);
-        LOG_INFO("[cache_aware_compactor] stuck self-healed: ratio={:.2f} < soft={:.2f}, "
-                 "resuming auto-compaction", ratio, m_config.soft_ratio);
+        LOG_INFO(
+            "[cache_aware_compactor] stuck self-healed: ratio={:.2f} < soft={:.2f}, "
+            "resuming auto-compaction",
+            ratio, m_config.soft_ratio);
         if (m_paused_cb) {
             m_paused_cb(false, 0, result.tokens_before, ratio,
                         "compactor self-healed: ratio dropped below soft, resuming");
@@ -199,9 +209,8 @@ CacheAwareCompactor::Result CacheAwareCompactor::maybe_compact(
     if (ratio < m_config.snip_ratio) {
         // soft 水位：仅 Notice，不动前缀
         result.action = Action::SoftNotice;
-        result.notice = std::format(
-            "cache soft notice: tokens={} ratio={:.2f} (soft={:.2f})",
-            result.tokens_before, ratio, m_config.soft_ratio);
+        result.notice = std::format("cache soft notice: tokens={} ratio={:.2f} (soft={:.2f})",
+                                    result.tokens_before, ratio, m_config.soft_ratio);
         result.tokens_after = result.tokens_before;
         LOG_INFO("[cache_aware_compactor] soft notice, tokens={}, ratio={:.2f}",
                  result.tokens_before, ratio);
@@ -210,13 +219,13 @@ CacheAwareCompactor::Result CacheAwareCompactor::maybe_compact(
 
     // snip / compact / force 都需要先计算头尾边界
     const size_t pinned_end = pinned_prefix_len(messages);
-    const size_t tail_idx   = tail_start(messages);
+    const size_t tail_idx = tail_start(messages);
 
     // 边界检查：尾部必须严格在 pinned 之后，且至少留 2 条可折叠消息
     if (tail_idx <= pinned_end + 1) {
         // 没有可折叠的中段，直接进入 compact 的卡死路径
-        LOG_WARN("[cache_aware_compactor] no foldable middle, pinned={}, tail={}",
-                 pinned_end, tail_idx);
+        LOG_WARN("[cache_aware_compactor] no foldable middle, pinned={}, tail={}", pinned_end,
+                 tail_idx);
         // 跳过 snip，直接尝试 compact
     } else {
         // snip 水位：机械截短旧 tool_result
@@ -226,11 +235,11 @@ CacheAwareCompactor::Result CacheAwareCompactor::maybe_compact(
                 result.action = Action::Snip;
                 result.snipped_count = snipped;
                 result.tokens_after = compact::estimate_messages_tokens(messages);
-                result.notice = std::format(
-                    "snip: {} stale tool_results truncated, tokens {} -> {}",
-                    snipped, result.tokens_before, result.tokens_after);
-                LOG_INFO("[cache_aware_compactor] snip, count={}, tokens {} -> {}",
-                         snipped, result.tokens_before, result.tokens_after);
+                result.notice =
+                    std::format("snip: {} stale tool_results truncated, tokens {} -> {}", snipped,
+                                result.tokens_before, result.tokens_after);
+                LOG_INFO("[cache_aware_compactor] snip, count={}, tokens {} -> {}", snipped,
+                         result.tokens_before, result.tokens_after);
                 // snip 不破坏前缀字节级稳定（只改中段 tool_result 内容，但保留消息位置）
                 // 不递增 m_rewrite_version（钉住前缀未变）
                 return result;
@@ -255,23 +264,25 @@ CacheAwareCompactor::Result CacheAwareCompactor::maybe_compact(
                 m_consecutive_compacts.fetch_add(1);
 
                 result.notice = std::format(
-                    "compact: {} messages folded, tokens {} -> {}, rewrite_version={}",
-                    compacted, result.tokens_before, result.tokens_after, m_rewrite_version);
-                LOG_INFO("[cache_aware_compactor] compact, folded={}, tokens {} -> {}, "
-                         "consecutive={}, version={}",
-                         compacted, result.tokens_before, result.tokens_after,
-                         m_consecutive_compacts.load(), m_rewrite_version);
+                    "compact: {} messages folded, tokens {} -> {}, rewrite_version={}", compacted,
+                    result.tokens_before, result.tokens_after, m_rewrite_version);
+                LOG_INFO(
+                    "[cache_aware_compactor] compact, folded={}, tokens {} -> {}, "
+                    "consecutive={}, version={}",
+                    compacted, result.tokens_before, result.tokens_after,
+                    m_consecutive_compacts.load(), m_rewrite_version);
 
                 // H-3：卡死守卫 — 连续 compact 达阈值，触发暂停事件
                 if (m_consecutive_compacts.load() >= m_config.max_consecutive_compacts) {
                     m_stuck.store(true);
                     result.action = Action::Stuck;
                     result.notice += " | stuck guard triggered: auto-compaction paused";
-                    LOG_WARN("[cache_aware_compactor] stuck guard triggered after compact, "
-                             "pausing auto-compaction");
+                    LOG_WARN(
+                        "[cache_aware_compactor] stuck guard triggered after compact, "
+                        "pausing auto-compaction");
                     if (m_paused_cb) {
-                        m_paused_cb(true, m_consecutive_compacts.load(),
-                                   result.tokens_after, ratio, result.notice);
+                        m_paused_cb(true, m_consecutive_compacts.load(), result.tokens_after, ratio,
+                                    result.notice);
                     }
                 }
                 return result;
@@ -292,17 +303,15 @@ CacheAwareCompactor::Result CacheAwareCompactor::maybe_compact(
 // pinned_prefix_len — 钉住前缀长度
 // ============================================================
 
-size_t CacheAwareCompactor::pinned_prefix_len(
-    const std::vector<ChatMessage>& messages) const
-{
+size_t CacheAwareCompactor::pinned_prefix_len(const std::vector<ChatMessage>& messages) const {
     // system 消息不在 messages 中（由 API 单独传），跳过；
     // 这里从第一条非 system 消息开始扫描
     size_t pinned = 0;
     bool saw_first_user = false;
 
     // 钉住首条 user 消息：若 token 数 < min(1500, 窗口 * 0.15) 则钉住
-    const int32_t pin_budget = std::min<int32_t>(
-        1500, static_cast<int32_t>(m_config.context_window_tokens * 0.15f));
+    const int32_t pin_budget =
+        std::min<int32_t>(1500, static_cast<int32_t>(m_config.context_window_tokens * 0.15f));
 
     for (size_t i = 0; i < messages.size(); ++i) {
         const auto& msg = messages[i];
@@ -342,9 +351,7 @@ size_t CacheAwareCompactor::pinned_prefix_len(
 // tail_start — 尾部保留起始索引
 // ============================================================
 
-size_t CacheAwareCompactor::tail_start(
-    const std::vector<ChatMessage>& messages) const
-{
+size_t CacheAwareCompactor::tail_start(const std::vector<ChatMessage>& messages) const {
     if (messages.empty()) return 0;
 
     int32_t budget = m_config.tail_token_budget;
@@ -364,8 +371,7 @@ size_t CacheAwareCompactor::tail_start(
 
     // 对齐到非 tool 消息：避免尾部首条为 tool（孤儿 tool result）
     // tool 消息必须紧跟其对应的 assistant tool_use，否则 OpenAI/Anthropic 都会报错
-    while (idx < messages.size()
-           && messages[idx].role == ChatMessage::Role::Tool) {
+    while (idx < messages.size() && messages[idx].role == ChatMessage::Role::Tool) {
         ++idx;
     }
 
@@ -381,10 +387,8 @@ size_t CacheAwareCompactor::tail_start(
 // snip_stale_tool_results — 机械截短旧 tool_result
 // ============================================================
 
-int CacheAwareCompactor::snip_stale_tool_results(
-    std::vector<ChatMessage>& messages,
-    size_t head_end, size_t tail_start_idx)
-{
+int CacheAwareCompactor::snip_stale_tool_results(std::vector<ChatMessage>& messages,
+                                                 size_t head_end, size_t tail_start_idx) {
     if (head_end >= tail_start_idx || tail_start_idx > messages.size()) {
         return 0;
     }
@@ -410,18 +414,15 @@ int CacheAwareCompactor::snip_stale_tool_results(
 // compact_middle — 摘要中段
 // ============================================================
 
-int CacheAwareCompactor::compact_middle(
-    std::vector<ChatMessage>& messages,
-    size_t pinned_end, size_t tail_start_idx)
-{
+int CacheAwareCompactor::compact_middle(std::vector<ChatMessage>& messages, size_t pinned_end,
+                                        size_t tail_start_idx) {
     if (pinned_end >= tail_start_idx || tail_start_idx > messages.size()) {
         return 0;
     }
 
     // 收集中段消息
-    std::vector<ChatMessage> middle(
-        messages.begin() + pinned_end,
-        messages.begin() + tail_start_idx);
+    std::vector<ChatMessage> middle(messages.begin() + pinned_end,
+                                    messages.begin() + tail_start_idx);
 
     if (middle.empty()) return 0;
 
@@ -445,8 +446,8 @@ int CacheAwareCompactor::compact_middle(
         archive_path = archive_middle(middle, m_config.archive_dir);
         if (!archive_path.empty()) {
             // 在摘要文本末尾追加归档路径标注
-            summary_text += std::format(
-                "\n<!-- archive: {} ({} messages) -->", archive_path, middle.size());
+            summary_text +=
+                std::format("\n<!-- archive: {} ({} messages) -->", archive_path, middle.size());
         }
     }
 
@@ -454,9 +455,7 @@ int CacheAwareCompactor::compact_middle(
     ChatMessage summary_msg = ChatMessage::user(summary_text);
 
     // 原地替换：擦除 [pinned_end, tail_start_idx)，在 pinned_end 插入摘要消息
-    messages.erase(
-        messages.begin() + pinned_end,
-        messages.begin() + tail_start_idx);
+    messages.erase(messages.begin() + pinned_end, messages.begin() + tail_start_idx);
     messages.insert(messages.begin() + pinned_end, summary_msg);
 
     LOG_INFO("[cache_aware_compactor] compact_middle: folded {} messages into 1 summary{}",
@@ -465,4 +464,4 @@ int CacheAwareCompactor::compact_middle(
     return static_cast<int>(middle.size());
 }
 
-} // namespace agent
+}  // namespace agent

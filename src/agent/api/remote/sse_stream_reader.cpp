@@ -15,14 +15,10 @@
 namespace agent {
 
 SSEStreamReader::SSEStreamReader(ParseSSECallback parse_cb)
-    : m_parse_cb(std::move(parse_cb))
-    , m_sse_parser([this](const SSEEvent& event) { on_sse_event(event); })
-{
-}
+    : m_parse_cb(std::move(parse_cb)),
+      m_sse_parser([this](const SSEEvent& event) { on_sse_event(event); }) {}
 
-SSEStreamReader::~SSEStreamReader() {
-    cancel();
-}
+SSEStreamReader::~SSEStreamReader() { cancel(); }
 
 StreamState SSEStreamReader::next(std::function<bool()> should_stop, StreamChunk& out) {
     while (true) {
@@ -85,17 +81,24 @@ void SSEStreamReader::feed_data(std::string_view data) {
     m_sse_parser.parse(data);
 }
 
-void SSEStreamReader::finish(const std::string& error) {
+void SSEStreamReader::finish(const std::string& error) { finish(0, error); }
+
+void SSEStreamReader::finish(long http_code, const std::string& error) {
     if (m_finished.exchange(true)) return;  // 已 finish 则不重复
     m_finish_error = error;
+    m_finish_status.store(static_cast<int>(http_code));
     if (error.empty()) {
         LOG_DEBUG("[sse] reader finished, tokens_received={}", m_token_count);
     } else {
-        LOG_WARN("[sse] reader finished with error: {} tokens_received={}",
-                 error, m_token_count);
+        LOG_WARN("[sse] reader finished with error: http_status={} error={} tokens_received={}",
+                 http_code, error, m_token_count);
     }
     m_queue_cv.notify_all();
 }
+
+int SSEStreamReader::http_status() const { return m_finish_status.load(); }
+
+std::string SSEStreamReader::error_message() const { return m_finish_error; }
 
 void SSEStreamReader::on_sse_event(const SSEEvent& event) {
     if (!event.has_data()) return;
@@ -110,14 +113,14 @@ void SSEStreamReader::on_sse_event(const SSEEvent& event) {
         {
             std::lock_guard<std::mutex> lock(m_queue_mutex);
             m_chunk_queue.push(std::move(chunk));
-            LOG_INFO("[sse] chunk queued, content_len={}, reasoning_len={}, "
-                     "tool_start={}, tool_delta={}, is_final={}, queue={}",
-                     chunk.content_delta.size(), chunk.reasoning_delta.size(),
-                     chunk.is_tool_use_start, chunk.is_tool_use_delta,
-                     chunk.is_final, m_chunk_queue.size());
+            LOG_INFO(
+                "[sse] chunk queued, content_len={}, reasoning_len={}, "
+                "tool_start={}, tool_delta={}, is_final={}, queue={}",
+                chunk.content_delta.size(), chunk.reasoning_delta.size(), chunk.is_tool_use_start,
+                chunk.is_tool_use_delta, chunk.is_final, m_chunk_queue.size());
         }
         m_queue_cv.notify_one();
     }
 }
 
-} // namespace agent
+}  // namespace agent

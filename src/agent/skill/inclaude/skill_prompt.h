@@ -50,7 +50,8 @@ inline std::string build_skills_prompt_section(
         // agent 过滤：声明了关联 agent 且与当前 agent 不符 → 不注入
         if (cmd->agent().has_value() && active_agent != cmd->agent()) continue;
         if (cmd->description().empty() && !cmd->when_to_use().has_value() &&
-            !cmd->context().has_value()) continue;
+            !cmd->context().has_value())
+            continue;
         // conditional skills（paths 非空）：不常驻 system prompt，命中才注入
         if (!cmd->paths().empty()) continue;
 
@@ -76,7 +77,9 @@ inline std::string build_skills_prompt_section(
         out += "\n";
     }
     if (out.empty()) return std::string{};
-    return "\n\n# Available skills\nUse the Skill tool to load the full instructions of a skill.\n" + out;
+    return "\n\n# Available skills\nUse the Skill tool to load the full instructions of a "
+           "skill.\n" +
+           out;
 }
 
-} // namespace agent::skill
+}  // namespace agent::skill

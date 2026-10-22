@@ -35,7 +35,7 @@ std::string get_home_dir() {
     return {};
 }
 
-} // namespace
+}  // namespace
 
 std::string expand_path(std::string_view path, std::string_view base_dir) {
     // 安全检查：null 字节
@@ -88,4 +88,4 @@ std::string expand_path(std::string_view path, std::string_view base_dir) {
     return fs::absolute(base / p, ec).lexically_normal().string();
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

@@ -34,11 +34,10 @@ namespace island {
 
 /// @brief 余额拉取器
 class BalanceFetcher {
-public:
+   public:
     /// @brief GET 请求函数（默认走 HttpClient；测试注入 fake）
     using HttpGetFn = std::function<agent::ResultV2<agent::HttpResponse>(
-        const std::string& url,
-        const std::vector<std::pair<std::string, std::string>>& headers,
+        const std::string& url, const std::vector<std::pair<std::string, std::string>>& headers,
         int timeout_ms)>;
 
     /// @param bus 事件总线（成功拉取后发布 BalanceUpdatedEvent）
@@ -47,11 +46,8 @@ public:
     /// @param usd_cny_rate CNY → USD 折算汇率（配置 island.usd_cny_rate）
     /// @param getter HTTP GET 实现（默认 HttpClient）
     /// @param interval 定时拉取间隔（默认 10min）
-    BalanceFetcher(agent::IEventBus& bus,
-                   std::string api_key,
-                   std::string base_url,
-                   double usd_cny_rate,
-                   HttpGetFn getter = default_http_getter(),
+    BalanceFetcher(agent::IEventBus& bus, std::string api_key, std::string base_url,
+                   double usd_cny_rate, HttpGetFn getter = default_http_getter(),
                    std::chrono::seconds interval = std::chrono::minutes(10));
 
     BalanceFetcher(const BalanceFetcher&) = delete;
@@ -77,13 +73,12 @@ public:
     /// @brief 解析 /user/balance 响应体（纯函数，供单测）
     /// @param body 响应 JSON：{"is_available":bool, "balance_infos":[{currency,total_balance}]}
     /// @param usd_cny_rate 汇率
-    static BalanceResult parse_balance_response(const std::string& body,
-                                                double usd_cny_rate);
+    static BalanceResult parse_balance_response(const std::string& body, double usd_cny_rate);
 
     /// @brief 默认 HttpClient 实现（构造默认参数用）
     static HttpGetFn default_http_getter();
 
-private:
+   private:
     void run_loop();
     BalanceResult do_fetch();
 
@@ -97,11 +92,11 @@ private:
     std::atomic<bool> m_stop{false};
     std::atomic<bool> m_refresh_requested{false};
     std::atomic<bool> m_auth_failed{false};  ///< 401 后停止定时拉取（错误矩阵：高）
-    mutable std::mutex m_mtx;  // last_result() 为 const，锁需 mutable
+    mutable std::mutex m_mtx;                // last_result() 为 const，锁需 mutable
     std::condition_variable m_cv;
     BalanceResult m_last_result;
     std::shared_ptr<std::promise<BalanceResult>> m_pending_sync;  ///< refresh_and_wait 等待槽
     std::thread m_thread;
 };
 
-} // namespace island
+}  // namespace island

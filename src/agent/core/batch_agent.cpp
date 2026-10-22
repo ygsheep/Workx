@@ -9,7 +9,7 @@
 #include <utility>
 #include <vector>
 
-#include "agent/core/mode_agent_common.h"   // parse_batch_spec / materialize_cmd / ...
+#include "agent/core/mode_agent_common.h"  // parse_batch_spec / materialize_cmd / ...
 #include "agent/core/query_tracker.h"
 #include "liblogger/logger.h"
 
@@ -19,11 +19,11 @@ namespace {
 
 struct BatchItemResult {
     std::string item;
-    bool skipped = false;        // item 无法安全引用
-    bool rejected = false;       // 物化命令未过白名单
-    bool timedout = false;       // 整体未在截止前完成
+    bool skipped = false;   // item 无法安全引用
+    bool rejected = false;  // 物化命令未过白名单
+    bool timedout = false;  // 整体未在截止前完成
     int exit_code = -1;
-    std::string out_brief;       // stdout/stderr 摘要
+    std::string out_brief;  // stdout/stderr 摘要
 };
 
 // BatchAgent 单次 run 的整体截止（毫秒）。run_whitelisted 单条 exec 已有 60s
@@ -31,14 +31,12 @@ struct BatchItemResult {
 // timedout，避免 join 无限挂起。默认 5 分钟。
 constexpr std::chrono::milliseconds kBatchDeadline(300000);
 
-} // namespace
+}  // namespace
 
-BatchAgent::BatchAgent(GoalAgentDeps deps)
-    : m_deps(std::move(deps)) {}
+BatchAgent::BatchAgent(GoalAgentDeps deps) : m_deps(std::move(deps)) {}
 
 ReActResult BatchAgent::run(const AgentGoal& goal, const std::string& goal_spec,
-                            std::vector<ChatMessage>& messages,
-                            IReActObserver* /*observer*/) {
+                            std::vector<ChatMessage>& messages, IReActObserver* /*observer*/) {
     const auto started = std::chrono::steady_clock::now();
 
     ReActResult result;
@@ -46,10 +44,8 @@ ReActResult BatchAgent::run(const AgentGoal& goal, const std::string& goal_spec,
     if (goal.type != AgentGoal::Batch) {
         result.was_error = true;
         result.goal_status = GoalStatus::Failed;
-        result.error_message =
-            "batch agent requires agent.goal `batch:cmd=<tmpl>&glob=<pattern>`";
-        LOG_WARN("[batch_agent] non-batch goal routed (type={})",
-                 static_cast<int>(goal.type));
+        result.error_message = "batch agent requires agent.goal `batch:cmd=<tmpl>&glob=<pattern>`";
+        LOG_WARN("[batch_agent] non-batch goal routed (type={})", static_cast<int>(goal.type));
         return result;
     }
     if (spec.cmd_template.empty()) {
@@ -61,8 +57,7 @@ ReActResult BatchAgent::run(const AgentGoal& goal, const std::string& goal_spec,
     }
 
     std::string glob_err;
-    const std::vector<std::string> items =
-        expand_glob_cwd(m_deps.cwd, spec.glob, &glob_err);
+    const std::vector<std::string> items = expand_glob_cwd(m_deps.cwd, spec.glob, &glob_err);
     if (items.empty()) {
         std::string summary;
         if (!glob_err.empty()) {
@@ -78,10 +73,10 @@ ReActResult BatchAgent::run(const AgentGoal& goal, const std::string& goal_spec,
         result.final_answer = summary;
         messages.push_back(ChatMessage::assistant(summary));
         result.total_duration_ms =
-            std::chrono::duration<double, std::milli>(
-                std::chrono::steady_clock::now() - started).count();
-        LOG_INFO("[batch_agent] goal='{}' glob='{}' -> {} items ({})",
-                 goal_spec, spec.glob, items.size(), glob_err);
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started)
+                .count();
+        LOG_INFO("[batch_agent] goal='{}' glob='{}' -> {} items ({})", goal_spec, spec.glob,
+                 items.size(), glob_err);
         return result;
     }
 
@@ -117,12 +112,10 @@ ReActResult BatchAgent::run(const AgentGoal& goal, const std::string& goal_spec,
                 continue;
             }
             bool rejected = false;
-            const process::ExecOutput out =
-                run_whitelisted(cmd, m_deps.cwd, &rejected);
+            const process::ExecOutput out = run_whitelisted(cmd, m_deps.cwd, &rejected);
             r.rejected = rejected;
             r.exit_code = out.exit_code;
-            const std::string txt = out.stderr_text.empty()
-                                        ? out.stdout_text : out.stderr_text;
+            const std::string txt = out.stderr_text.empty() ? out.stdout_text : out.stderr_text;
             r.out_brief = txt.substr(0, 160);
         }
     };
@@ -163,27 +156,28 @@ ReActResult BatchAgent::run(const AgentGoal& goal, const std::string& goal_spec,
             summary += "\n";
         }
     }
-    summary += "\n完成：✓" + std::to_string(ok) + " ✗" + std::to_string(failed)
-             + " 跳过" + std::to_string(skipped) + " 拒绝" + std::to_string(rejected)
-             + " 超时" + std::to_string(timedout);
+    summary += "\n完成：✓" + std::to_string(ok) + " ✗" + std::to_string(failed) + " 跳过" +
+               std::to_string(skipped) + " 拒绝" + std::to_string(rejected) + " 超时" +
+               std::to_string(timedout);
 
     result.goal_status = (failed == 0 && rejected == 0 && skipped == 0 && timedout == 0)
-                             ? GoalStatus::Achieved : GoalStatus::Failed;
+                             ? GoalStatus::Achieved
+                             : GoalStatus::Failed;
     if (m_deps.tracker) {
         m_deps.tracker->record_verdict(
             result.goal_status,
-            std::format("batch ok={} failed={} skipped={} rejected={} timedout={}",
-                        ok, failed, skipped, rejected, timedout));
+            std::format("batch ok={} failed={} skipped={} rejected={} timedout={}", ok, failed,
+                        skipped, rejected, timedout));
     }
 
     result.final_answer = summary;
     messages.push_back(ChatMessage::assistant(summary));
     result.total_duration_ms =
-        std::chrono::duration<double, std::milli>(
-            std::chrono::steady_clock::now() - started).count();
-    LOG_INFO("[batch_agent] goal='{}' items={} ok={} failed={} skipped={} rejected={}",
-             goal_spec, n, ok, failed, skipped, rejected);
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started)
+            .count();
+    LOG_INFO("[batch_agent] goal='{}' items={} ok={} failed={} skipped={} rejected={}", goal_spec,
+             n, ok, failed, skipped, rejected);
     return result;
 }
 
-} // namespace agent
+}  // namespace agent

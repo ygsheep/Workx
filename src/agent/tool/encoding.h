@@ -21,13 +21,13 @@ namespace agent::tool {
 
 /// @brief 文件编码类型
 enum class Encoding {
-    Utf8,       ///< UTF-8（含或不含 BOM）
-    Utf16LE,    ///< UTF-16 Little Endian（含 BOM）
-    Utf16BE,    ///< UTF-16 Big Endian（含 BOM）
-    Gbk,        ///< GBK/GB2312（中文，无 BOM）
-    Ascii,      ///< ASCII（纯 7-bit，UTF-8 子集）
-    Binary,     ///< 二进制文件（含 null 字节，非 UTF-16）
-    Unknown,    ///< 未知编码
+    Utf8,     ///< UTF-8（含或不含 BOM）
+    Utf16LE,  ///< UTF-16 Little Endian（含 BOM）
+    Utf16BE,  ///< UTF-16 Big Endian（含 BOM）
+    Gbk,      ///< GBK/GB2312（中文，无 BOM）
+    Ascii,    ///< ASCII（纯 7-bit，UTF-8 子集）
+    Binary,   ///< 二进制文件（含 null 字节，非 UTF-16）
+    Unknown,  ///< 未知编码
 };
 
 /// @brief 检测文件编码
@@ -48,10 +48,7 @@ Encoding detect_encoding(const std::filesystem::path& path);
 /// @param path 文件路径
 /// @param encoding 编码类型（通常由 detect_encoding 获取）
 /// @return UTF-8 文本行列表；读取失败返回空列表
-std::vector<std::string> read_as_utf8_lines(
-    const std::filesystem::path& path,
-    Encoding encoding
-);
+std::vector<std::string> read_as_utf8_lines(const std::filesystem::path& path, Encoding encoding);
 
 /// @brief 读取文件并转换为单个 UTF-8 字符串（保留行尾）
 /// @details 与 read_as_utf8_lines 不同，本函数返回完整内容（含原始行尾）：
@@ -62,10 +59,7 @@ std::vector<std::string> read_as_utf8_lines(
 /// @param path 文件路径
 /// @param encoding 编码类型（通常由 detect_encoding 获取）
 /// @return UTF-8 文本内容；读取失败返回空字符串
-std::string read_file_as_utf8(
-    const std::filesystem::path& path,
-    Encoding encoding
-);
+std::string read_file_as_utf8(const std::filesystem::path& path, Encoding encoding);
 
 /// @brief 将 UTF-8 内容按指定编码原子写入文件（保留原编码 + BOM）
 /// @details 用于 FileEditTool 写回时保留原文件编码：
@@ -81,12 +75,8 @@ std::string read_file_as_utf8(
 /// @param encoding 目标编码类型
 /// @param is_cancelled 可选取消回调：rename 前检查，已取消则删除临时文件并返回 false
 /// @return true 成功；false 失败（写入错误或已取消）
-bool write_file_with_encoding(
-    const std::filesystem::path& path,
-    const std::string& utf8_content,
-    Encoding encoding,
-    const std::function<bool()>& is_cancelled = {}
-);
+bool write_file_with_encoding(const std::filesystem::path& path, const std::string& utf8_content,
+                              Encoding encoding, const std::function<bool()>& is_cancelled = {});
 
 /// @brief 获取编码名称（用于日志/错误信息）
 /// @param encoding 编码类型
@@ -123,4 +113,4 @@ std::string sanitize_utf8(std::string_view text);
 /// @return 清洗后的 json（所有 string 均为合法 UTF-8）
 nlohmann::json sanitize_json_strings(const nlohmann::json& j);
 
-} // namespace agent::tool
+}  // namespace agent::tool

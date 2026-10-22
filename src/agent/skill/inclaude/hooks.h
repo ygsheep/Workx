@@ -21,10 +21,9 @@ namespace agent::skill {
 /// @return 每条命令一行输出：`[ok] <cmd>\n<截断输出>` 或 `[fail] <cmd>: <错误>`；
 ///         单条失败不中断后续钩子
 std::vector<std::string> run_preactivate_hooks(const std::vector<std::string>& hooks,
-                                               const std::string& cwd,
-                                               int timeout_ms = 30000);
+                                               const std::string& cwd, int timeout_ms = 30000);
 
 /// @brief 钩子输出拼接为单块文本（注入激活前缀用）
 std::string format_hook_output(const std::vector<std::string>& lines);
 
-} // namespace agent::skill
+}  // namespace agent::skill

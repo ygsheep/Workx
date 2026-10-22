@@ -27,7 +27,7 @@ core::todo::TodoItem make_item(const std::string& content,
     return item;
 }
 
-} // namespace
+}  // namespace
 
 TEST_CASE("ViewModel ActionTodoUpdate stores todos in sidebar", "[view_model][todo]") {
     ViewModel vm;
@@ -46,7 +46,7 @@ TEST_CASE("ViewModel ActionTodoUpdate stores todos in sidebar", "[view_model][to
 
 TEST_CASE("ViewModel ActionTodoUpdate identical snapshot returns false", "[view_model][todo]") {
     ViewModel vm;
-    std::vector<core::todo::TodoItem> todos = { make_item("A") };
+    std::vector<core::todo::TodoItem> todos = {make_item("A")};
     REQUIRE(vm.apply(ActionTodoUpdate{.session_id = "s1", .todos = todos}));
     // 相同快照 → 无变化，不触发重绘
     REQUIRE_FALSE(vm.apply(ActionTodoUpdate{.session_id = "s1", .todos = todos}));
@@ -54,7 +54,7 @@ TEST_CASE("ViewModel ActionTodoUpdate identical snapshot returns false", "[view_
 
 TEST_CASE("ViewModel ActionTodoUpdate empty snapshot clears todos", "[view_model][todo]") {
     ViewModel vm;
-    std::vector<core::todo::TodoItem> todos = { make_item("A") };
+    std::vector<core::todo::TodoItem> todos = {make_item("A")};
     vm.apply(ActionTodoUpdate{.session_id = "s1", .todos = todos});
     REQUIRE(vm.apply(ActionTodoUpdate{.session_id = "s1", .todos = {}}));
     REQUIRE(vm.sidebar.todos.empty());

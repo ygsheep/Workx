@@ -37,18 +37,15 @@ std::vector<ProviderConfigEntry> load_provider_configs(IConfigManager& cfg) {
     return out;
 }
 
-void save_provider_configs(IConfigManager& cfg,
-                           const std::vector<ProviderConfigEntry>& providers) {
+void save_provider_configs(IConfigManager& cfg, const std::vector<ProviderConfigEntry>& providers) {
     nlohmann::json j = nlohmann::json::array();
     for (const auto& e : providers) {
-        j.push_back({
-            {"id", e.id},
-            {"name", e.name},
-            {"base_url", e.base_url},
-            {"model", e.model},
-            {"context_length", e.context_length},
-            {"api_key", e.api_key}
-        });
+        j.push_back({{"id", e.id},
+                     {"name", e.name},
+                     {"base_url", e.base_url},
+                     {"model", e.model},
+                     {"context_length", e.context_length},
+                     {"api_key", e.api_key}});
     }
     cfg.set(keys::PROVIDERS, j);
 }
@@ -80,4 +77,4 @@ void apply_provider_switch(IConfigManager& cfg, const ProviderConfigEntry& entry
     }
 }
 
-} // namespace agent
+}  // namespace agent

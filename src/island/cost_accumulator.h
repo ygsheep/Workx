@@ -4,7 +4,8 @@
  * @details 订阅 agent 事件，把每次 LLM 调用的 usage 按 PricingTable 折算 USD：
  *          - input       = prompt_cache_miss_tokens × input_per_1m  （cache miss 即写缓存价）
  *          - cache_read  = prompt_cache_hit_tokens × cache_read_per_1m
- *          - cache_write = cache_creation_input_tokens × cache_write_per_1m（Anthropic 风格，DeepSeek 为 0）
+ *          - cache_write = cache_creation_input_tokens × cache_write_per_1m（Anthropic
+ * 风格，DeepSeek 为 0）
  *          - output      = generated_tokens × output_per_1m
  *          任务边界：UserInputEvent（非本地命令）开启新任务 → task 清零；
  *          AgentDoneEvent 收尾 → task 并入 session、task 清零。
@@ -28,13 +29,13 @@ namespace agent {
 struct UserInputEvent;
 struct StreamDoneEvent;
 struct AgentDoneEvent;
-} // namespace agent
+}  // namespace agent
 
 namespace island {
 
 /// @brief 费用累积器
 class CostAccumulator {
-public:
+   public:
     /// @param bus 事件总线（订阅 UserInput/StreamDone/AgentDone）
     /// @param pricing 单价表
     /// @param model 当前模型名（main 解析后传入；模型切换后无感知，重建场景可更新）
@@ -52,11 +53,11 @@ public:
     /// @brief 任务完成回调（AgentDoneEvent 时触发，main 接线 BalanceFetcher.trigger_refresh）
     void set_on_task_completed(std::function<void()> cb);
 
-private:
+   private:
     /// @brief 按单价表折算一次 usage（纯函数，供单测）
-    static CostBreakdown calc_delta(const ModelPricing& pricing,
-                                    int input_tokens, int output_tokens,
-                                    int cache_read_tokens, int cache_write_tokens);
+    static CostBreakdown calc_delta(const ModelPricing& pricing, int input_tokens,
+                                    int output_tokens, int cache_read_tokens,
+                                    int cache_write_tokens);
 
     void on_user_input(const agent::UserInputEvent& e);
     void on_stream_done(const agent::StreamDoneEvent& e);
@@ -67,13 +68,13 @@ private:
     PricingTable m_pricing;
     std::string m_model;
 
-    CostBreakdown m_task_cost;      ///< 当前任务（一个 user turn）
-    CostBreakdown m_session_cost;   ///< 会话累计
-    bool m_is_estimated = false;    ///< 当前模型是否有精确单价
-    bool m_has_cost = false;        ///< 本会话是否产生过费用（避免发全 0 事件）
+    CostBreakdown m_task_cost;     ///< 当前任务（一个 user turn）
+    CostBreakdown m_session_cost;  ///< 会话累计
+    bool m_is_estimated = false;   ///< 当前模型是否有精确单价
+    bool m_has_cost = false;       ///< 本会话是否产生过费用（避免发全 0 事件）
 
     std::vector<agent::EventToken> m_tokens;
     std::function<void()> m_on_task_completed;
 };
 
-} // namespace island
+}  // namespace island

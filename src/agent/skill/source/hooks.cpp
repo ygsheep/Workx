@@ -23,11 +23,10 @@ std::string truncate_output(const std::string& text, size_t max_chars) {
     if (text.size() <= max_chars) return text;
     return text.substr(0, max_chars) + "\n...(truncated)";
 }
-} // anonymous namespace
+}  // anonymous namespace
 
 std::vector<std::string> run_preactivate_hooks(const std::vector<std::string>& hooks,
-                                               const std::string& cwd,
-                                               int timeout_ms) {
+                                               const std::string& cwd, int timeout_ms) {
     std::vector<std::string> results;
     for (const auto& hook : hooks) {
         if (hook.empty()) continue;
@@ -61,8 +60,7 @@ std::vector<std::string> run_preactivate_hooks(const std::vector<std::string>& h
                 if (!combined.empty()) combined += "\n";
                 combined += out.stderr_text;
             }
-            results.push_back("[fail] " + hook + " (exit " +
-                              std::to_string(out.exit_code) + ")\n" +
+            results.push_back("[fail] " + hook + " (exit " + std::to_string(out.exit_code) + ")\n" +
                               truncate_output(combined, 4096));
         } else {
             results.push_back("[fail] " + hook + ": " + res.error().message);
@@ -80,4 +78,4 @@ std::string format_hook_output(const std::vector<std::string>& lines) {
     return out;
 }
 
-} // namespace agent::skill
+}  // namespace agent::skill

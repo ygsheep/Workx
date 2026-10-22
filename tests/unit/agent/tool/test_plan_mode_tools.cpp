@@ -38,16 +38,15 @@ void fill_ctx(ToolContext& ctx, agent::test::MockEventBus& bus) {
 void auto_answer(agent::test::MockEventBus& bus, bool yes) {
     bus.set_dispatch_enabled(true);
     bus.set_async_auto_flush(true);
-    bus.subscribe<AskUserRequestEvent>(
-        [yes](const AskUserRequestEvent& e) {
-            AskUserResult result;
-            result.submitted = true;
-            result.answers.emplace_back("permission", yes ? "Yes" : "No");
-            e.result_promise->set_value(result);
-        });
+    bus.subscribe<AskUserRequestEvent>([yes](const AskUserRequestEvent& e) {
+        AskUserResult result;
+        result.submitted = true;
+        result.answers.emplace_back("permission", yes ? "Yes" : "No");
+        e.result_promise->set_value(result);
+    });
 }
 
-} // namespace
+}  // namespace
 
 // ============================================================
 // EnterPlanModeTool
@@ -55,7 +54,8 @@ void auto_answer(agent::test::MockEventBus& bus, bool yes) {
 
 TEST_CASE("EnterPlanModeTool switches mode to Plan via callback", "[tool][plan_mode]") {
     MockEventBus bus;
-    ToolContext ctx; fill_ctx(ctx, bus);
+    ToolContext ctx;
+    fill_ctx(ctx, bus);
     PermissionMode captured = PermissionMode::Default;
     bool callback_called = false;
     ctx.on_permission_mode_changed = [&](PermissionMode m) {
@@ -72,7 +72,8 @@ TEST_CASE("EnterPlanModeTool switches mode to Plan via callback", "[tool][plan_m
 
 TEST_CASE("EnterPlanModeTool publishes EnterPlanModeEvent", "[tool][plan_mode]") {
     MockEventBus bus;
-    ToolContext ctx; fill_ctx(ctx, bus);
+    ToolContext ctx;
+    fill_ctx(ctx, bus);
 
     EnterPlanModeTool tool;
     auto res = tool.call(R"({"reason": "refactor"})"_json, ctx);
@@ -83,7 +84,8 @@ TEST_CASE("EnterPlanModeTool publishes EnterPlanModeEvent", "[tool][plan_mode]")
 
 TEST_CASE("EnterPlanModeTool tolerant without callback", "[tool][plan_mode]") {
     MockEventBus bus;
-    ToolContext ctx; fill_ctx(ctx, bus);
+    ToolContext ctx;
+    fill_ctx(ctx, bus);
     ctx.on_permission_mode_changed = nullptr;  // 未接线
 
     EnterPlanModeTool tool;
@@ -97,7 +99,8 @@ TEST_CASE("EnterPlanModeTool tolerant without callback", "[tool][plan_mode]") {
 
 TEST_CASE("ExitPlanModeV2Tool requires plan field", "[tool][plan_mode]") {
     MockEventBus bus;
-    ToolContext ctx; fill_ctx(ctx, bus);
+    ToolContext ctx;
+    fill_ctx(ctx, bus);
 
     ExitPlanModeV2Tool tool;
     auto res = tool.call(R"({})"_json, ctx);
@@ -108,7 +111,8 @@ TEST_CASE("ExitPlanModeV2Tool requires plan field", "[tool][plan_mode]") {
 TEST_CASE("ExitPlanModeV2Tool approved restores Default mode", "[tool][plan_mode]") {
     MockEventBus bus;
     auto_answer(bus, true);
-    ToolContext ctx; fill_ctx(ctx, bus);
+    ToolContext ctx;
+    fill_ctx(ctx, bus);
     ctx.permission_mode = PermissionMode::Plan;
     PermissionMode captured = PermissionMode::Plan;
     bool callback_called = false;
@@ -130,7 +134,8 @@ TEST_CASE("ExitPlanModeV2Tool approved restores Default mode", "[tool][plan_mode
 TEST_CASE("ExitPlanModeV2Tool approved event carries plan and approval", "[tool][plan_mode]") {
     MockEventBus bus;
     auto_answer(bus, true);
-    ToolContext ctx; fill_ctx(ctx, bus);
+    ToolContext ctx;
+    fill_ctx(ctx, bus);
     ctx.permission_mode = PermissionMode::Plan;
 
     std::string captured_plan;
@@ -151,7 +156,8 @@ TEST_CASE("ExitPlanModeV2Tool approved event carries plan and approval", "[tool]
 TEST_CASE("ExitPlanModeV2Tool declined stays in plan mode", "[tool][plan_mode]") {
     MockEventBus bus;
     auto_answer(bus, false);
-    ToolContext ctx; fill_ctx(ctx, bus);
+    ToolContext ctx;
+    fill_ctx(ctx, bus);
     ctx.permission_mode = PermissionMode::Plan;
     bool callback_called = false;
     ctx.on_permission_mode_changed = [&](PermissionMode) { callback_called = true; };
@@ -184,7 +190,8 @@ TEST_CASE("ExitPlanModeV2Tool fails closed without event bus", "[tool][plan_mode
 TEST_CASE("ExitPlanModeV2Tool does not downgrade bypass mode", "[tool][plan_mode]") {
     MockEventBus bus;
     auto_answer(bus, true);
-    ToolContext ctx; fill_ctx(ctx, bus);
+    ToolContext ctx;
+    fill_ctx(ctx, bus);
     ctx.permission_mode = PermissionMode::BypassPermissions;
     bool callback_called = false;
     ctx.on_permission_mode_changed = [&](PermissionMode) { callback_called = true; };
@@ -199,9 +206,11 @@ TEST_CASE("ExitPlanModeV2Tool does not downgrade bypass mode", "[tool][plan_mode
 // #28 评审 #1/#3：Bypass 禁止降级 + 幂等 + 恢复原模式
 // ============================================================
 
-TEST_CASE("EnterPlanModeTool rejects entry when host forbids (bypass)", "[tool][plan_mode][review]") {
+TEST_CASE("EnterPlanModeTool rejects entry when host forbids (bypass)",
+          "[tool][plan_mode][review]") {
     MockEventBus bus;
-    ToolContext ctx; fill_ctx(ctx, bus);
+    ToolContext ctx;
+    fill_ctx(ctx, bus);
     ctx.permission_mode = PermissionMode::BypassPermissions;
     bool host_called = false;
     ctx.on_enter_plan_mode = [&]() -> bool {
@@ -218,9 +227,11 @@ TEST_CASE("EnterPlanModeTool rejects entry when host forbids (bypass)", "[tool][
     REQUIRE(res.value().text.find("not entered") != std::string::npos);
 }
 
-TEST_CASE("EnterPlanModeTool is idempotent when already in plan mode", "[tool][plan_mode][review]") {
+TEST_CASE("EnterPlanModeTool is idempotent when already in plan mode",
+          "[tool][plan_mode][review]") {
     MockEventBus bus;
-    ToolContext ctx; fill_ctx(ctx, bus);
+    ToolContext ctx;
+    fill_ctx(ctx, bus);
     ctx.permission_mode = PermissionMode::Plan;
     bool host_called = false;
     ctx.on_enter_plan_mode = [&]() -> bool {
@@ -237,9 +248,11 @@ TEST_CASE("EnterPlanModeTool is idempotent when already in plan mode", "[tool][p
     REQUIRE(res.value().text.find("Already in plan mode") != std::string::npos);
 }
 
-TEST_CASE("EnterPlanModeTool enters via host callback and publishes event", "[tool][plan_mode][review]") {
+TEST_CASE("EnterPlanModeTool enters via host callback and publishes event",
+          "[tool][plan_mode][review]") {
     MockEventBus bus;
-    ToolContext ctx; fill_ctx(ctx, bus);
+    ToolContext ctx;
+    fill_ctx(ctx, bus);
     bool host_called = false;
     ctx.on_enter_plan_mode = [&]() -> bool {
         host_called = true;
@@ -255,10 +268,12 @@ TEST_CASE("EnterPlanModeTool enters via host callback and publishes event", "[to
     REQUIRE(res.value().text.find("Entered plan mode") != std::string::npos);
 }
 
-TEST_CASE("ExitPlanModeV2Tool approved restores pre-plan mode via host callback", "[tool][plan_mode][review]") {
+TEST_CASE("ExitPlanModeV2Tool approved restores pre-plan mode via host callback",
+          "[tool][plan_mode][review]") {
     MockEventBus bus;
     auto_answer(bus, true);
-    ToolContext ctx; fill_ctx(ctx, bus);
+    ToolContext ctx;
+    fill_ctx(ctx, bus);
     ctx.permission_mode = PermissionMode::Plan;
     bool host_called = false;
     ctx.on_exit_plan_mode = [&]() { host_called = true; };  // 宿主恢复原模式（如 AcceptEdits）

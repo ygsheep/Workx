@@ -30,17 +30,17 @@ namespace agent::tool::shell_detect {
 
 /// @brief Shell 类型分类
 enum class ShellType {
-    UnixSh,    ///< 非 Windows 的 /bin/sh
-    GitBash,   ///< Windows 上的 Git Bash（支持 Unix 命令）
-    CmdExe,    ///< Windows cmd.exe（降级方案）
+    UnixSh,   ///< 非 Windows 的 /bin/sh
+    GitBash,  ///< Windows 上的 Git Bash（支持 Unix 命令）
+    CmdExe,   ///< Windows cmd.exe（降级方案）
 };
 
 /// @brief Shell 探测结果
 struct ShellInfo {
-    std::string cmd;    ///< shell 可执行路径（绝对路径或 PATH 中的名字）
-    std::string flag;   ///< 执行标志（"-c" 或 "/c"）
-    ShellType type;     ///< shell 类型分类
-    bool is_unix;       ///< 是否 Unix 风格（UnixSh 或 GitBash 为 true，CmdExe 为 false）
+    std::string cmd;   ///< shell 可执行路径（绝对路径或 PATH 中的名字）
+    std::string flag;  ///< 执行标志（"-c" 或 "/c"）
+    ShellType type;    ///< shell 类型分类
+    bool is_unix;      ///< 是否 Unix 风格（UnixSh 或 GitBash 为 true，CmdExe 为 false）
 };
 
 /// @brief 检测当前平台可用的 shell
@@ -48,4 +48,4 @@ struct ShellInfo {
 /// @return ShellInfo 引用（静态对象，程序生命周期内有效）
 const ShellInfo& detect();
 
-} // namespace agent::tool::shell_detect
+}  // namespace agent::tool::shell_detect

@@ -86,6 +86,12 @@ target_sources(workx_agent PRIVATE
     # factory（宿主无关会话装配，B1：workx 与 codex 双端复用）
     factory.cpp
 
+    # prompt: 系统提示素材（memory.h / system_prompt.h 为纯头，仅 #82 / #83 有 cpp）
+    prompt/environment_probe.cpp
+    prompt/env_setup_hint.cpp
+    prompt/budget_hint.cpp
+    prompt/wall_clock_hint.cpp
+
     # api
     api/sse_parser.cpp
     api/backend_factory.cpp
@@ -155,6 +161,7 @@ target_sources(workx_agent PRIVATE
     tool/quote_normalizer.cpp
     tool/file_history.cpp
     tool/shell_guard.cpp
+    tool/command_policy.cpp
 
     # audit: 审计日志系统（#37）
     audit/audit_logger.cpp
@@ -175,7 +182,9 @@ target_sources(workx_agent PRIVATE
     tool/GrepTool/grep_tool.cpp
     tool/BashTool/bash_tool.cpp
     tool/PowerShellTool/powershell_tool.cpp
+    tool/background_task_tracker.h  # #166：后台任务结果回传追踪器（纯头，IDE 导航）
     tool/ShellTool/shell_detector.cpp
+    tool/ShellTool/sandbox_visibility.cpp
     tool/AgentTool/agent_tool.cpp
     tool/AskUser/AskUserTool.cpp
     tool/AskUser/ask_user_config.cpp
@@ -187,6 +196,7 @@ target_sources(workx_agent PRIVATE
     plan/plan_coordinator.cpp
     tool/Task/task_output_tool.cpp
     tool/Task/task_stop_tool.cpp
+    tool/Task/send_message_tool.cpp
     tool/MCPTool/mcp_tool.cpp
     tool/ListMcpResourcesTool/list_mcp_resources_tool.cpp
     tool/ReadMcpResourceTool/read_mcp_resource_tool.cpp
@@ -206,4 +216,13 @@ target_sources(workx_agent PRIVATE
     input/parser.h
     input/processor.h
     input/types.h
+
+    # util: JSON Schema 轻量校验（#80）
+    util/json_schema.cpp
+
+    # util: git 基线检查点（#81）
+    util/git_checkpoint.cpp
+
+    # headless: 非交互执行模式（#77）
+    headless/headless.cpp
 )

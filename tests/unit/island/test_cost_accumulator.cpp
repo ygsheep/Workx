@@ -19,7 +19,7 @@
 
 namespace {
 bool close_enough(double a, double b, double eps = 1e-6) { return std::abs(a - b) < eps; }
-} // namespace
+}  // namespace
 
 using agent::AgentDoneEvent;
 using agent::EventBus;
@@ -40,7 +40,8 @@ struct CostCapture {
 
 void publish_raw_sync(const auto& ev) {
     EventBus::instance().publish_raw(std::type_index(typeid(ev)), &ev);
-    EventBus::instance().process_async_events();  // 同步投递 CostUpdatedEvent（publish_async 仅入队）
+    EventBus::instance()
+        .process_async_events();  // 同步投递 CostUpdatedEvent（publish_async 仅入队）
 }
 
 /// @brief 订阅并在 TEST_CASE 结束时自动退订，避免悬垂 lambda 导致后续用例崩溃
@@ -59,7 +60,7 @@ struct BusGuard {
     EventToken token;
 };
 
-} // namespace
+}  // namespace
 
 TEST_CASE("cost: stream_done adds task+session and publishes event", "[island][cost]") {
     BusGuard g;

@@ -31,7 +31,7 @@ std::shared_ptr<PromptCommand> make_skill_with_paths(const std::string& name,
     return cmd;
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 TEST_CASE("frontmatter parses paths as array and comma list", "[skill][conditional]") {
     const auto parsed = parse_skill_content(
@@ -92,7 +92,8 @@ TEST_CASE("TouchCollector is thread-safe", "[skill][conditional]") {
     for (int t = 0; t < 8; ++t) {
         threads.emplace_back([&collector, t]() {
             for (int i = 0; i < 100; ++i) {
-                collector.add("c:/proj/src/file" + std::to_string(t) + "_" + std::to_string(i) + ".cpp");
+                collector.add("c:/proj/src/file" + std::to_string(t) + "_" + std::to_string(i) +
+                              ".cpp");
             }
         });
     }
@@ -121,7 +122,11 @@ TEST_CASE("skill_matches_touch: windows drive absolute pattern", "[skill][condit
     REQUIRE(skill_matches_touch("c:/proj/src/components/a.ts", *skill, "c:/proj"));
     REQUIRE_FALSE(skill_matches_touch("c:/proj/tests/a.ts", *skill, "c:/proj"));
     // 盘符绝对 pattern（反斜杠形式）：to_posix_path 归一后同样命中
-    const auto skill2 = make_skill_with_paths("wfe2", {"C:\\proj\\src\\*.ts"});
+    // 盘符大小写必须与被测路径一致：to_posix_path 只做 '\' → '/' 替换，不做大小写归一；
+    // 匹配在 Windows 上大小写不敏感、在 Linux 上敏感，写成 "C:\\" 配 "c:/" 只在
+    // Windows 上碰巧通过（#109）。用例本意是验证反斜杠归一，不是大小写，
+    // 故统一用小写盘符，让断言在两个平台上都成立。
+    const auto skill2 = make_skill_with_paths("wfe2", {"c:\\proj\\src\\*.ts"});
     REQUIRE(skill_matches_touch("c:/proj/src/a.ts", *skill2, "c:/proj"));
 }
 
@@ -168,7 +173,8 @@ TEST_CASE("loader attaches paths from frontmatter", "[skill][conditional]") {
         "---\n"
         "body\n",
         "cond");
-    auto cmd = std::make_shared<PromptCommand>(parsed.frontmatter.name, parsed.frontmatter.description);
+    auto cmd =
+        std::make_shared<PromptCommand>(parsed.frontmatter.name, parsed.frontmatter.description);
     if (!parsed.frontmatter.paths.empty()) cmd->set_paths(parsed.frontmatter.paths);
 
     REQUIRE(cmd->paths().size() == 1);

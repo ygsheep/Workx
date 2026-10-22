@@ -22,8 +22,7 @@ namespace {
 /// @brief 读取文件全部内容
 std::string read_file(const fs::path& path) {
     std::ifstream ifs(path);
-    std::string content((std::istreambuf_iterator<char>(ifs)),
-                         std::istreambuf_iterator<char>());
+    std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
     return content;
 }
 
@@ -41,13 +40,14 @@ std::vector<nlohmann::json> read_jsonl(const fs::path& path) {
 
 /// @brief 临时审计日志测试 fixture
 class AuditFixture {
-public:
+   public:
     fs::path temp_dir;
     fs::path audit_file;
 
     AuditFixture() {
-        temp_dir = fs::temp_directory_path() / ("workx_audit_test_" + std::to_string(
-            std::chrono::steady_clock::now().time_since_epoch().count()));
+        temp_dir = fs::temp_directory_path() /
+                   ("workx_audit_test_" +
+                    std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
         fs::create_directories(temp_dir);
         audit_file = temp_dir / "audit.jsonl";
     }
@@ -62,7 +62,7 @@ public:
     }
 };
 
-} // anonymous namespace
+}  // anonymous namespace
 
 // ============================================================
 // 1. JSONL 格式与基本写入
@@ -72,12 +72,9 @@ TEST_CASE("AuditLogger writes valid JSONL", "[audit]") {
     AuditFixture fix;
     fix.init_logger();
 
-    AuditLogger::instance().log_tool_invoke(
-        "BashTool",
-        nlohmann::json{{"command", "ls -la"}},
-        "session-123",
-        "req-456",
-        "allow", "", 150, "total 10", {});
+    AuditLogger::instance().log_tool_invoke("BashTool", nlohmann::json{{"command", "ls -la"}},
+                                            "session-123", "req-456", "allow", "", 150, "total 10",
+                                            {});
 
     auto lines = read_jsonl(fix.audit_file);
     REQUIRE(lines.size() == 1);
@@ -108,11 +105,9 @@ TEST_CASE("AuditLogger redacts secrets in output", "[audit]") {
     // 构造含 AWS key 的输出
     std::string secret_output = "AKIAIOSFODNN7EXAMPLE\nwJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
 
-    AuditLogger::instance().log_tool_invoke(
-        "BashTool",
-        nlohmann::json{{"command", "cat ~/.aws/credentials"}},
-        "sess-1", "req-1",
-        "allow", "", 50, secret_output, {});
+    AuditLogger::instance().log_tool_invoke("BashTool",
+                                            nlohmann::json{{"command", "cat ~/.aws/credentials"}},
+                                            "sess-1", "req-1", "allow", "", 50, secret_output, {});
 
     auto lines = read_jsonl(fix.audit_file);
     REQUIRE(lines.size() == 1);
@@ -129,13 +124,12 @@ TEST_CASE("AuditLogger redacts secrets in input fields", "[audit]") {
     fix.init_logger();
 
     // 构造含 GitHub PAT 的 command 字段
-    std::string secret_cmd = "curl -H 'Authorization: token ghp_1234567890abcdefghijklmnopqrstuvwxyz' https://api.github.com";
+    std::string secret_cmd =
+        "curl -H 'Authorization: token ghp_1234567890abcdefghijklmnopqrstuvwxyz' "
+        "https://api.github.com";
 
-    AuditLogger::instance().log_tool_invoke(
-        "BashTool",
-        nlohmann::json{{"command", secret_cmd}},
-        "sess-1", "req-1",
-        "allow", "", 10, "", {});
+    AuditLogger::instance().log_tool_invoke("BashTool", nlohmann::json{{"command", secret_cmd}},
+                                            "sess-1", "req-1", "allow", "", 10, "", {});
 
     auto lines = read_jsonl(fix.audit_file);
     REQUIRE(lines.size() == 1);
@@ -155,11 +149,8 @@ TEST_CASE("AuditLogger security flags elevate severity", "[audit]") {
     fix.init_logger();
 
     AuditLogger::instance().log_tool_invoke(
-        "BashTool",
-        nlohmann::json{{"command", "rm -rf /"}},
-        "sess-1", "req-1",
-        "deny", "destructive command detected", 0, "",
-        {"destructive_command"});
+        "BashTool", nlohmann::json{{"command", "rm -rf /"}}, "sess-1", "req-1", "deny",
+        "destructive command detected", 0, "", {"destructive_command"});
 
     auto lines = read_jsonl(fix.audit_file);
     REQUIRE(lines.size() == 1);
@@ -177,11 +168,8 @@ TEST_CASE("AuditLogger log_security records critical events", "[audit]") {
     AuditFixture fix;
     fix.init_logger();
 
-    AuditLogger::instance().log_security(
-        EventType::SecurityDangerousCommand,
-        "rm -rf / detected and blocked",
-        "sess-1",
-        "BashTool");
+    AuditLogger::instance().log_security(EventType::SecurityDangerousCommand,
+                                         "rm -rf / detected and blocked", "sess-1", "BashTool");
 
     auto lines = read_jsonl(fix.audit_file);
     REQUIRE(lines.size() == 1);
@@ -239,11 +227,8 @@ TEST_CASE("AuditLogger rotates on size limit", "[audit]") {
     fix.init_logger(1, 30);
 
     // 写入一个事件建立基线
-    AuditLogger::instance().log_tool_invoke(
-        "BashTool",
-        nlohmann::json{{"command", "echo x"}},
-        "sess-1", "req-0",
-        "allow", "", 10, "output", {});
+    AuditLogger::instance().log_tool_invoke("BashTool", nlohmann::json{{"command", "echo x"}},
+                                            "sess-1", "req-0", "allow", "", 10, "output", {});
 
     // 直接填充文件超过上限（模拟积累的日志，避免写入 50+ 次事件拖慢测试）
     {
@@ -252,18 +237,12 @@ TEST_CASE("AuditLogger rotates on size limit", "[audit]") {
     }
 
     // 再写一个事件触发轮转
-    AuditLogger::instance().log_tool_invoke(
-        "BashTool",
-        nlohmann::json{{"command", "echo y"}},
-        "sess-1", "req-1",
-        "allow", "", 10, "output", {});
+    AuditLogger::instance().log_tool_invoke("BashTool", nlohmann::json{{"command", "echo y"}},
+                                            "sess-1", "req-1", "allow", "", 10, "output", {});
 
     // 轮转后重建：再写一个事件，原文件应重新出现
-    AuditLogger::instance().log_tool_invoke(
-        "BashTool",
-        nlohmann::json{{"command", "echo z"}},
-        "sess-1", "req-2",
-        "allow", "", 10, "output", {});
+    AuditLogger::instance().log_tool_invoke("BashTool", nlohmann::json{{"command", "echo z"}},
+                                            "sess-1", "req-2", "allow", "", 10, "output", {});
 
     // 原文件应存在（轮转后重建）
     REQUIRE(fs::exists(fix.audit_file));
@@ -272,7 +251,8 @@ TEST_CASE("AuditLogger rotates on size limit", "[audit]") {
     bool has_rotated = false;
     for (const auto& entry : fs::directory_iterator(fix.temp_dir)) {
         auto name = entry.path().filename().string();
-        if (name.find("audit.") == 0 && name != "audit.jsonl" && name.find(".jsonl") != std::string::npos) {
+        if (name.find("audit.") == 0 && name != "audit.jsonl" &&
+            name.find(".jsonl") != std::string::npos) {
             has_rotated = true;
             break;
         }
@@ -290,9 +270,8 @@ TEST_CASE("AuditLogger disabled produces no output", "[audit]") {
 
     AuditLogger::instance().set_enabled(false);
 
-    AuditLogger::instance().log_tool_invoke(
-        "BashTool", nlohmann::json{{"command", "ls"}},
-        "sess-1", "req-1", "allow", "", 5, "output", {});
+    AuditLogger::instance().log_tool_invoke("BashTool", nlohmann::json{{"command", "ls"}}, "sess-1",
+                                            "req-1", "allow", "", 5, "output", {});
 
     AuditLogger::instance().set_enabled(true);
 
@@ -310,15 +289,13 @@ TEST_CASE("AuditLogger extracts key input fields", "[audit]") {
     AuditFixture fix;
     fix.init_logger();
 
-    nlohmann::json input = {
-        {"file_path", "/etc/passwd"},
-        {"command", "cat /etc/passwd"},
-        {"unknown_field", "should not appear"},
-        {"nested", {{"deep", "value"}}}
-    };
+    nlohmann::json input = {{"file_path", "/etc/passwd"},
+                            {"command", "cat /etc/passwd"},
+                            {"unknown_field", "should not appear"},
+                            {"nested", {{"deep", "value"}}}};
 
-    AuditLogger::instance().log_tool_invoke(
-        "BashTool", input, "sess-1", "req-1", "allow", "", 5, "", {});
+    AuditLogger::instance().log_tool_invoke("BashTool", input, "sess-1", "req-1", "allow", "", 5,
+                                            "", {});
 
     auto lines = read_jsonl(fix.audit_file);
     REQUIRE(lines.size() == 1);
@@ -360,12 +337,11 @@ TEST_CASE("AuditLogger appends multiple events", "[audit]") {
     fix.init_logger();
 
     AuditLogger::instance().log_session_lifecycle(EventType::SessionStart, "sess-1");
-    AuditLogger::instance().log_tool_invoke(
-        "FileReadTool", nlohmann::json{{"file_path", "/tmp/test"}},
-        "sess-1", "req-1", "allow", "", 10, "content", {});
-    AuditLogger::instance().log_tool_invoke(
-        "BashTool", nlohmann::json{{"command", "ls"}},
-        "sess-1", "req-2", "allow", "", 5, "file1\nfile2", {});
+    AuditLogger::instance().log_tool_invoke("FileReadTool",
+                                            nlohmann::json{{"file_path", "/tmp/test"}}, "sess-1",
+                                            "req-1", "allow", "", 10, "content", {});
+    AuditLogger::instance().log_tool_invoke("BashTool", nlohmann::json{{"command", "ls"}}, "sess-1",
+                                            "req-2", "allow", "", 5, "file1\nfile2", {});
     AuditLogger::instance().log_session_lifecycle(EventType::SessionEnd, "sess-1");
 
     auto lines = read_jsonl(fix.audit_file);

@@ -23,8 +23,7 @@ const std::string& TaskCreateTool::name() const {
 const std::string& TaskCreateTool::description() const {
     static const std::string d{
         "Creates a new task in the session task list. Returns the assigned task id. "
-        "Use for fine-grained task management (V2); for a simple full-list update use TodoWrite."
-    };
+        "Use for fine-grained task management (V2); for a simple full-list update use TodoWrite."};
     return d;
 }
 
@@ -37,8 +36,7 @@ const std::string& TaskCreateTool::prompt() const {
         "- description: what needs to be done\n"
         "- activeForm: present continuous form shown while in_progress "
         "(e.g. \"Running tests\")\n"
-        "- metadata: arbitrary key-value metadata (optional)"
-    };
+        "- metadata: arbitrary key-value metadata (optional)"};
     return p;
 }
 
@@ -68,13 +66,11 @@ nlohmann::json TaskCreateTool::input_schema() const {
     return nlohmann::json::parse(schema_str);
 }
 
-ResultV2<ToolResult> TaskCreateTool::call(
-    const nlohmann::json& input,
-    const ToolContext& ctx
-) const {
+ResultV2<ToolResult> TaskCreateTool::call(const nlohmann::json& input,
+                                          const ToolContext& ctx) const {
     if (input.is_null() || !input.is_object()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput, "TaskCreate: input must be an object");
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                         "TaskCreate: input must be an object");
     }
     // 先做 JSON 类型校验（LLM 可能传错类型，避免 value()/get<>() 抛 type_error）
     for (const char* key : {"subject", "description", "activeForm"}) {
@@ -85,13 +81,13 @@ ResultV2<ToolResult> TaskCreateTool::call(
         }
     }
     if (input.contains("metadata") && !input["metadata"].is_object()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::InvalidInput, "TaskCreate: 'metadata' must be an object");
+        return ResultV2<ToolResult>::err(Error::Code::InvalidInput,
+                                         "TaskCreate: 'metadata' must be an object");
     }
     const std::string subject = input.value("subject", std::string{});
     if (subject.empty()) {
-        return ResultV2<ToolResult>::err(
-            Error::Code::MissingArgument, "TaskCreate: 'subject' is required");
+        return ResultV2<ToolResult>::err(Error::Code::MissingArgument,
+                                         "TaskCreate: 'subject' is required");
     }
 
     core::todo::TodoItem item;
@@ -111,4 +107,4 @@ ResultV2<ToolResult> TaskCreateTool::call(
     return ResultV2<ToolResult>::ok(ToolResult::ok(std::move(result)));
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

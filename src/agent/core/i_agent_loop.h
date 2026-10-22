@@ -18,8 +18,8 @@
 #include <atomic>
 
 #include "agent/core/agent_type.h"
-#include "agent/core/react_loop.h"      // ReActResult / ChatMessage
-#include "agent/core/goal_verdict.h"    // AgentGoal
+#include "agent/core/react_loop.h"    // ReActResult / ChatMessage
+#include "agent/core/goal_verdict.h"  // AgentGoal
 
 namespace agent {
 
@@ -29,18 +29,18 @@ struct AgentRunContext {
     ///       调用方须保证该 vector 在 run() 返回前一直有效（含其内部元素），
     ///       Agent 循环会在目标场景下往末尾追加"继续"提示，故不得为 const，
     ///       且调用期间不能被并发改队列（由宿主持有消息锁）。
-    std::vector<ChatMessage>* messages = nullptr;   ///< 会话历史（读写，见上契约）
+    std::vector<ChatMessage>* messages = nullptr;  ///< 会话历史（读写，见上契约）
     std::string system_prompt;
     nlohmann::json tools_schema;
     const std::atomic<bool>* should_cancel = nullptr;  ///< 空 = 永不取消；须 run 期间有效
-    AgentGoal goal;                                ///< 空 = 无目标守卫
-    std::string goal_spec;                         ///< agent.goal 原文（展示/事件透传用）
-    IReActObserver* observer = nullptr;            ///< 空 = 不发布流式事件
+    AgentGoal goal;                                    ///< 空 = 无目标守卫
+    std::string goal_spec;               ///< agent.goal 原文（展示/事件透传用）
+    IReActObserver* observer = nullptr;  ///< 空 = 不发布流式事件
 };
 
 /// @brief 一次 Agent 循环的结果
 struct AgentRunResult {
-    ReActResult react;            ///< 复用既有结果载体（步骤/token/目标状态）
+    ReActResult react;  ///< 复用既有结果载体（步骤/token/目标状态）
     AgentType agent_type = AgentType::Unknown;  ///< 实际执行的类型
     /// Background 模式：已分发的后台任务 id（空 = 同步执行）
     std::string background_task_id;
@@ -48,7 +48,7 @@ struct AgentRunResult {
 
 /// @brief 统一 Agent 循环接口
 class WORKX_API IAgentLoop {
-public:
+   public:
     virtual ~IAgentLoop() = default;
 
     /// @brief 执行一轮 Agent 循环
@@ -68,4 +68,4 @@ struct GoalResolver {
 /// @details 返回静态原子的引用，生命周期同进程；用 == false 比对无副作用。
 const std::atomic<bool>& kNeverCancel();
 
-} // namespace agent
+}  // namespace agent

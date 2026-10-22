@@ -25,4 +25,4 @@ namespace agent::tool {
 ///          - 每个 option 含 "label"（非空字符串）
 bool WORKX_API validate_ask_user_json(const nlohmann::json& input);
 
-} // namespace agent::tool
+}  // namespace agent::tool

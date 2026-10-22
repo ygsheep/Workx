@@ -22,7 +22,7 @@ namespace agent::skill {
 /// @details 工具并行执行时可能同时上报，内部加锁；
 ///          路径做 weakly_canonical 绝对化，重复路径自动去重。
 class TouchCollector {
-public:
+   public:
     /// @brief 记录一个被 touch 的路径（空路径忽略）
     void add(const std::string& path);
 
@@ -32,7 +32,7 @@ public:
     /// @brief 清空收集器
     void clear();
 
-private:
+   private:
     mutable std::mutex m_mutex;
     std::unordered_set<std::string> m_paths;
 };
@@ -44,15 +44,13 @@ private:
 /// @return 命中的 PromptCommand（按输入顺序去重）
 std::vector<std::shared_ptr<command::PromptCommand>> activate_conditional_skills(
     const std::vector<std::string>& touched,
-    const std::vector<std::shared_ptr<command::CommandBase>>& skills,
-    const std::string& cwd);
+    const std::vector<std::shared_ptr<command::CommandBase>>& skills, const std::string& cwd);
 
 /// @brief 单个路径是否命中某命令的 paths
 /// @param path 绝对路径
 /// @param skill 命令（读取 paths）
 /// @param cwd 工作目录（相对 pattern 的基准）
-bool skill_matches_touch(const std::string& path,
-                         const command::CommandBase& skill,
+bool skill_matches_touch(const std::string& path, const command::CommandBase& skill,
                          const std::string& cwd);
 
-} // namespace agent::skill
+}  // namespace agent::skill

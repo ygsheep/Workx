@@ -1,0 +1,10 @@
+# 在 POSIX / 容器里执行的脚本必须是 LF。
+#
+# 本机的 core.autocrlf=true 会在 checkout 时把文本文件转成 CRLF，落到 sh 上就是
+# `/bin/bash^M: bad interpreter` —— 这与 Terminal-Bench 数据集被 CRLF 污染是同一个
+# 病根（docs/agent-harness-assessment.md §2.7）。给需要进容器执行的脚本钉死 LF。
+*.sh text eol=lf
+
+# 跑分工具链：既要在 Windows 上跑，也会被 COPY/挂载到 Linux 容器里执行
+scripts/harness/*.sh text eol=lf
+scripts/harness/*.py text eol=lf

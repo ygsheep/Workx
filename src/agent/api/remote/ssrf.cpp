@@ -8,20 +8,20 @@
 #include <cstring>
 
 #ifdef _WIN32
-    #include <winsock2.h>
-    #include <ws2tcpip.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #else
-    #include <arpa/inet.h>
-    #include <netdb.h>
-    #include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <sys/socket.h>
 #endif
 
 namespace agent {
 
 bool is_private_ipv4(uint32_t ip) noexcept {
     // 0/8 本网络、127/8 回环
-    if (ip < 0x01000000u) return true;                 // 0.0.0.0 - 0.255.255.255
-    if (ip >= 0x7f000000u && ip <= 0x7fffffff) return true; // 127.0.0.0/8
+    if (ip < 0x01000000u) return true;                       // 0.0.0.0 - 0.255.255.255
+    if (ip >= 0x7f000000u && ip <= 0x7fffffff) return true;  // 127.0.0.0/8
     // 10/8
     if (ip >= 0x0a000000u && ip <= 0x0affffff) return true;
     // 100.64/10 CGNAT
@@ -41,11 +41,14 @@ bool is_private_ipv6(const uint8_t a[16]) noexcept {
     // ::
     bool all_zero = true;
     for (int i = 0; i < 16; ++i) {
-        if (a[i]) { all_zero = false; break; }
+        if (a[i]) {
+            all_zero = false;
+            break;
+        }
     }
     if (all_zero) return true;
     // ::1 回环
-    static const uint8_t kLoopback[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1};
+    static const uint8_t kLoopback[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
     if (std::memcmp(a, kLoopback, 16) == 0) return true;
     // fe80::/10 链路本地
     if (a[0] == 0xfe && (a[1] & 0xc0) == 0x80) return true;
@@ -56,12 +59,10 @@ bool is_private_ipv6(const uint8_t a[16]) noexcept {
     // 2001:db8::/32 文档
     if (a[0] == 0x20 && a[1] == 0x01 && a[2] == 0x0d && a[3] == 0xb8) return true;
     // ::ffff:0:0/96 IPv4-mapped —— 内嵌 v4 再判
-    static const uint8_t kPrefix[12] = {0,0,0,0,0,0,0,0,0,0,0xff,0xff};
+    static const uint8_t kPrefix[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff};
     if (std::memcmp(a, kPrefix, 12) == 0) {
-        uint32_t v4 = (static_cast<uint32_t>(a[12]) << 24) |
-                      (static_cast<uint32_t>(a[13]) << 16) |
-                      (static_cast<uint32_t>(a[14]) << 8) |
-                      static_cast<uint32_t>(a[15]);
+        uint32_t v4 = (static_cast<uint32_t>(a[12]) << 24) | (static_cast<uint32_t>(a[13]) << 16) |
+                      (static_cast<uint32_t>(a[14]) << 8) | static_cast<uint32_t>(a[15]);
         return is_private_ipv4(v4);
     }
     return false;
@@ -94,7 +95,7 @@ bool host_resolves_to_private(const std::string& host) noexcept {
     // IP 字面量直接判，避免 getaddrinfo 对畸形字面量的歧义
     if (is_ip_literal(host)) return is_private_ip_string(host);
 
-    struct addrinfo hints{};
+    struct addrinfo hints {};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     struct addrinfo* res = nullptr;
@@ -115,4 +116,4 @@ bool host_resolves_to_private(const std::string& host) noexcept {
     return unsafe;
 }
 
-} // namespace agent
+}  // namespace agent

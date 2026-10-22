@@ -57,9 +57,7 @@ TEST_CASE("ConfigManager get_or", "[config]") {
         REQUIRE(cfg.get_or<int>("test.exists", 0) == 99);
     }
 
-    SECTION("missing key returns default") {
-        REQUIRE(cfg.get_or<int>("test.missing", 42) == 42);
-    }
+    SECTION("missing key returns default") { REQUIRE(cfg.get_or<int>("test.missing", 42) == 42); }
 
     cfg.clear();
 }
@@ -68,19 +66,18 @@ TEST_CASE("ConfigManager validation", "[config]") {
     auto& cfg = ConfigManager::instance();
     cfg.clear();
 
-    cfg.register_meta("test.validated", ConfigMeta{
-        .description = "Test validated key",
-        .default_value = 10,
-        .is_required = false,
-        .validate_callback = [](const ConfigValue& v) -> ResultV2<void> {
-            if (std::holds_alternative<int>(v) && std::get<int>(v) < 0) {
-                return ResultV2<void>::err(
-                    Error::Code::ConfigInvalid, "must be >= 0");
-            }
-            return ResultV2<void>::ok();
-        },
-        .change_callback = {}
-    });
+    cfg.register_meta("test.validated",
+                      ConfigMeta{.description = "Test validated key",
+                                 .default_value = 10,
+                                 .is_required = false,
+                                 .validate_callback = [](const ConfigValue& v) -> ResultV2<void> {
+                                     if (std::holds_alternative<int>(v) && std::get<int>(v) < 0) {
+                                         return ResultV2<void>::err(Error::Code::ConfigInvalid,
+                                                                    "must be >= 0");
+                                     }
+                                     return ResultV2<void>::ok();
+                                 },
+                                 .change_callback = {}});
 
     SECTION("valid value accepted") {
         auto result = cfg.set("test.validated", 5);
@@ -117,13 +114,12 @@ TEST_CASE("ConfigManager change callback", "[config]") {
     int old_val = 0;
     int new_val = 0;
 
-    cfg.add_change_callback([&](const std::string& key,
-                                 const ConfigValue& old_v,
-                                 const ConfigValue& new_v) {
-        changed_key = key;
-        if (std::holds_alternative<int>(old_v)) old_val = std::get<int>(old_v);
-        if (std::holds_alternative<int>(new_v)) new_val = std::get<int>(new_v);
-    });
+    cfg.add_change_callback(
+        [&](const std::string& key, const ConfigValue& old_v, const ConfigValue& new_v) {
+            changed_key = key;
+            if (std::holds_alternative<int>(old_v)) old_val = std::get<int>(old_v);
+            if (std::holds_alternative<int>(new_v)) new_val = std::get<int>(new_v);
+        });
 
     cfg.set("test.cb", 10);
     cfg.set("test.cb", 20);
@@ -198,13 +194,11 @@ TEST_CASE("ConfigSchema validation", "[config][schema]") {
     cfg.clear();
 
     SECTION("Int 范围校验") {
-        cfg.register_schema(ConfigSchema{
-            .key = "schema.int_val",
-            .description = "Test int with range",
-            .default_value = 50,
-            .type = ConfigSchema::Type::Int,
-            .int_range = std::make_pair<int64_t, int64_t>(0, 100)
-        });
+        cfg.register_schema(ConfigSchema{.key = "schema.int_val",
+                                         .description = "Test int with range",
+                                         .default_value = 50,
+                                         .type = ConfigSchema::Type::Int,
+                                         .int_range = std::make_pair<int64_t, int64_t>(0, 100)});
 
         REQUIRE(cfg.set("schema.int_val", 50).is_ok());
         REQUIRE(cfg.set("schema.int_val", 150).is_err());  // 超范围
@@ -214,13 +208,11 @@ TEST_CASE("ConfigSchema validation", "[config][schema]") {
     }
 
     SECTION("Enum 校验") {
-        cfg.register_schema(ConfigSchema{
-            .key = "schema.enum_val",
-            .description = "Test enum",
-            .default_value = std::string("a"),
-            .type = ConfigSchema::Type::Enum,
-            .enum_values = {"a", "b", "c"}
-        });
+        cfg.register_schema(ConfigSchema{.key = "schema.enum_val",
+                                         .description = "Test enum",
+                                         .default_value = std::string("a"),
+                                         .type = ConfigSchema::Type::Enum,
+                                         .enum_values = {"a", "b", "c"}});
 
         REQUIRE(cfg.set("schema.enum_val", std::string("a")).is_ok());
         REQUIRE(cfg.set("schema.enum_val", std::string("b")).is_ok());
@@ -228,24 +220,20 @@ TEST_CASE("ConfigSchema validation", "[config][schema]") {
     }
 
     SECTION("类型校验") {
-        cfg.register_schema(ConfigSchema{
-            .key = "schema.bool_val",
-            .description = "Test bool",
-            .default_value = false,
-            .type = ConfigSchema::Type::Bool
-        });
+        cfg.register_schema(ConfigSchema{.key = "schema.bool_val",
+                                         .description = "Test bool",
+                                         .default_value = false,
+                                         .type = ConfigSchema::Type::Bool});
 
         REQUIRE(cfg.set("schema.bool_val", true).is_ok());
         REQUIRE(cfg.set("schema.bool_val", 42).is_err());  // 类型不匹配
     }
 
     SECTION("get_schema / get_all_schemas") {
-        cfg.register_schema(ConfigSchema{
-            .key = "schema.lookup",
-            .description = "Lookup test",
-            .default_value = std::string("x"),
-            .type = ConfigSchema::Type::String
-        });
+        cfg.register_schema(ConfigSchema{.key = "schema.lookup",
+                                         .description = "Lookup test",
+                                         .default_value = std::string("x"),
+                                         .type = ConfigSchema::Type::String});
 
         auto result = cfg.get_schema("schema.lookup");
         REQUIRE(result.is_ok());
@@ -266,22 +254,18 @@ TEST_CASE("ConfigManager JSON array save/load roundtrip", "[config]") {
 
     auto test_path = std::filesystem::temp_directory_path() / "workx_cfg_roundtrip_test.json";
     nlohmann::json providers = nlohmann::json::array();
-    providers.push_back({
-        {"id", "deepseek"},
-        {"name", "DeepSeek"},
-        {"base_url", "https://api.deepseek.com"},
-        {"model", "deepseek-v4-flash"},
-        {"context_length", 1000000},
-        {"api_key", "sk-test"}
-    });
-    providers.push_back({
-        {"id", "openai-compatible"},
-        {"name", "Custom URL"},
-        {"base_url", "https://example.com/v1"},
-        {"model", "my-model"},
-        {"context_length", 0},
-        {"api_key", ""}
-    });
+    providers.push_back({{"id", "deepseek"},
+                         {"name", "DeepSeek"},
+                         {"base_url", "https://api.deepseek.com"},
+                         {"model", "deepseek-v4-flash"},
+                         {"context_length", 1000000},
+                         {"api_key", "sk-test"}});
+    providers.push_back({{"id", "openai-compatible"},
+                         {"name", "Custom URL"},
+                         {"base_url", "https://example.com/v1"},
+                         {"model", "my-model"},
+                         {"context_length", 0},
+                         {"api_key", ""}});
     cfg.set("backend.providers", providers);
     cfg.set("backend.provider", std::string("deepseek"));
 
@@ -314,56 +298,52 @@ TEST_CASE("ConfigSchema load_from_env", "[config][env]") {
     cfg.clear();
 
     SECTION("环境变量自动加载") {
-        cfg.register_schema(ConfigSchema{
-            .key = "env.test_str",
-            .description = "Env string",
-            .default_value = std::string("default"),
-            .type = ConfigSchema::Type::String,
-            .env_var = "WORKX_TEST_ENV_STR"
-        });
+        cfg.register_schema(ConfigSchema{.key = "env.test_str",
+                                         .description = "Env string",
+                                         .default_value = std::string("default"),
+                                         .type = ConfigSchema::Type::String,
+                                         .env_var = "WORKX_TEST_ENV_STR"});
 
-        // 设置环境变量
-        #ifdef _WIN32
+// 设置环境变量
+#ifdef _WIN32
         _putenv_s("WORKX_TEST_ENV_STR", "from_env");
-        #else
+#else
         setenv("WORKX_TEST_ENV_STR", "from_env", 1);
-        #endif
+#endif
 
         cfg.load_from_env();
         REQUIRE(cfg.get_or<std::string>("env.test_str", "") == "from_env");
 
-        // 清理环境变量
-        #ifdef _WIN32
+// 清理环境变量
+#ifdef _WIN32
         _putenv_s("WORKX_TEST_ENV_STR", "");
-        #else
+#else
         unsetenv("WORKX_TEST_ENV_STR");
-        #endif
+#endif
     }
 
     SECTION("Int 类型环境变量") {
-        cfg.register_schema(ConfigSchema{
-            .key = "env.test_int",
-            .description = "Env int",
-            .default_value = 0,
-            .type = ConfigSchema::Type::Int,
-            .int_range = std::make_pair<int64_t, int64_t>(0, 1000),
-            .env_var = "WORKX_TEST_ENV_INT"
-        });
+        cfg.register_schema(ConfigSchema{.key = "env.test_int",
+                                         .description = "Env int",
+                                         .default_value = 0,
+                                         .type = ConfigSchema::Type::Int,
+                                         .int_range = std::make_pair<int64_t, int64_t>(0, 1000),
+                                         .env_var = "WORKX_TEST_ENV_INT"});
 
-        #ifdef _WIN32
+#ifdef _WIN32
         _putenv_s("WORKX_TEST_ENV_INT", "42");
-        #else
+#else
         setenv("WORKX_TEST_ENV_INT", "42", 1);
-        #endif
+#endif
 
         cfg.load_from_env();
         REQUIRE(cfg.get_or<int>("env.test_int", 0) == 42);
 
-        #ifdef _WIN32
+#ifdef _WIN32
         _putenv_s("WORKX_TEST_ENV_INT", "");
-        #else
+#else
         unsetenv("WORKX_TEST_ENV_INT");
-        #endif
+#endif
     }
 
     cfg.clear();
@@ -393,13 +373,11 @@ TEST_CASE("ConfigManager V2-1 Error::Code", "[config][v2]") {
     }
 
     SECTION("set Schema 范围校验失败返回 ConfigInvalid") {
-        cfg.register_schema(ConfigSchema{
-            .key = "v2.range",
-            .description = "Range test",
-            .default_value = 50,
-            .type = ConfigSchema::Type::Int,
-            .int_range = std::make_pair<int64_t, int64_t>(0, 100)
-        });
+        cfg.register_schema(ConfigSchema{.key = "v2.range",
+                                         .description = "Range test",
+                                         .default_value = 50,
+                                         .type = ConfigSchema::Type::Int,
+                                         .int_range = std::make_pair<int64_t, int64_t>(0, 100)});
 
         auto result = cfg.set("v2.range", 200);
         REQUIRE(result.is_err());
@@ -408,13 +386,11 @@ TEST_CASE("ConfigManager V2-1 Error::Code", "[config][v2]") {
     }
 
     SECTION("set Schema 枚举校验失败返回 ConfigInvalid") {
-        cfg.register_schema(ConfigSchema{
-            .key = "v2.enum",
-            .description = "Enum test",
-            .default_value = std::string("a"),
-            .type = ConfigSchema::Type::Enum,
-            .enum_values = {"a", "b", "c"}
-        });
+        cfg.register_schema(ConfigSchema{.key = "v2.enum",
+                                         .description = "Enum test",
+                                         .default_value = std::string("a"),
+                                         .type = ConfigSchema::Type::Enum,
+                                         .enum_values = {"a", "b", "c"}});
 
         auto result = cfg.set("v2.enum", std::string("z"));
         REQUIRE(result.is_err());

@@ -15,13 +15,13 @@
 namespace agent::tool {
 
 ToolType infer_tool_type(std::string_view name) {
-    if (name == "Read")  return ToolType::ReadFile;
+    if (name == "Read") return ToolType::ReadFile;
     if (name == "Write") return ToolType::WriteFile;
-    if (name == "Edit")  return ToolType::EditFile;
-    if (name == "Bash")  return ToolType::Execute;
+    if (name == "Edit") return ToolType::EditFile;
+    if (name == "Bash") return ToolType::Execute;
     if (name == "Grep" || name == "Glob") return ToolType::Search;
     if (name == "Agent") return ToolType::Agent;
     return ToolType::Other;
 }
 
-} // namespace agent::tool
+}  // namespace agent::tool

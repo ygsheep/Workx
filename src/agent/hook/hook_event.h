@@ -43,19 +43,19 @@ std::optional<HookEvent> parse_event(const std::string& name) noexcept;
 // ============================================================
 
 struct HookContext {
-    std::string session_id;   // 当前会话
-    std::string cwd;          // 工作目录
-    std::string request_id;   // turn 级请求 ID
+    std::string session_id;  // 当前会话
+    std::string cwd;         // 工作目录
+    std::string request_id;  // turn 级请求 ID
 
     // PreToolUse / PostToolUse / PermissionRequest
-    std::string tool_name;    // 工具名（Bash/Read/Write/...）
+    std::string tool_name;                                 // 工具名（Bash/Read/Write/...）
     nlohmann::json tool_input = nlohmann::json::object();  // 工具参数
-    std::string tool_result;  // PostToolUse：工具原始返回
-    bool tool_error = false;  // PostToolUse：是否出错
+    std::string tool_result;                               // PostToolUse：工具原始返回
+    bool tool_error = false;                               // PostToolUse：是否出错
 
     // Stop / SubagentStop
-    std::string final_answer; // Agent 收尾答复
-    std::string stop_reason;  // interrupted / error / completed / at_limit
+    std::string final_answer;  // Agent 收尾答复
+    std::string stop_reason;   // interrupted / error / completed / at_limit
 
     // SubagentStart / SubagentStop
     std::string subagent_id;  // 子代理 task_id
@@ -67,11 +67,11 @@ struct HookContext {
 // ============================================================
 
 struct HookResult {
-    std::string message;                         // 注入用户可见信息
-    std::optional<std::string> blockingError;    // 阻断错误（注入用户消息）
-    bool preventContinuation = false;            // 阻止 query 循环继续
-    std::string stopReason;                      // 附加 stop reason
-    std::string output;                          // hook 自身输出（供注入上下文）
+    std::string message;                       // 注入用户可见信息
+    std::optional<std::string> blockingError;  // 阻断错误（注入用户消息）
+    bool preventContinuation = false;          // 阻止 query 循环继续
+    std::string stopReason;                    // 附加 stop reason
+    std::string output;                        // hook 自身输出（供注入上下文）
 };
 
 // ============================================================
@@ -95,29 +95,29 @@ const char* type_to_string(HookType type) noexcept;
 struct HookDefinition {
     HookEvent event = HookEvent::PreToolUse;
     HookType type = HookType::Command;
-    std::string match;        // if 条件（permission-rule 语法 "Bash(git *)"）
+    std::string match;  // if 条件（permission-rule 语法 "Bash(git *)"）
 
     // command
-    std::string command;      // shell 命令
+    std::string command;  // shell 命令
 
     // http
-    std::string url;                                  // POST URL
-    nlohmann::json headers = nlohmann::json::object();// 自定义请求头
-    std::vector<std::string> allowedEnvVars;          // 允许透传的 env
+    std::string url;                                    // POST URL
+    nlohmann::json headers = nlohmann::json::object();  // 自定义请求头
+    std::vector<std::string> allowedEnvVars;            // 允许透传的 env
 
     // prompt / agent
-    std::string prompt;       // LLM 提示
-    std::string model;        // 指定模型
-    std::string agent;        // agentic verifier
+    std::string prompt;  // LLM 提示
+    std::string model;   // 指定模型
+    std::string agent;   // agentic verifier
 
-    int timeout_ms = 30000;   // 超时（毫秒）
-    bool statusMessage = false; // 显示状态信息
-    bool once = false;        // 只运行一次
-    bool async = false;       // 异步（不阻塞主线程）
-    bool asyncRewake = false; // 异步唤醒重置 once
+    int timeout_ms = 30000;      // 超时（毫秒）
+    bool statusMessage = false;  // 显示状态信息
+    bool once = false;           // 只运行一次
+    bool async = false;          // 异步（不阻塞主线程）
+    bool asyncRewake = false;    // 异步唤醒重置 once
 
     /// @brief 从 JSON 对象解析（字段均可选，缺失用默认值）
     static HookDefinition from_json(const nlohmann::json& obj);
 };
 
-} // namespace agent::hook
+}  // namespace agent::hook

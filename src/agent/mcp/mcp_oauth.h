@@ -24,13 +24,13 @@ namespace agent::mcp {
 
 /// @brief OAuth 2.0 配置（mcp.json 的 server.oauth 段）
 struct McpOAuthConfig {
-    std::string flow;              ///< "client_credentials" | "authorization_code"
+    std::string flow;  ///< "client_credentials" | "authorization_code"
     std::string client_id;
     std::string client_secret;
-    std::string token_endpoint;    ///< token 端点 URL
-    std::string auth_endpoint;     ///< 授权端点 URL（authorization_code 用）
+    std::string token_endpoint;  ///< token 端点 URL
+    std::string auth_endpoint;   ///< 授权端点 URL（authorization_code 用）
     std::vector<std::string> scopes;
-    std::string redirect_uri;      ///< 回调地址（authorization_code；默认回环自动端口）
+    std::string redirect_uri;  ///< 回调地址（authorization_code；默认回环自动端口）
 
     /// 是否有效（client_credentials 需 token_endpoint + client_id）
     bool valid() const {
@@ -43,7 +43,7 @@ struct McpOAuthConfig {
 /// @brief OAuth 2.0 客户端（M4）
 /// @details 线程安全由调用方保证（HttpMcpTransport 单线程使用）。
 class McpOAuthClient {
-public:
+   public:
     /// @brief 配置 OAuth 参数（幂等，可重复配置覆盖）
     ResultV2<void> configure(const McpOAuthConfig& cfg);
 
@@ -66,7 +66,7 @@ public:
 
     bool configured() const { return m_configured; }
 
-private:
+   private:
     ResultV2<void> fetch_token(const std::string& grant_type,
                                const std::map<std::string, std::string>& extra);
     ResultV2<void> refresh();
@@ -99,4 +99,4 @@ struct OAuthCallback {
 /// @details 返回前已向浏览器返回成功页面并关闭连接。
 ResultV2<OAuthCallback> oauth_loopback_listen(int port, int& out_port, int timeout_ms);
 
-} // namespace agent::mcp
+}  // namespace agent::mcp

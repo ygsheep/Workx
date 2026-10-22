@@ -212,17 +212,15 @@ static const ModelCapability s_capabilities[] = {
 bool contains_ci(std::string_view haystack, std::string_view needle) {
     if (needle.empty()) return true;
     if (haystack.size() < needle.size()) return false;
-    auto it = std::search(
-        haystack.begin(), haystack.end(),
-        needle.begin(), needle.end(),
-        [](char a, char b) {
-            return std::tolower(static_cast<unsigned char>(a)) ==
-                   std::tolower(static_cast<unsigned char>(b));
-        });
+    auto it = std::search(haystack.begin(), haystack.end(), needle.begin(), needle.end(),
+                          [](char a, char b) {
+                              return std::tolower(static_cast<unsigned char>(a)) ==
+                                     std::tolower(static_cast<unsigned char>(b));
+                          });
     return it != haystack.end();
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 const ModelCapability* find_model_capability(std::string_view model_name) {
     if (model_name.empty()) return nullptr;
@@ -230,8 +228,7 @@ const ModelCapability* find_model_capability(std::string_view model_name) {
     // 1. 精确匹配（不区分大小写）
     for (const auto& cap : s_capabilities) {
         if (cap.canonical_name.size() == model_name.size() &&
-            std::equal(cap.canonical_name.begin(), cap.canonical_name.end(),
-                       model_name.begin(),
+            std::equal(cap.canonical_name.begin(), cap.canonical_name.end(), model_name.begin(),
                        [](char a, char b) {
                            return std::tolower(static_cast<unsigned char>(a)) ==
                                   std::tolower(static_cast<unsigned char>(b));
@@ -244,8 +241,7 @@ const ModelCapability* find_model_capability(std::string_view model_name) {
     const ModelCapability* best = nullptr;
     size_t best_len = 0;
     for (const auto& cap : s_capabilities) {
-        if (cap.canonical_name.size() > best_len &&
-            contains_ci(model_name, cap.canonical_name)) {
+        if (cap.canonical_name.size() > best_len && contains_ci(model_name, cap.canonical_name)) {
             best = &cap;
             best_len = cap.canonical_name.size();
         }
@@ -271,4 +267,4 @@ int32_t get_max_output_tokens_for_model(std::string_view model_name) {
     return MAX_OUTPUT_TOKENS_DEFAULT;
 }
 
-} // namespace agent
+}  // namespace agent
