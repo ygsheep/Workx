@@ -17,8 +17,6 @@
 
 https://github.com/user-attachments/assets/a9ca09e5-8897-4457-92a4-572c724b0788
 
-**▶ Workx 宣传 CG** ｜ 1 分 42 秒 · 1080p · 含音轨 ｜ [原始文件](docs/img/workx-cg.mp4)
-
 ***
 
 ## 📌 特性
